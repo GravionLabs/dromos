@@ -1,0 +1,19 @@
+{
+  "host": "127.0.0.1",
+  "port": 4777,
+  "dataDir": ".agents",
+  "maxRounds": 3,
+  "inboxMaxWaitSeconds": 45,
+  "blockingSeverities": ["critical", "important"],
+  "gate": {
+    "timeoutSeconds": 900,
+    "commands": [{ "name": "test", "run": "pnpm test" }]
+  },
+  "baseBranch": "main",
+  "roles": {
+    "orchestrator": { "cli": "claude", "model": null },
+    "implementer": { "cli": "claude", "model": null },
+    "reviewer": { "cli": "copilot", "model": null }
+  },
+  "layouts": { "default": "windows" }
+}

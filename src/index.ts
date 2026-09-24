@@ -1,4 +1,14 @@
+import { ConfigError, loadConfig } from './config.js';
 import { startHttp } from './http.js';
 
-const { url } = await startHttp({ host: '127.0.0.1', port: 4777 });
-process.stderr.write(`agent-bus listening on ${url}\n`);
+try {
+  const config = loadConfig();
+  const { url } = await startHttp({ host: config.host, port: config.port });
+  process.stderr.write(`agent-bus listening on ${url}\n`);
+} catch (error) {
+  if (error instanceof ConfigError) {
+    process.stderr.write(`agent-bus: ${error.message}\n`);
+    process.exit(1);
+  }
+  throw error;
+}
