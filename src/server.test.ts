@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { startHttp, type RunningHttp } from './http.js';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { type RunningHttp, startHttp } from './http.js';
 
 describe('agent-bus server', () => {
   let http: RunningHttp;

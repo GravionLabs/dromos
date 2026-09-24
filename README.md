@@ -53,4 +53,4 @@ Planning. See the issues (Epic #1 → Features → PBIs) for the implementation 
 
 ## Tech
 
-TypeScript (strict, ESM), pnpm, Vitest, `@modelcontextprotocol/sdk` (streamable HTTP), Zod, better-sqlite3, execa, commander, gh CLI. Optional: WezTerm CLI.
+TypeScript 7 (strict, ESM), pnpm, Vitest, Biome (lint + format), `@modelcontextprotocol/sdk` (streamable HTTP), Zod, better-sqlite3, execa, commander, gh CLI. Optional: WezTerm CLI.

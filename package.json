@@ -13,8 +13,8 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "lint": "eslint .",
-    "format": "prettier --write .",
+    "lint": "biome check .",
+    "format": "biome check --write .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -23,14 +23,11 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
+    "@biomejs/biome": "2.5.14",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.2",
-    "eslint": "^10.11.0",
-    "prettier": "^3.9.8",
     "tsx": "^4.23.15",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.70.1",
+    "typescript": "^7.0.2",
     "vitest": "^5.0.1"
   }
 }

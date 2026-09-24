@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MIGRATIONS, openDb, type Db, type NewRun } from './db.js';
+import { type Db, MIGRATIONS, type NewRun, openDb } from './db.js';
 
 const newRun = (overrides: Partial<NewRun> = {}): NewRun => ({
   id: 'run-1-1',
