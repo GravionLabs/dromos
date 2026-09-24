@@ -3,11 +3,19 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import type { Config } from './config.js';
+import type { Db } from './db.js';
+import { type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
 
 export interface HttpOptions {
-  host: string;
-  port: number;
+  config: Config;
+  db: Db;
+}
+
+interface Session {
+  transport: StreamableHTTPServerTransport;
+  role: Role;
 }
 
 export interface RunningHttp {
@@ -16,7 +24,7 @@ export interface RunningHttp {
   close(): Promise<void>;
 }
 
-const MCP_PATH = /^\/mcp\/([^/?]+)\/?$/;
+const MCP_PATH = /^\/mcp\/([^/]+)\/?$/;
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -32,12 +40,18 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   return raw.length === 0 ? undefined : (JSON.parse(raw) as unknown);
 }
 
-export async function startHttp({ host, port }: HttpOptions): Promise<RunningHttp> {
-  const transports = new Map<string, StreamableHTTPServerTransport>();
+export async function startHttp({ config, db }: HttpOptions): Promise<RunningHttp> {
+  const { host, port } = config;
+  const sessions = new Map<string, Session>();
 
-  async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  async function handleMcp(req: IncomingMessage, res: ServerResponse, role: Role): Promise<void> {
     const sessionId = req.headers['mcp-session-id'];
-    const existing = typeof sessionId === 'string' ? transports.get(sessionId) : undefined;
+    const session = typeof sessionId === 'string' ? sessions.get(sessionId) : undefined;
+    if (session && session.role !== role) {
+      sendJson(res, 403, { error: `session belongs to role ${session.role}, not ${role}` });
+      return;
+    }
+    const existing = session?.transport;
 
     if (req.method === 'POST') {
       let body: unknown;
@@ -55,15 +69,15 @@ export async function startHttp({ host, port }: HttpOptions): Promise<RunningHtt
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (id) => {
-            transports.set(id, transport);
+            sessions.set(id, { transport, role });
           },
         });
         transport.onclose = () => {
           if (transport.sessionId) {
-            transports.delete(transport.sessionId);
+            sessions.delete(transport.sessionId);
           }
         };
-        await createBusServer().connect(transport);
+        await createBusServer({ role, db, config }).connect(transport);
         await transport.handleRequest(req, res, body);
         return;
       }
@@ -89,8 +103,14 @@ export async function startHttp({ host, port }: HttpOptions): Promise<RunningHtt
       sendJson(res, 200, { ok: true });
       return;
     }
-    if (MCP_PATH.test(path)) {
-      handleMcp(req, res).catch((error: unknown) => {
+    const match = MCP_PATH.exec(path);
+    if (match) {
+      const role = RoleSchema.safeParse(decodeURIComponent(match[1] ?? ''));
+      if (!role.success) {
+        sendJson(res, 404, { error: 'unknown role' });
+        return;
+      }
+      handleMcp(req, res, role.data).catch((error: unknown) => {
         if (!res.headersSent) {
           sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
         }
@@ -114,8 +134,8 @@ export async function startHttp({ host, port }: HttpOptions): Promise<RunningHtt
     server,
     url: `http://${host}:${address.port}`,
     async close() {
-      await Promise.all([...transports.values()].map((t) => t.close()));
-      transports.clear();
+      await Promise.all([...sessions.values()].map((s) => s.transport.close()));
+      sessions.clear();
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
