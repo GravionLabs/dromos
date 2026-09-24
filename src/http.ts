@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { BusEvents } from './bus-events.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
 import { type Role, RoleSchema } from './schemas.js';
@@ -11,6 +12,8 @@ import { createBusServer } from './server.js';
 export interface HttpOptions {
   config: Config;
   db: Db;
+  /** Shared wake-up channel for `inbox`; created when omitted. */
+  events?: BusEvents;
 }
 
 interface Session {
@@ -40,7 +43,11 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   return raw.length === 0 ? undefined : (JSON.parse(raw) as unknown);
 }
 
-export async function startHttp({ config, db }: HttpOptions): Promise<RunningHttp> {
+export async function startHttp({
+  config,
+  db,
+  events = new BusEvents(),
+}: HttpOptions): Promise<RunningHttp> {
   const { host, port } = config;
   const sessions = new Map<string, Session>();
 
@@ -77,7 +84,7 @@ export async function startHttp({ config, db }: HttpOptions): Promise<RunningHtt
             sessions.delete(transport.sessionId);
           }
         };
-        await createBusServer({ role, db, config }).connect(transport);
+        await createBusServer({ role, db, config, events }).connect(transport);
         await transport.handleRequest(req, res, body);
         return;
       }

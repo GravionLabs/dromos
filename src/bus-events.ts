@@ -1,0 +1,29 @@
+import { EventEmitter } from 'node:events';
+import type { Role } from './schemas.js';
+
+/** In-process signal used to wake up `inbox` long-polls when a message arrives. */
+export class BusEvents extends EventEmitter {
+  constructor() {
+    super();
+    // One waiting inbox per connected agent session; several sessions per role are allowed.
+    this.setMaxListeners(0);
+  }
+
+  static channel(role: Role): string {
+    return `message:${role}`;
+  }
+
+  messageFor(role: Role): void {
+    this.emit(BusEvents.channel(role));
+  }
+
+  onMessageFor(role: Role, listener: () => void): () => void {
+    const channel = BusEvents.channel(role);
+    this.on(channel, listener);
+    return () => this.off(channel, listener);
+  }
+
+  listenerCountFor(role: Role): number {
+    return this.listenerCount(BusEvents.channel(role));
+  }
+}

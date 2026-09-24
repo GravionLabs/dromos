@@ -1,3 +1,4 @@
+import type { BusEvents } from './bus-events.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
 import type { Role } from './schemas.js';
@@ -7,4 +8,5 @@ export interface ToolContext {
   role: Role;
   db: Db;
   config: Config;
+  events: BusEvents;
 }

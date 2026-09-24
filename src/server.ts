@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ToolContext } from './context.js';
+import { registerMessagingTools } from './tools/messaging.js';
 
 const text = (value: string) => ({ content: [{ type: 'text' as const, text: value }] });
 
@@ -16,6 +17,8 @@ export function createBusServer(ctx: ToolContext): McpServer {
     },
     () => text(JSON.stringify({ role: ctx.role })),
   );
+
+  registerMessagingTools(server, ctx);
 
   return server;
 }
