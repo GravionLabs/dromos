@@ -3,11 +3,26 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
+import { BusEvents } from './bus-events.js';
+import { type BusLog, createBusLog } from './bus-log.js';
+import type { Config } from './config.js';
+import type { Db } from './db.js';
+import { HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
 
 export interface HttpOptions {
-  host: string;
-  port: number;
+  config: Config;
+  db: Db;
+  /** Shared wake-up channel for `inbox`; created when omitted. */
+  events?: BusEvents;
+  /** Human-readable log; defaults to `<dataDir>/bus.log`. */
+  log?: BusLog;
+}
+
+interface Session {
+  transport: StreamableHTTPServerTransport;
+  role: Role;
 }
 
 export interface RunningHttp {
@@ -16,7 +31,7 @@ export interface RunningHttp {
   close(): Promise<void>;
 }
 
-const MCP_PATH = /^\/mcp\/([^/?]+)\/?$/;
+const MCP_PATH = /^\/mcp\/([^/]+)\/?$/;
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -32,12 +47,23 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   return raw.length === 0 ? undefined : (JSON.parse(raw) as unknown);
 }
 
-export async function startHttp({ host, port }: HttpOptions): Promise<RunningHttp> {
-  const transports = new Map<string, StreamableHTTPServerTransport>();
+export async function startHttp({
+  config,
+  db,
+  events = new BusEvents(),
+  log = createBusLog(config.dataDir),
+}: HttpOptions): Promise<RunningHttp> {
+  const { host, port } = config;
+  const sessions = new Map<string, Session>();
 
-  async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  async function handleMcp(req: IncomingMessage, res: ServerResponse, role: Role): Promise<void> {
     const sessionId = req.headers['mcp-session-id'];
-    const existing = typeof sessionId === 'string' ? transports.get(sessionId) : undefined;
+    const session = typeof sessionId === 'string' ? sessions.get(sessionId) : undefined;
+    if (session && session.role !== role) {
+      sendJson(res, 403, { error: `session belongs to role ${session.role}, not ${role}` });
+      return;
+    }
+    const existing = session?.transport;
 
     if (req.method === 'POST') {
       let body: unknown;
@@ -55,15 +81,15 @@ export async function startHttp({ host, port }: HttpOptions): Promise<RunningHtt
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (id) => {
-            transports.set(id, transport);
+            sessions.set(id, { transport, role });
           },
         });
         transport.onclose = () => {
           if (transport.sessionId) {
-            transports.delete(transport.sessionId);
+            sessions.delete(transport.sessionId);
           }
         };
-        await createBusServer().connect(transport);
+        await createBusServer({ role, db, config, events, log }).connect(transport);
         await transport.handleRequest(req, res, body);
         return;
       }
@@ -83,14 +109,51 @@ export async function startHttp({ host, port }: HttpOptions): Promise<RunningHtt
     sendJson(res, 405, { error: 'method not allowed' });
   }
 
+  async function handleEvent(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.method !== 'POST') {
+      sendJson(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    let body: unknown;
+    try {
+      body = await readJson(req);
+    } catch {
+      sendJson(res, 400, { error: 'invalid JSON body' });
+      return;
+    }
+    const parsed = HookEventSchema.safeParse(body);
+    if (!parsed.success) {
+      sendJson(res, 400, { error: z.prettifyError(parsed.error) });
+      return;
+    }
+    const { role, cli, state, model } = parsed.data;
+    db.insertEvent(role, `hook:${state}`, parsed.data);
+    log.logLine('HOOK', `${role} ${state} (${cli}${model ? `, ${model}` : ''})`);
+    res.writeHead(204).end();
+  }
+
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? '/', 'http://localhost').pathname;
     if (req.method === 'GET' && path === '/health') {
       sendJson(res, 200, { ok: true });
       return;
     }
-    if (MCP_PATH.test(path)) {
-      handleMcp(req, res).catch((error: unknown) => {
+    if (path === '/events') {
+      handleEvent(req, res).catch((error: unknown) => {
+        if (!res.headersSent) {
+          sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
+        }
+      });
+      return;
+    }
+    const match = MCP_PATH.exec(path);
+    if (match) {
+      const role = RoleSchema.safeParse(decodeURIComponent(match[1] ?? ''));
+      if (!role.success) {
+        sendJson(res, 404, { error: 'unknown role' });
+        return;
+      }
+      handleMcp(req, res, role.data).catch((error: unknown) => {
         if (!res.headersSent) {
           sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
         }
@@ -114,8 +177,8 @@ export async function startHttp({ host, port }: HttpOptions): Promise<RunningHtt
     server,
     url: `http://${host}:${address.port}`,
     async close() {
-      await Promise.all([...transports.values()].map((t) => t.close()));
-      transports.clear();
+      await Promise.all([...sessions.values()].map((s) => s.transport.close()));
+      sessions.clear();
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
