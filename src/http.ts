@@ -3,10 +3,12 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
 import { BusEvents } from './bus-events.js';
+import { type BusLog, createBusLog } from './bus-log.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
-import { type Role, RoleSchema } from './schemas.js';
+import { HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
 
 export interface HttpOptions {
@@ -14,6 +16,8 @@ export interface HttpOptions {
   db: Db;
   /** Shared wake-up channel for `inbox`; created when omitted. */
   events?: BusEvents;
+  /** Human-readable log; defaults to `<dataDir>/bus.log`. */
+  log?: BusLog;
 }
 
 interface Session {
@@ -47,6 +51,7 @@ export async function startHttp({
   config,
   db,
   events = new BusEvents(),
+  log = createBusLog(config.dataDir),
 }: HttpOptions): Promise<RunningHttp> {
   const { host, port } = config;
   const sessions = new Map<string, Session>();
@@ -84,7 +89,7 @@ export async function startHttp({
             sessions.delete(transport.sessionId);
           }
         };
-        await createBusServer({ role, db, config, events }).connect(transport);
+        await createBusServer({ role, db, config, events, log }).connect(transport);
         await transport.handleRequest(req, res, body);
         return;
       }
@@ -104,10 +109,41 @@ export async function startHttp({
     sendJson(res, 405, { error: 'method not allowed' });
   }
 
+  async function handleEvent(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.method !== 'POST') {
+      sendJson(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    let body: unknown;
+    try {
+      body = await readJson(req);
+    } catch {
+      sendJson(res, 400, { error: 'invalid JSON body' });
+      return;
+    }
+    const parsed = HookEventSchema.safeParse(body);
+    if (!parsed.success) {
+      sendJson(res, 400, { error: z.prettifyError(parsed.error) });
+      return;
+    }
+    const { role, cli, state, model } = parsed.data;
+    db.insertEvent(role, `hook:${state}`, parsed.data);
+    log.logLine('HOOK', `${role} ${state} (${cli}${model ? `, ${model}` : ''})`);
+    res.writeHead(204).end();
+  }
+
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? '/', 'http://localhost').pathname;
     if (req.method === 'GET' && path === '/health') {
       sendJson(res, 200, { ok: true });
+      return;
+    }
+    if (path === '/events') {
+      handleEvent(req, res).catch((error: unknown) => {
+        if (!res.headersSent) {
+          sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
+        }
+      });
       return;
     }
     const match = MCP_PATH.exec(path);

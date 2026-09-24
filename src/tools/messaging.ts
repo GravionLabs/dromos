@@ -33,6 +33,7 @@ export function registerMessagingTools(server: McpServer, ctx: ToolContext): voi
         runId: runId ?? null,
         payload: payload ?? null,
       });
+      ctx.log.logLine('MESSAGE', `${ctx.role} -> ${to} [${type}]${runId ? ` ${runId}` : ''}`);
       ctx.events.messageFor(to);
       return jsonResult({ id: message.id });
     },

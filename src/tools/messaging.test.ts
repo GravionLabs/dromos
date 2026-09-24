@@ -26,6 +26,31 @@ describe('messaging tools', () => {
       ]);
     });
 
+    it('logs a MESSAGE line with sender, receiver, type and run', async () => {
+      bus.db.insertRun({
+        id: 'run-1-1',
+        repo: 'o/r',
+        repoPath: '/r',
+        issueNumber: 1,
+        issueTitle: 't',
+        baseBranch: 'main',
+        branch: 'b',
+        worktreePath: '/w',
+      });
+      const orchestrator = await bus.connect('orchestrator');
+      await orchestrator.callTool({
+        name: 'post',
+        arguments: { to: 'implementer', type: 'task', runId: 'run-1-1', payload: null },
+      });
+      await orchestrator.callTool({
+        name: 'post',
+        arguments: { to: 'reviewer', type: 'chat', payload: 'x' },
+      });
+      const log = bus.readLog();
+      expect(log).toContain('orchestrator -> implementer [task] run-1-1');
+      expect(log).toMatch(/orchestrator -> reviewer \[chat\]\n$/);
+    });
+
     it('wakes listeners of the addressed role only', async () => {
       const seen: string[] = [];
       bus.events.onMessageFor('orchestrator', () => seen.push('orchestrator'));
