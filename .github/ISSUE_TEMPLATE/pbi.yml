@@ -1,0 +1,23 @@
+name: PBI
+description: Product backlog item — a scoped, demoable slice of a Feature.
+title: "[PBI] "
+labels: ["pbi"]
+body:
+  - type: input
+    id: feature
+    attributes:
+      label: Parent Feature
+      description: "#<issue number>"
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        Add Task children via GitHub's native **sub-issues** panel on this issue (not a manual checklist) — it keeps progress and completion % in sync automatically.
+        Set this issue's **Parent** to the Feature above using the same panel, so the hierarchy is linked both ways.

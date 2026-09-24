@@ -1,0 +1,20 @@
+name: Task
+description: A concrete, implementable unit of work under a PBI (or a Bug).
+title: "[Task] "
+labels: ["task"]
+body:
+  - type: input
+    id: parent
+    attributes:
+      label: Parent PBI or Bug
+      description: "#<issue number>"
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Implementation notes
+  - type: markdown
+    attributes:
+      value: |
+        Set this issue's **Parent** to the PBI or Bug above via GitHub's native sub-issues panel, so the hierarchy is linked both ways.

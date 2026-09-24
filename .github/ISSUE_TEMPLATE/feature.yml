@@ -1,0 +1,23 @@
+name: Feature
+description: A user-facing or system capability, part of an Epic.
+title: "[Feature] "
+labels: ["feature"]
+body:
+  - type: input
+    id: epic
+    attributes:
+      label: Parent Epic
+      description: "#<issue number>"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        Add PBI children via GitHub's native **sub-issues** panel on this issue (not a manual checklist) — it keeps progress and completion % in sync automatically.
+        Set this issue's **Parent** to the Epic above using the same panel, so the hierarchy is linked both ways.
