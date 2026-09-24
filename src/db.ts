@@ -1,0 +1,321 @@
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import Database from 'better-sqlite3';
+import type { GateResult, Message, MessageType, Review, Role, RunState } from './schemas.js';
+
+/** Applied in order; the index + 1 is the schema version stored in `PRAGMA user_version`. */
+export const MIGRATIONS: readonly string[] = [
+  `
+  CREATE TABLE runs (
+    id TEXT PRIMARY KEY,
+    repo TEXT NOT NULL,
+    repo_path TEXT NOT NULL,
+    issue_number INTEGER NOT NULL,
+    issue_title TEXT NOT NULL,
+    base_branch TEXT NOT NULL,
+    branch TEXT NOT NULL,
+    worktree_path TEXT NOT NULL,
+    state TEXT NOT NULL,
+    round INTEGER NOT NULL DEFAULT 1,
+    last_gate_json TEXT,
+    last_review_json TEXT,
+    pr_url TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE TABLE messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_role TEXT NOT NULL,
+    to_role TEXT NOT NULL,
+    type TEXT NOT NULL,
+    run_id TEXT REFERENCES runs(id),
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    acked_at TEXT
+  );
+  CREATE INDEX idx_messages_inbox ON messages(to_role, acked_at);
+  CREATE TABLE events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    role TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    data_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  `,
+];
+
+export interface Run {
+  id: string;
+  repo: string;
+  repoPath: string;
+  issueNumber: number;
+  issueTitle: string;
+  baseBranch: string;
+  branch: string;
+  worktreePath: string;
+  state: RunState;
+  round: number;
+  lastGate: GateResult | null;
+  lastReview: Review | null;
+  prUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type NewRun = Pick<
+  Run,
+  | 'id'
+  | 'repo'
+  | 'repoPath'
+  | 'issueNumber'
+  | 'issueTitle'
+  | 'baseBranch'
+  | 'branch'
+  | 'worktreePath'
+> &
+  Partial<Pick<Run, 'state' | 'round'>>;
+
+export type RunPatch = Partial<Pick<Run, 'state' | 'round' | 'lastGate' | 'lastReview' | 'prUrl'>>;
+
+export interface NewMessage {
+  from: Role;
+  to: Role;
+  type: MessageType;
+  runId?: string | null;
+  payload: unknown;
+}
+
+export interface BusEvent {
+  id: number;
+  role: string;
+  kind: string;
+  data: unknown;
+  createdAt: string;
+}
+
+interface RunRow {
+  id: string;
+  repo: string;
+  repo_path: string;
+  issue_number: number;
+  issue_title: string;
+  base_branch: string;
+  branch: string;
+  worktree_path: string;
+  state: RunState;
+  round: number;
+  last_gate_json: string | null;
+  last_review_json: string | null;
+  pr_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface MessageRow {
+  id: number;
+  from_role: Role;
+  to_role: Role;
+  type: MessageType;
+  run_id: string | null;
+  payload_json: string;
+  created_at: string;
+  acked_at: string | null;
+}
+
+interface EventRow {
+  id: number;
+  role: string;
+  kind: string;
+  data_json: string;
+  created_at: string;
+}
+
+const now = (): string => new Date().toISOString();
+
+function toRun(row: RunRow): Run {
+  return {
+    id: row.id,
+    repo: row.repo,
+    repoPath: row.repo_path,
+    issueNumber: row.issue_number,
+    issueTitle: row.issue_title,
+    baseBranch: row.base_branch,
+    branch: row.branch,
+    worktreePath: row.worktree_path,
+    state: row.state,
+    round: row.round,
+    lastGate: row.last_gate_json ? (JSON.parse(row.last_gate_json) as GateResult) : null,
+    lastReview: row.last_review_json ? (JSON.parse(row.last_review_json) as Review) : null,
+    prUrl: row.pr_url,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function toMessage(row: MessageRow): Message {
+  return {
+    id: row.id,
+    from: row.from_role,
+    to: row.to_role,
+    type: row.type,
+    runId: row.run_id,
+    payload: JSON.parse(row.payload_json) as unknown,
+    createdAt: row.created_at,
+    ackedAt: row.acked_at,
+  };
+}
+
+export interface Db {
+  insertMessage(message: NewMessage): Message;
+  listUnacked(role: Role, limit?: number): Message[];
+  /** Returns false when the message does not exist, is already acked, or belongs to another role. */
+  ackMessage(id: number, role: Role): boolean;
+  insertRun(run: NewRun): Run;
+  getRun(id: string): Run | undefined;
+  listRuns(): Run[];
+  updateRun(id: string, patch: RunPatch): Run | undefined;
+  insertEvent(role: string, kind: string, data: unknown): BusEvent;
+  listEvents(role?: string, limit?: number): BusEvent[];
+  schemaVersion(): number;
+  close(): void;
+}
+
+function migrate(db: Database.Database): void {
+  const current = db.pragma('user_version', { simple: true }) as number;
+  for (let version = current; version < MIGRATIONS.length; version++) {
+    const sql = MIGRATIONS[version] as string;
+    db.transaction(() => {
+      db.exec(sql);
+      db.pragma(`user_version = ${version + 1}`);
+    })();
+  }
+}
+
+/** Opens (and migrates) the bus database. `file` is a path or `':memory:'`. */
+export function openDb(file: string): Db {
+  if (file !== ':memory:') {
+    mkdirSync(dirname(file), { recursive: true });
+  }
+  const db = new Database(file);
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  migrate(db);
+
+  const insertMessage = db.prepare(
+    `INSERT INTO messages (from_role, to_role, type, run_id, payload_json, created_at)
+     VALUES (@from, @to, @type, @runId, @payload, @createdAt)`,
+  );
+  const getMessage = db.prepare<[number | bigint], MessageRow>(
+    'SELECT * FROM messages WHERE id = ?',
+  );
+  const listUnacked = db.prepare<[Role, number], MessageRow>(
+    `SELECT * FROM messages WHERE to_role = ? AND acked_at IS NULL ORDER BY id LIMIT ?`,
+  );
+  const ackMessage = db.prepare(
+    `UPDATE messages SET acked_at = ? WHERE id = ? AND to_role = ? AND acked_at IS NULL`,
+  );
+  const insertRun = db.prepare(
+    `INSERT INTO runs (id, repo, repo_path, issue_number, issue_title, base_branch, branch,
+       worktree_path, state, round, created_at, updated_at)
+     VALUES (@id, @repo, @repoPath, @issueNumber, @issueTitle, @baseBranch, @branch,
+       @worktreePath, @state, @round, @createdAt, @createdAt)`,
+  );
+  const getRun = db.prepare<[string], RunRow>('SELECT * FROM runs WHERE id = ?');
+  const listRuns = db.prepare<[], RunRow>(
+    'SELECT * FROM runs ORDER BY created_at DESC, rowid DESC',
+  );
+  const insertEvent = db.prepare(
+    'INSERT INTO events (role, kind, data_json, created_at) VALUES (?, ?, ?, ?)',
+  );
+  const getEvent = db.prepare<[number | bigint], EventRow>('SELECT * FROM events WHERE id = ?');
+  const listEvents = db.prepare<[string | null, string | null, number], EventRow>(
+    `SELECT * FROM events WHERE (? IS NULL OR role = ?) ORDER BY id DESC LIMIT ?`,
+  );
+
+  const toEvent = (row: EventRow): BusEvent => ({
+    id: row.id,
+    role: row.role,
+    kind: row.kind,
+    data: JSON.parse(row.data_json) as unknown,
+    createdAt: row.created_at,
+  });
+
+  return {
+    insertMessage(message) {
+      const info = insertMessage.run({
+        from: message.from,
+        to: message.to,
+        type: message.type,
+        runId: message.runId ?? null,
+        payload: JSON.stringify(message.payload ?? null),
+        createdAt: now(),
+      });
+      return toMessage(getMessage.get(info.lastInsertRowid) as MessageRow);
+    },
+    listUnacked(role, limit = 20) {
+      return listUnacked.all(role, limit).map(toMessage);
+    },
+    ackMessage(id, role) {
+      return ackMessage.run(now(), id, role).changes > 0;
+    },
+    insertRun(run) {
+      insertRun.run({
+        ...run,
+        state: run.state ?? 'implementing',
+        round: run.round ?? 1,
+        createdAt: now(),
+      });
+      return toRun(getRun.get(run.id) as RunRow);
+    },
+    getRun(id) {
+      const row = getRun.get(id);
+      return row ? toRun(row) : undefined;
+    },
+    listRuns() {
+      return listRuns.all().map(toRun);
+    },
+    updateRun(id, patch) {
+      const columns: string[] = [];
+      const values: Record<string, unknown> = { id, updatedAt: now() };
+      if (patch.state !== undefined) {
+        columns.push('state = @state');
+        values.state = patch.state;
+      }
+      if (patch.round !== undefined) {
+        columns.push('round = @round');
+        values.round = patch.round;
+      }
+      if (patch.lastGate !== undefined) {
+        columns.push('last_gate_json = @lastGate');
+        values.lastGate = patch.lastGate === null ? null : JSON.stringify(patch.lastGate);
+      }
+      if (patch.lastReview !== undefined) {
+        columns.push('last_review_json = @lastReview');
+        values.lastReview = patch.lastReview === null ? null : JSON.stringify(patch.lastReview);
+      }
+      if (patch.prUrl !== undefined) {
+        columns.push('pr_url = @prUrl');
+        values.prUrl = patch.prUrl;
+      }
+      columns.push('updated_at = @updatedAt');
+      const info = db.prepare(`UPDATE runs SET ${columns.join(', ')} WHERE id = @id`).run(values);
+      if (info.changes === 0) {
+        return undefined;
+      }
+      return toRun(getRun.get(id) as RunRow);
+    },
+    insertEvent(role, kind, data) {
+      const info = insertEvent.run(role, kind, JSON.stringify(data ?? null), now());
+      return toEvent(getEvent.get(info.lastInsertRowid) as EventRow);
+    },
+    listEvents(role, limit = 50) {
+      return listEvents.all(role ?? null, role ?? null, limit).map(toEvent);
+    },
+    schemaVersion() {
+      return db.pragma('user_version', { simple: true }) as number;
+    },
+    close() {
+      db.close();
+    },
+  };
+}
