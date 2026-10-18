@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { execa } from 'execa';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createWorktree, slugify } from './worktree.js';
+import { createWorktree, isSafeBranchName, slugify } from './worktree.js';
 
 vi.mock('execa');
 vi.mock('node:fs', () => ({ existsSync: vi.fn() }));
@@ -30,6 +30,18 @@ describe('slugify', () => {
     expect(slugify('x'.repeat(60))).toBe('x'.repeat(40));
     expect(slugify(`${'a'.repeat(38)} bbbb`)).toBe(`${'a'.repeat(38)}-b`);
   });
+});
+
+describe('isSafeBranchName', () => {
+  it.each(['main', 'release/1.2', 'feature_x', 'agent/14-x'])('accepts %j', (n) => {
+    expect(isSafeBranchName(n)).toBe(true);
+  });
+  it.each(['topic.lock', 'dir/', '-x', '--upload-pack=x', 'a..b', 'a b', 'a\nb', 'a\tb', ''])(
+    'rejects %j',
+    (n) => {
+      expect(isSafeBranchName(n)).toBe(false);
+    },
+  );
 });
 
 describe('createWorktree', () => {

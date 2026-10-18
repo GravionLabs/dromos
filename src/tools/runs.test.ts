@@ -9,6 +9,11 @@ vi.mock('execa');
 const mockExeca = vi.mocked(execa) as unknown as ReturnType<typeof vi.fn>;
 
 describe('start_run', () => {
+  // Mimics git: any path inside repoPath resolves to the repo root.
+  const toplevelOf = (a: string[]): string => {
+    const p = a[a.indexOf('-C') + 1] ?? '';
+    return p === repoPath || p.startsWith(`${repoPath}/`) ? repoPath : p;
+  };
   let bus: TestBus;
   let root: string;
   let repoPath: string;
@@ -18,7 +23,7 @@ describe('start_run', () => {
     repoPath = join(root, 'repo');
     mockExeca.mockReset();
     mockExeca.mockImplementation(async (cmd: string, args: string[]) => {
-      if (args.includes('--show-toplevel')) return { stdout: repoPath };
+      if (args.includes('--show-toplevel')) return { stdout: `${toplevelOf(args)}\n` };
       if (cmd === 'gh' && args[0] === 'repo') return { stdout: 'o/r\n' };
       if (cmd === 'gh' && args[0] === 'issue') {
         return {
@@ -162,7 +167,7 @@ describe('start_run', () => {
     expect(destructive()).toEqual([]);
   });
 
-  it('rejects a duplicate active run before any git call', async () => {
+  it('rejects a duplicate active run before any gh or worktree call', async () => {
     const orchestrator = await bus.connect('orchestrator');
     await orchestrator.callTool({ name: 'start_run', arguments: args() });
     mockExeca.mockClear();
@@ -170,7 +175,8 @@ describe('start_run', () => {
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain('already has an active run');
     expect(textOf(result)).toContain('run-14-1');
-    expect(mockExeca).not.toHaveBeenCalled();
+    expect(mockExeca.mock.calls.filter(([cmd]) => cmd === 'gh')).toEqual([]);
+    expect(mockExeca.mock.calls.some(([, a]) => (a as string[]).includes('worktree'))).toBe(false);
     expect(bus.db.listRuns()).toHaveLength(1);
   });
 
@@ -265,7 +271,7 @@ describe('start_run', () => {
 
   it('reports a branch that already exists', async () => {
     mockExeca.mockImplementation(async (cmd: string, a: string[]) => {
-      if (a.includes('--show-toplevel')) return { stdout: repoPath };
+      if (a.includes('--show-toplevel')) return { stdout: `${toplevelOf(a)}\n` };
       if (cmd === 'gh' && a[0] === 'repo') return { stdout: 'o/r' };
       if (cmd === 'gh') {
         return { stdout: JSON.stringify({ number: 14, title: 'Add Start Run!', body: '' }) };
@@ -283,7 +289,7 @@ describe('start_run', () => {
 
   it('leaves no run or message when viewIssue fails', async () => {
     mockExeca.mockImplementation(async (cmd: string, a: string[]) => {
-      if (a.includes('--show-toplevel')) return { stdout: repoPath };
+      if (a.includes('--show-toplevel')) return { stdout: `${toplevelOf(a)}\n` };
       if (cmd === 'gh' && a[0] === 'repo') return { stdout: 'o/r' };
       if (cmd === 'gh') return { stdout: 'garbage' };
       return { stdout: '' };
@@ -296,7 +302,7 @@ describe('start_run', () => {
     expect(bus.db.listUnacked('implementer')).toEqual([]);
   });
 
-  it('leaves no run or message and names manual cleanup when worktree add fails', async () => {
+  it('leaves no run or message when worktree add fails', async () => {
     const base = mockExeca.getMockImplementation() as (c: string, a: string[]) => Promise<unknown>;
     mockExeca.mockImplementation(async (cmd: string, a: string[]) => {
       if (a.includes('worktree')) throw new Error('fatal: add failed');
@@ -306,6 +312,7 @@ describe('start_run', () => {
     const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain('add failed');
+    expect(textOf(result)).not.toContain('clean them up manually');
     expect(bus.db.listRuns()).toEqual([]);
     expect(bus.db.listUnacked('implementer')).toEqual([]);
     expect(destructive()).toEqual([]);
@@ -337,5 +344,75 @@ describe('start_run', () => {
     const orchestrator = await bus.connect('orchestrator');
     const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
     expect(JSON.parse(textOf(result)).branch).toBe('agent/14');
+  });
+
+  it('uses the git toplevel for a subdirectory repoPath and dedupes against the root', async () => {
+    const orchestrator = await bus.connect('orchestrator');
+    const result = await orchestrator.callTool({
+      name: 'start_run',
+      arguments: { repoPath: join(repoPath, 'src', 'deep'), issue: 14 },
+    });
+    expect(JSON.parse(textOf(result)).worktreePath).toBe(join(root, 'wt-repo-14'));
+    expect(bus.db.getRun('run-14-1')?.repoPath).toBe(repoPath);
+    const dup = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+    expect(dup.isError).toBe(true);
+    expect(textOf(dup)).toContain('already has an active run');
+  });
+
+  it('normalizes a trailing slash in repoPath', async () => {
+    const orchestrator = await bus.connect('orchestrator');
+    const result = await orchestrator.callTool({
+      name: 'start_run',
+      arguments: { repoPath: `${repoPath}/`, issue: 14 },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(bus.db.getRun('run-14-1')?.repoPath).toBe(repoPath);
+  });
+
+  it('releases the in-flight guard after a failed start so a retry succeeds', async () => {
+    const base = mockExeca.getMockImplementation() as (c: string, a: string[]) => Promise<unknown>;
+    mockExeca.mockImplementationOnce(base).mockImplementationOnce(async () => {
+      throw new Error('gh down');
+    });
+    const orchestrator = await bus.connect('orchestrator');
+    const first = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+    expect(first.isError).toBe(true);
+    const retry = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+    expect(retry.isError).toBeFalsy();
+  });
+
+  it('mentions the in-progress start for a concurrent duplicate', async () => {
+    const base = mockExeca.getMockImplementation() as (c: string, a: string[]) => Promise<unknown>;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    mockExeca.mockImplementation(async (cmd: string, a: string[]) => {
+      if (cmd === 'gh' && a[0] === 'issue') await gate;
+      return base(cmd, a);
+    });
+    const orchestrator = await bus.connect('orchestrator');
+    const first = orchestrator.callTool({ name: 'start_run', arguments: args() });
+    await vi.waitFor(() =>
+      expect(
+        mockExeca.mock.calls.some(([c, a]) => c === 'gh' && (a as string[])[0] === 'issue'),
+      ).toBe(true),
+    );
+    const second = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+    release();
+    expect(second.isError).toBe(true);
+    expect(textOf(second)).toContain('start in progress');
+    expect((await first).isError).toBeFalsy();
+  });
+
+  it('still succeeds when logging fails after the run is committed', async () => {
+    bus.events.onMessageFor('implementer', () => {
+      throw new Error('listener boom');
+    });
+    const orchestrator = await bus.connect('orchestrator');
+    const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).not.toContain('clean them up');
+    expect(bus.db.listRuns()).toHaveLength(1);
   });
 });

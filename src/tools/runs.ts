@@ -37,12 +37,24 @@ export function registerRunTools(server: McpServer, ctx: ToolContext): void {
     },
     async ({ repoPath: rawPath, issue, baseBranch }) => {
       requireRole('start_run', ctx.role, 'orchestrator');
-      const repoPath = resolve(rawPath);
       const base = baseBranch ?? ctx.config.baseBranch;
-      const key = `${repoPath}#${issue}`;
       if (!isSafeBranchName(base)) {
         return errorResult(`invalid base branch name: ${base}`);
       }
+      let repoPath: string;
+      try {
+        const { stdout } = await execa('git', [
+          '-C',
+          resolve(rawPath),
+          'rev-parse',
+          '--show-toplevel',
+        ]);
+        repoPath = String(stdout).trim();
+        if (!repoPath) throw new Error('empty toplevel');
+      } catch {
+        return errorResult(`not a git repository: ${resolve(rawPath)}`);
+      }
+      const key = `${repoPath}#${issue}`;
       const existing = ctx.db
         .listRuns()
         .find((r) => r.repoPath === repoPath && r.issueNumber === issue && !isTerminal(r.state));
@@ -54,10 +66,8 @@ export function registerRunTools(server: McpServer, ctx: ToolContext): void {
       }
       inFlight.add(key);
       let created: { branch: string; worktreePath: string } | undefined;
+      let started: { runId: string; branch: string; worktreePath: string } | undefined;
       try {
-        await execa('git', ['-C', repoPath, 'rev-parse', '--show-toplevel']).catch(() => {
-          throw new Error(`not a git repository: ${repoPath}`);
-        });
         const repo = await repoFromPath(repoPath);
         const info = await viewIssue(repo, issue);
         const slug = slugify(info.title);
@@ -97,10 +107,7 @@ export function registerRunTools(server: McpServer, ctx: ToolContext): void {
           });
           return id;
         });
-        ctx.log.logLine('STATE', `${runId} started: implementing (round 1) on ${branch}`);
-        ctx.log.logLine('MESSAGE', `orchestrator -> implementer [task] ${runId}`);
-        ctx.events.messageFor('implementer');
-        return jsonResult({ runId, branch, worktreePath });
+        started = { runId, branch, worktreePath };
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
         const cleanup = created
@@ -111,6 +118,19 @@ export function registerRunTools(server: McpServer, ctx: ToolContext): void {
       } finally {
         inFlight.delete(key);
       }
+      if (!started) return errorResult('start_run failed: run was not created');
+      // The run is committed; notification problems must not turn it into a failure.
+      try {
+        ctx.log.logLine(
+          'STATE',
+          `${started.runId} started: implementing (round 1) on ${started.branch}`,
+        );
+        ctx.log.logLine('MESSAGE', `orchestrator -> implementer [task] ${started.runId}`);
+        ctx.events.messageFor('implementer');
+      } catch {
+        // best effort
+      }
+      return jsonResult(started);
     },
   );
 }
