@@ -187,6 +187,27 @@ describe('db', () => {
     });
   });
 
+  describe('transaction', () => {
+    it('returns the value and persists rows on success', () => {
+      const value = db.transaction(() => {
+        db.insertRun(newRun({ id: 't-1' }));
+        return 42;
+      });
+      expect(value).toBe(42);
+      expect(db.getRun('t-1')).toBeDefined();
+    });
+
+    it('rolls back every write when fn throws', () => {
+      expect(() =>
+        db.transaction(() => {
+          db.insertRun(newRun({ id: 't-2' }));
+          throw new Error('boom');
+        }),
+      ).toThrow('boom');
+      expect(db.getRun('t-2')).toBeUndefined();
+    });
+  });
+
   describe('events', () => {
     it('inserts and lists events, newest first, optionally per role', () => {
       db.insertEvent('implementer', 'hook:idle', { cli: 'claude' });
