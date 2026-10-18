@@ -13,7 +13,6 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "coverage": "vitest run --coverage",
     "lint": "biome check .",
     "format": "biome check --write .",
     "typecheck": "tsc --noEmit"

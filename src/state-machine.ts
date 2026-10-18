@@ -21,6 +21,9 @@ export class InvalidTransitionError extends Error {
 }
 
 function retry(run: RunPosition, maxRounds: number): RunPosition {
+  if (!Number.isInteger(maxRounds) || maxRounds < 1) {
+    throw new RangeError(`maxRounds must be a positive integer, got ${maxRounds}`);
+  }
   const round = run.round + 1;
   return { state: round > maxRounds ? 'blocked' : 'implementing', round };
 }

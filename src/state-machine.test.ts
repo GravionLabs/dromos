@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { Review, RunState } from './schemas.js';
+import type { Review, RunState, Severity } from './schemas.js';
 import { InvalidTransitionError, isBlocking, type RunEvent, transition } from './state-machine.js';
+
+type EventType = RunEvent['type'];
 
 const STATES: RunState[] = [
   'implementing',
@@ -10,7 +12,7 @@ const STATES: RunState[] = [
   'pr_opened',
   'blocked',
 ];
-const EVENTS: RunEvent['type'][] = [
+const EVENTS: EventType[] = [
   'implementation_submitted',
   'gate_passed',
   'gate_failed',
@@ -19,97 +21,119 @@ const EVENTS: RunEvent['type'][] = [
   'pr_opened',
 ];
 
-describe('transition table', () => {
-  const rows: [RunState, RunEvent['type'], RunState][] = [
-    ['implementing', 'implementation_submitted', 'gating'],
-    ['gating', 'gate_passed', 'reviewing'],
-    ['gating', 'gate_failed', 'implementing'],
-    ['reviewing', 'review_approved', 'approved'],
-    ['reviewing', 'review_changes', 'implementing'],
-    ['approved', 'pr_opened', 'pr_opened'],
-  ];
-  const roundDelta: Record<string, number> = { gate_failed: 1, review_changes: 1 };
+const ev = (type: EventType): RunEvent => ({ type }) as RunEvent;
 
-  it.each(rows)('%s + %s -> %s', (state, type, expected) => {
-    const next = transition({ state, round: 1 }, { type } as RunEvent, 3);
-    expect(next).toEqual({ state: expected, round: 1 + (roundDelta[type] ?? 0) });
+// [from, event, expected state, expected round when starting at round 1]
+const ROWS: [RunState, EventType, RunState, number][] = [
+  ['implementing', 'implementation_submitted', 'gating', 1],
+  ['gating', 'gate_passed', 'reviewing', 1],
+  ['gating', 'gate_failed', 'implementing', 2],
+  ['reviewing', 'review_approved', 'approved', 1],
+  ['reviewing', 'review_changes', 'implementing', 2],
+  ['approved', 'pr_opened', 'pr_opened', 1],
+];
+
+const VALID = new Set(ROWS.map(([s, e]) => `${s}:${e}`));
+const INVALID: [RunState, EventType][] = STATES.flatMap((s) =>
+  EVENTS.filter((e) => !VALID.has(`${s}:${e}`)).map((e): [RunState, EventType] => [s, e]),
+);
+
+describe('transition table', () => {
+  it.each(ROWS)('%s + %s -> %s (round %i from round 1)', (state, type, expected, round) => {
+    expect(transition({ state, round: 1 }, ev(type), 3)).toEqual({ state: expected, round });
   });
 
-  it('rejects every combination not in the table', () => {
-    const valid = new Set(rows.map(([s, e]) => `${s}:${e}`));
-    let checked = 0;
-    for (const state of STATES) {
-      for (const type of EVENTS) {
-        if (valid.has(`${state}:${type}`)) continue;
-        checked++;
-        const call = () => transition({ state, round: 1 }, { type } as RunEvent, 3);
-        expect(call).toThrow(InvalidTransitionError);
-        expect(call).toThrow(`'${type}'`);
-        expect(call).toThrow(`'${state}'`);
-      }
-    }
-    expect(checked).toBe(30);
+  it.each(INVALID)('rejects %s + %s', (state, type) => {
+    const call = () => transition({ state, round: 1 }, ev(type), 3);
+    expect(call).toThrow(InvalidTransitionError);
+    expect(call).toThrow(`'${type}'`);
+    expect(call).toThrow(`'${state}'`);
+  });
+
+  it('covers every state x event pair exactly once', () => {
+    expect(INVALID.length + ROWS.length).toBe(STATES.length * EVENTS.length);
   });
 
   it('exposes state and event on the error', () => {
     try {
-      transition({ state: 'blocked', round: 4 }, { type: 'gate_passed' }, 3);
+      transition({ state: 'blocked', round: 4 }, ev('gate_passed'), 3);
       expect.unreachable();
     } catch (error) {
       expect(error).toBeInstanceOf(InvalidTransitionError);
-      expect(error).toMatchObject({ name: 'InvalidTransitionError', state: 'blocked' });
-      expect((error as InvalidTransitionError).event).toBe('gate_passed');
+      expect(error).toMatchObject({
+        name: 'InvalidTransitionError',
+        state: 'blocked',
+        event: 'gate_passed',
+      });
     }
+  });
+
+  it('does not mutate the input and returns a new object', () => {
+    const run = { state: 'implementing' as RunState, round: 2 };
+    const next = transition(run, ev('implementation_submitted'), 3);
+    expect(run).toEqual({ state: 'implementing', round: 2 });
+    expect(next).not.toBe(run);
   });
 });
 
-describe('round limit (maxRounds = 3)', () => {
-  it.each(['gate_failed', 'review_changes'] as const)('%s at round 2 loops to round 3', (type) => {
-    const state: RunState = type === 'gate_failed' ? 'gating' : 'reviewing';
-    expect(transition({ state, round: 2 }, { type }, 3)).toEqual({
+describe('round limit', () => {
+  const FAILURES: [EventType, RunState][] = [
+    ['gate_failed', 'gating'],
+    ['review_changes', 'reviewing'],
+  ];
+
+  it.each(FAILURES)('%s at round 2 (max 3) loops to round 3', (type, state) => {
+    expect(transition({ state, round: 2 }, ev(type), 3)).toEqual({
       state: 'implementing',
       round: 3,
     });
   });
 
-  it.each(['gate_failed', 'review_changes'] as const)('%s at round 3 blocks', (type) => {
-    const state: RunState = type === 'gate_failed' ? 'gating' : 'reviewing';
-    expect(transition({ state, round: 3 }, { type }, 3)).toEqual({ state: 'blocked', round: 4 });
+  it.each(FAILURES)('%s at round 3 (max 3) blocks', (type, state) => {
+    expect(transition({ state, round: 3 }, ev(type), 3)).toEqual({ state: 'blocked', round: 4 });
   });
 
-  it('blocks on the first failure when maxRounds is 1', () => {
-    expect(transition({ state: 'gating', round: 1 }, { type: 'gate_failed' }, 1).state).toBe(
-      'blocked',
+  it.each(FAILURES)('%s at round 1 (max 1) blocks', (type, state) => {
+    expect(transition({ state, round: 1 }, ev(type), 1)).toEqual({ state: 'blocked', round: 2 });
+  });
+
+  it.each([0, -1, 1.5, Number.NaN])('rejects invalid maxRounds %s', (maxRounds) => {
+    expect(() => transition({ state: 'gating', round: 1 }, ev('gate_failed'), maxRounds)).toThrow(
+      /maxRounds/,
     );
   });
 });
 
 describe('isBlocking', () => {
-  const review = (
-    verdict: Review['verdict'],
-    severities: Review['findings'][number]['severity'][],
-  ) =>
-    ({
-      verdict,
-      summary: 's',
-      findings: severities.map((severity) => ({ severity, file: 'a.ts', summary: 'x' })),
-    }) satisfies Review;
-  const blocking = ['critical', 'important'] as const;
+  const review = (verdict: Review['verdict'], severities: Severity[]): Review => ({
+    verdict,
+    summary: 's',
+    findings: severities.map((severity) => ({ severity, file: 'a.ts', summary: 'x' })),
+  });
+  const blocking: Severity[] = ['critical', 'important'];
 
   it('is true for a changes verdict without findings', () => {
-    expect(isBlocking(review('changes', []), [...blocking])).toBe(true);
+    expect(isBlocking(review('changes', []), blocking)).toBe(true);
+  });
+
+  it('is true for a changes verdict even with no blocking severities configured', () => {
+    expect(isBlocking(review('changes', []), [])).toBe(true);
   });
 
   it('is false for approve without findings', () => {
-    expect(isBlocking(review('approve', []), [...blocking])).toBe(false);
+    expect(isBlocking(review('approve', []), blocking)).toBe(false);
   });
 
   it('is true for approve with a critical finding', () => {
-    expect(isBlocking(review('approve', ['critical']), [...blocking])).toBe(true);
+    expect(isBlocking(review('approve', ['critical']), blocking)).toBe(true);
+  });
+
+  it('is true for approve with mixed suggestion and critical findings', () => {
+    expect(isBlocking(review('approve', ['suggestion', 'critical']), blocking)).toBe(true);
   });
 
   it('is false for approve with only suggestions', () => {
-    expect(isBlocking(review('approve', ['suggestion']), [...blocking])).toBe(false);
+    expect(isBlocking(review('approve', ['suggestion']), blocking)).toBe(false);
   });
 
   it('respects a custom blocking severity list', () => {
