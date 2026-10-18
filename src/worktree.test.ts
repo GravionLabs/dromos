@@ -27,11 +27,23 @@ describe('slugify', () => {
   it('truncates to 40 chars without a trailing dash', () => {
     const slug = slugify(`${'a'.repeat(39)} bbbbbb`);
     expect(slug).toBe('a'.repeat(39));
-    expect(slugify('x'.repeat(60))).toHaveLength(40);
+    expect(slugify('x'.repeat(60))).toBe('x'.repeat(40));
+    expect(slugify(`${'a'.repeat(38)} bbbb`)).toBe(`${'a'.repeat(38)}-b`);
   });
 });
 
 describe('createWorktree', () => {
+  it.each(['--upload-pack=touch /tmp/x', '-x', 'a..b', 'a b', 'main\nx', ''])(
+    'rejects unsafe base branch %j without running git',
+    async (base) => {
+      mockExists.mockReturnValue(false);
+      await expect(createWorktree('/repo', base, 'b', '/wt/x')).rejects.toThrow(
+        'invalid base branch name',
+      );
+      expect(mockExeca).not.toHaveBeenCalled();
+    },
+  );
+
   it('fetches then adds the worktree with exact args', async () => {
     mockExists.mockReturnValue(false);
     mockExeca.mockResolvedValueOnce({ exitCode: 1 }).mockResolvedValue({ exitCode: 0 });
@@ -42,8 +54,8 @@ describe('createWorktree', () => {
         ['-C', '/repo', 'rev-parse', '--verify', '--quiet', 'refs/heads/agent/14-x'],
         { reject: false },
       ],
-      ['git', ['-C', '/repo', 'fetch', 'origin', 'main']],
-      ['git', ['-C', '/repo', 'worktree', 'add', '-b', 'agent/14-x', '/wt/x', 'origin/main']],
+      ['git', ['-C', '/repo', 'fetch', '--', 'origin', 'main']],
+      ['git', ['-C', '/repo', 'worktree', 'add', '-b', 'agent/14-x', '--', '/wt/x', 'origin/main']],
     ]);
   });
 

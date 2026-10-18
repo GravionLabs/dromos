@@ -8,6 +8,13 @@ export type RunEvent =
   | { type: 'review_changes' }
   | { type: 'pr_opened' };
 
+/** States without outgoing transitions in `transition`: the run is finished or needs a human. */
+export const TERMINAL_STATES: readonly RunState[] = ['pr_opened', 'blocked'];
+
+export function isTerminal(state: RunState): boolean {
+  return TERMINAL_STATES.includes(state);
+}
+
 export type RunPosition = { state: RunState; round: number };
 
 export class InvalidTransitionError extends Error {

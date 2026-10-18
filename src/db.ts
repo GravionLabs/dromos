@@ -176,6 +176,8 @@ export interface Db {
   updateRun(id: string, patch: RunPatch): Run | undefined;
   insertEvent(role: string, kind: string, data: unknown): BusEvent;
   listEvents(role?: string, limit?: number): BusEvent[];
+  /** Runs `fn` in one SQLite transaction; rolls back when it throws. */
+  transaction<T>(fn: () => T): T;
   schemaVersion(): number;
   close(): void;
 }
@@ -310,6 +312,9 @@ export function openDb(file: string): Db {
     },
     listEvents(role, limit = 50) {
       return listEvents.all(role ?? null, role ?? null, limit).map(toEvent);
+    },
+    transaction(fn) {
+      return db.transaction(fn)();
     },
     schemaVersion() {
       return db.pragma('user_version', { simple: true }) as number;

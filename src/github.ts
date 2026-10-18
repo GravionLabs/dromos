@@ -17,7 +17,13 @@ export async function viewIssue(repo: string, number: number): Promise<IssueInfo
     '--json',
     'number,title,body,labels',
   ]);
-  const raw = JSON.parse(stdout) as {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new Error(`gh returned malformed JSON for issue #${number} in ${repo}`);
+  }
+  const raw = parsed as {
     number: number;
     title: string;
     body?: string | null;

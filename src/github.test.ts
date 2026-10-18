@@ -37,6 +37,11 @@ describe('viewIssue', () => {
     expect(await viewIssue('o/r', 1)).toEqual({ number: 1, title: 'x', body: '', labels: [] });
   });
 
+  it('throws a clear error on malformed JSON', async () => {
+    mockExeca.mockResolvedValue({ stdout: 'not json' });
+    await expect(viewIssue('o/r', 3)).rejects.toThrow('malformed JSON for issue #3 in o/r');
+  });
+
   it('propagates gh failures', async () => {
     mockExeca.mockRejectedValue(new Error('gh failed'));
     await expect(viewIssue('o/r', 1)).rejects.toThrow('gh failed');

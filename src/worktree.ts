@@ -9,12 +9,26 @@ export function slugify(title: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+/** Conservative branch-name check: no leading dash (option injection), no `..`, no odd characters. */
+export function isSafeBranchName(name: string): boolean {
+  return (
+    /^[A-Za-z0-9._/-]+$/.test(name) &&
+    !name.startsWith('-') &&
+    !name.includes('..') &&
+    !name.endsWith('/') &&
+    !name.endsWith('.lock')
+  );
+}
+
 export async function createWorktree(
   repoPath: string,
   baseBranch: string,
   branch: string,
   worktreePath: string,
 ): Promise<void> {
+  if (!isSafeBranchName(baseBranch)) {
+    throw new Error(`invalid base branch name: ${baseBranch}`);
+  }
   if (existsSync(worktreePath)) {
     throw new Error(`worktree path already exists: ${worktreePath}`);
   }
@@ -26,7 +40,7 @@ export async function createWorktree(
   if (check.exitCode === 0) {
     throw new Error(`branch already exists: ${branch}`);
   }
-  await execa('git', ['-C', repoPath, 'fetch', 'origin', baseBranch]);
+  await execa('git', ['-C', repoPath, 'fetch', '--', 'origin', baseBranch]);
   await execa('git', [
     '-C',
     repoPath,
@@ -34,6 +48,7 @@ export async function createWorktree(
     'add',
     '-b',
     branch,
+    '--',
     worktreePath,
     `origin/${baseBranch}`,
   ]);
