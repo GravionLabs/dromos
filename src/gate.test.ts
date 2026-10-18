@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -33,6 +33,38 @@ describe('resolveGateCommands', () => {
       'pnpm lint',
       'pnpm test',
     ]);
+  });
+
+  it('includes pnpm build when the script exists', () => {
+    touch('pnpm-lock.yaml');
+    pkg({ lint: 'a', test: 'b', build: 'c' });
+    expect(runs(resolveGateCommands(dir, []))).toEqual([
+      'pnpm install --frozen-lockfile',
+      'pnpm lint',
+      'pnpm test',
+      'pnpm build',
+    ]);
+  });
+
+  it('installs only when package.json has no scripts', () => {
+    touch('pnpm-lock.yaml');
+    touch('package.json', '{}');
+    expect(runs(resolveGateCommands(dir, []))).toEqual(['pnpm install --frozen-lockfile']);
+  });
+
+  it('fails the gate with the parse error when package.json is malformed', async () => {
+    touch('pnpm-lock.yaml');
+    touch('package.json', '{ not json');
+    const cmds = resolveGateCommands(dir, []);
+    expect(cmds.map((c) => c.name)).toEqual(['package-json']);
+    const result = await runGate(cmds, dir, 30);
+    expect(result.passed).toBe(false);
+    expect(result.steps[0]?.outputTail).toContain('invalid package.json');
+  });
+
+  it('does not treat foo.sln.bak as a solution', () => {
+    touch('foo.sln.bak');
+    expect(resolveGateCommands(dir, [])[0]?.name).toBe('no-gate');
   });
 
   it('detects npm when only package-lock.json exists', () => {
@@ -134,7 +166,7 @@ describe('runGate', () => {
       dir,
       30,
     );
-    expect(result.steps[0]?.outputTail).toContain(dir);
+    expect(result.steps[0]?.outputTail).toContain(realpathSync(dir));
   });
 
   it('keeps only the last 200 lines of combined stdout and stderr', async () => {
@@ -159,5 +191,53 @@ describe('runGate', () => {
 
   it('returns passed for an empty command list', async () => {
     expect(await runGate([], dir, 30)).toEqual({ passed: true, steps: [] });
+  });
+
+  it('kills a grandchild holding the pipe on timeout without waiting for it', async () => {
+    const started = Date.now();
+    const result = await runGate([{ name: 'gc', run: "sh -c 'sleep 10 & wait'" }], dir, 1);
+    expect(Date.now() - started).toBeLessThan(6000);
+    expect(result.passed).toBe(false);
+    expect(result.steps[0]?.outputTail).toContain('timed out');
+  });
+
+  it('shares one budget across steps', async () => {
+    const slow = 'node -e "setTimeout(()=>{},700)"';
+    const result = await runGate(
+      [
+        { name: 'one', run: slow },
+        { name: 'two', run: slow },
+        { name: 'three', run: 'node -e "process.exit(0)"' },
+      ],
+      dir,
+      1,
+    );
+    expect(result.passed).toBe(false);
+    expect(result.steps.map((s) => s.name)).toEqual(['one', 'two']);
+    expect(result.steps[0]?.exitCode).toBe(0);
+    expect(result.steps[1]?.outputTail).toContain('timed out');
+  });
+
+  it('stops after a step that overruns the budget', async () => {
+    const result = await runGate(
+      [
+        { name: 'one', run: 'node -e "setTimeout(()=>{},1200)"' },
+        { name: 'two', run: 'node -e "process.exit(0)"' },
+      ],
+      dir,
+      1,
+    );
+    expect(result.steps.map((s) => s.name)).toEqual(['one']);
+    expect(result.passed).toBe(false);
+  });
+
+  it('returns a failed step instead of throwing when the cwd does not exist', async () => {
+    const result = await runGate(
+      [{ name: 'x', run: 'node -e "process.exit(0)"' }],
+      join(dir, 'missing'),
+      30,
+    );
+    expect(result.passed).toBe(false);
+    expect(result.steps[0]?.exitCode).not.toBe(0);
   });
 });

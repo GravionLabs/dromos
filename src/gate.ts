@@ -5,24 +5,36 @@ import type { GateCommand } from './config.js';
 import type { GateResult, GateStepResult } from './schemas.js';
 
 const TAIL_LINES = 200;
+const MAX_BUFFER = 8 * 1024 * 1024;
 const NODE_SCRIPTS = ['lint', 'test', 'build'] as const;
 
-function packageScripts(worktreePath: string): Set<string> {
+type Scripts = { scripts: Set<string> } | { error: string };
+
+function packageScripts(worktreePath: string): Scripts {
+  let raw: string;
   try {
-    const pkg = JSON.parse(readFileSync(join(worktreePath, 'package.json'), 'utf8')) as {
-      scripts?: Record<string, unknown>;
-    };
-    return new Set(Object.keys(pkg.scripts ?? {}));
+    raw = readFileSync(join(worktreePath, 'package.json'), 'utf8');
   } catch {
-    return new Set();
+    return { scripts: new Set() };
+  }
+  try {
+    const pkg = JSON.parse(raw) as { scripts?: Record<string, unknown> } | null;
+    return { scripts: new Set(Object.keys(pkg?.scripts ?? {})) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
   }
 }
 
 function nodeSteps(worktreePath: string, install: GateCommand, runner: string): GateCommand[] {
-  const scripts = packageScripts(worktreePath);
+  const found = packageScripts(worktreePath);
+  if ('error' in found) {
+    // Fail the gate loudly instead of silently skipping lint/test/build.
+    const safe = found.error.replace(/[^A-Za-z0-9 .,:_-]/g, ' ');
+    return [{ name: 'package-json', run: `echo "invalid package.json: ${safe}" >&2; exit 1` }];
+  }
   return [
     install,
-    ...NODE_SCRIPTS.filter((s) => scripts.has(s)).map((s) => ({
+    ...NODE_SCRIPTS.filter((s) => found.scripts.has(s)).map((s) => ({
       name: s,
       run: `${runner} ${s}`,
     })),
@@ -103,12 +115,15 @@ export async function runGate(
       exitCode = 1;
       output = 'gate timeout budget exhausted before step started';
     } else {
+      // The parent env stays inherited: an allowlist would risk dropping variables that
+      // pnpm/npm/uv/dotnet rely on (PATH shims, proxies, registries, DOTNET_*, XDG_*).
       const child = execa(cmd.run, {
         shell: true,
         cwd,
         all: true,
         reject: false,
         detached: true,
+        maxBuffer: MAX_BUFFER,
       });
       let timedOut = false;
       const timer = setTimeout(() => {
@@ -120,13 +135,19 @@ export async function runGate(
           child.kill('SIGKILL');
         }
       }, remaining);
-      const res = await child;
-      clearTimeout(timer);
-      exitCode = typeof res.exitCode === 'number' ? res.exitCode : 1;
-      output = String(res.all ?? '');
-      if (timedOut) {
-        exitCode = exitCode === 0 ? 1 : exitCode;
-        output += `\ngate timed out after ${timeoutSeconds}s`;
+      try {
+        const res = await child;
+        exitCode = typeof res.exitCode === 'number' ? res.exitCode : 1;
+        output = String(res.all ?? '');
+        if (timedOut) {
+          exitCode = exitCode === 0 ? 1 : exitCode;
+          output += `\ngate timed out after ${timeoutSeconds}s`;
+        }
+      } catch (e) {
+        exitCode = 1;
+        output = `failed to run step: ${e instanceof Error ? e.message : String(e)}`;
+      } finally {
+        clearTimeout(timer);
       }
     }
     steps.push({
