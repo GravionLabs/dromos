@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ToolContext } from './context.js';
 import { registerInboxTool } from './tools/inbox.js';
 import { registerMessagingTools } from './tools/messaging.js';
+import { registerRunTools } from './tools/runs.js';
 
 const text = (value: string) => ({ content: [{ type: 'text' as const, text: value }] });
 
@@ -21,6 +22,7 @@ export function createBusServer(ctx: ToolContext): McpServer {
 
   registerMessagingTools(server, ctx);
   registerInboxTool(server, ctx);
+  registerRunTools(server, ctx);
 
   return server;
 }
