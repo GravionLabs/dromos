@@ -6,6 +6,7 @@ dependencies:
   name: ts
   host: github.com
   resolved_commit: a9e08c1aca9e81c6395dd1ab096f8fcb9a829c27
+  resolved_ref: a9e08c1aca9e81c6395dd1ab096f8fcb9a829c27
   version: 2.3.0
   virtual_path: packages/ts
   is_virtual: true

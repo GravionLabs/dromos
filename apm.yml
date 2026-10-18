@@ -9,7 +9,7 @@ targets:
   - claude
 dependencies:
   apm:
-    - GravionLabs/apm-hub/packages/ts
+    - GravionLabs/apm-hub/packages/ts#a9e08c1aca9e81c6395dd1ab096f8fcb9a829c27
   mcp: []
 includes: auto
 scripts: {}
