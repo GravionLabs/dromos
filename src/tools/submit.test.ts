@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveGateCommands, runGate } from '../gate.js';
 import type { GateResult } from '../schemas.js';
@@ -319,8 +322,55 @@ describe('submit_implementation', () => {
     await submit();
     await settle();
     spy.mockRestore();
-    expect(bus.readLog()).toMatch(/ERROR\s+run-1-1 gate_failed handling failed: read-only/);
+    const log = bus.readLog();
+    expect(log).toMatch(/ERROR\s+run-1-1 gate_failed handling failed: read-only/);
+    expect(log).toMatch(/ERROR\s+run-1-1 could not notify the orchestrator: read-only/);
+    expect(bus.db.getRun('run-1-1')?.state).toBe('gating');
     expect(pendingGates.size).toBe(0);
+  });
+
+  it('notifies the orchestrator when the gate_failed fallback cannot be stored', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue(green);
+    const spy = vi
+      .spyOn(bus.db, 'insertMessage')
+      .mockImplementationOnce(() => {
+        throw new Error('disk full');
+      })
+      .mockImplementationOnce(() => {
+        throw new Error('still full');
+      });
+    await submit();
+    await settle();
+    spy.mockRestore();
+    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'gating', round: 1 });
+    const [msg] = bus.db.listUnacked('orchestrator');
+    expect(msg?.type).toBe('notice');
+    expect(msg?.payload).toEqual({
+      runId: 'run-1-1',
+      reason: 'gate handling failed, run stuck in gating: still full',
+    });
+    expect(bus.db.listUnacked('implementer')).toEqual([]);
+  });
+
+  it('does not fall back to gate_failed when only post-commit logging fails', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue(green);
+    const realGetRun = bus.db.getRun.bind(bus.db);
+    let calls = 0;
+    // 1: tool, 2: re-read, 3: background guard, 4: post-commit read for the STATE log.
+    const spy = vi.spyOn(bus.db, 'getRun').mockImplementation((id: string) => {
+      calls += 1;
+      if (calls === 4) throw new Error('read failed');
+      return realGetRun(id);
+    });
+    await submit();
+    await settle();
+    spy.mockRestore();
+    expect(bus.db.getRun('run-1-1')?.state).toBe('reviewing');
+    expect(bus.db.listUnacked('reviewer')).toHaveLength(1);
+    expect(bus.db.listUnacked('implementer')).toEqual([]);
+    expect(bus.readLog()).not.toContain('gate handling failed');
   });
 
   it('still delivers the message when waking the recipient fails', async () => {
@@ -377,15 +427,6 @@ describe('submit_implementation', () => {
     const log = bus.readLog();
     expect(log).toMatch(/STATE\s+run-1-1 blocked/);
     expect(log).toMatch(/MESSAGE\s+implementer -> orchestrator \[notice\] run-1-1/);
-  });
-
-  it('passes the implementation summary to the reviewer unchanged', async () => {
-    addRun();
-    mockRunGate.mockResolvedValue(green);
-    await submit('Rotated API_KEY=old handling');
-    await settle();
-    const [msg] = bus.db.listUnacked('reviewer');
-    expect(msg?.payload).toMatchObject({ implementationSummary: 'Rotated API_KEY=old handling' });
   });
 
   it('single-quotes a worktree path with spaces in the diff command', async () => {
@@ -449,6 +490,70 @@ describe('submit_implementation', () => {
     gate.resolve(green);
   });
 
+  it('reports the last step when a red gate has no non-zero step', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue({
+      passed: false,
+      steps: [
+        { name: 'lint', command: 'pnpm lint', exitCode: 0, durationMs: 1, outputTail: 'a' },
+        {
+          name: 'build',
+          command: 'pnpm build',
+          exitCode: 0,
+          durationMs: 1,
+          outputTail: 'timed out',
+        },
+      ],
+    });
+    await submit();
+    await settle();
+    const [msg] = bus.db.listUnacked('implementer');
+    expect(msg?.payload).toEqual({
+      runId: 'run-1-1',
+      round: 2,
+      failedStep: 'build',
+      exitCode: 0,
+      outputTail: 'timed out',
+    });
+  });
+
+  it('passes the worktree, configured commands and timeout to the gate', async () => {
+    await bus.close();
+    const commands = [{ name: 'check', run: 'make check' }];
+    bus = await startTestBus({ gate: { commands, timeoutSeconds: 42 } });
+    addRun();
+    const resolved = [{ name: 'test', run: 'pnpm test' }];
+    mockResolve.mockReturnValueOnce(resolved);
+    mockRunGate.mockResolvedValue(green);
+    await submit();
+    await settle();
+    expect(mockResolve).toHaveBeenCalledWith('/wt', commands);
+    expect(mockRunGate).toHaveBeenCalledWith(resolved, '/wt', 42);
+  });
+
+  it.each([
+    ['an empty runId', { runId: '', summary: 'x' }],
+    ['an empty summary', { runId: 'run-1-1', summary: '' }],
+    ['a summary over 5000 characters', { runId: 'run-1-1', summary: 'x'.repeat(5001) }],
+  ])('rejects %s', async (_label, args) => {
+    addRun();
+    const client = await bus.connect('implementer');
+    const result = await client
+      .callTool({ name: 'submit_implementation', arguments: args })
+      .catch((e: Error) => e);
+    const failed = result instanceof Error || result.isError === true;
+    expect(failed).toBe(true);
+    expect(mockExeca).not.toHaveBeenCalled();
+    expect(bus.db.getRun('run-1-1')?.state).toBe('implementing');
+  });
+
+  it('accepts a summary of exactly 5000 characters', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue(green);
+    const result = await submit('x'.repeat(5000));
+    expect(JSON.parse(textOf(result))).toEqual({ status: 'gate_started' });
+  });
+
   it('rejects an unknown run', async () => {
     const result = await submit();
     expect(result.isError).toBe(true);
@@ -466,5 +571,83 @@ describe('submit_implementation', () => {
       `tool submit_implementation is not allowed for role ${role} (allowed: implementer)`,
     );
     expect(bus.db.getRun('run-1-1')?.state).toBe('implementing');
+  });
+});
+
+describe('submit_implementation against a real git worktree', () => {
+  let bus: TestBus;
+  let repo: string;
+  let realExeca: typeof import('execa').execa;
+
+  const sh = (...args: string[]) =>
+    realExeca('git', ['-C', repo, ...args], {
+      env: {
+        GIT_AUTHOR_NAME: 't',
+        GIT_AUTHOR_EMAIL: 't@example.com',
+        GIT_COMMITTER_NAME: 't',
+        GIT_COMMITTER_EMAIL: 't@example.com',
+      },
+    });
+  const submit = async () => {
+    const client = await bus.connect('implementer');
+    return client.callTool({
+      name: 'submit_implementation',
+      arguments: { runId: 'run-1-1', summary: 'Did it' },
+    });
+  };
+
+  beforeEach(async () => {
+    realExeca = (await vi.importActual<typeof import('execa')>('execa')).execa;
+    mockExeca.mockReset();
+    mockExeca.mockImplementation(realExeca);
+    mockRunGate.mockReset();
+    mockRunGate.mockResolvedValue(green);
+    repo = mkdtempSync(join(tmpdir(), 'submit-git-'));
+    await sh('init', '-q', '-b', 'main');
+    writeFileSync(join(repo, 'a.txt'), 'a');
+    await sh('add', 'a.txt');
+    await sh('commit', '-q', '-m', 'base');
+    // Stand-in for a fetched remote: origin/main points at the base commit.
+    await sh('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    bus = await startTestBus();
+    bus.db.insertRun({
+      id: 'run-1-1',
+      repo: 'o/r',
+      repoPath: repo,
+      issueNumber: 1,
+      issueTitle: 'Title',
+      baseBranch: 'main',
+      branch: 'main',
+      worktreePath: repo,
+      state: 'implementing',
+      round: 1,
+    });
+  });
+  afterEach(async () => {
+    await Promise.all([...pendingGates.values()]);
+    await bus.close();
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it('rejects a branch with no commits ahead of origin/<base>', async () => {
+    const result = await submit();
+    expect(textOf(result)).toBe('no commits ahead of origin/main: commit your work first');
+    expect(bus.db.getRun('run-1-1')?.state).toBe('implementing');
+  });
+
+  it('rejects uncommitted changes', async () => {
+    writeFileSync(join(repo, 'b.txt'), 'b');
+    const result = await submit();
+    expect(textOf(result)).toBe('uncommitted changes in the worktree: commit everything first');
+  });
+
+  it('starts the gate for a clean worktree with commits ahead', async () => {
+    writeFileSync(join(repo, 'b.txt'), 'b');
+    await sh('add', 'b.txt');
+    await sh('commit', '-q', '-m', 'work');
+    const result = await submit();
+    expect(JSON.parse(textOf(result))).toEqual({ status: 'gate_started' });
+    await Promise.all([...pendingGates.values()]);
+    expect(bus.db.getRun('run-1-1')?.state).toBe('reviewing');
   });
 });

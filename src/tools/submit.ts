@@ -117,10 +117,36 @@ function handleGateResult(
     return;
   }
   const out = ctx.db.transaction(() => applyGateResult(ctx, run, summary, gate));
-  const after = ctx.db.getRun(runId);
-  ctx.log.logLine('GATE', `${runId} ${gate.passed ? 'passed' : 'failed'}`);
-  ctx.log.logLine('STATE', `${runId} ${after?.state} (round ${after?.round})`);
-  logAndWake(ctx, out.from, out.to, out.type, runId);
+  // The outcome is committed: logging and waking are best effort and must not trigger the
+  // gate_failed fallback.
+  try {
+    const after = ctx.db.getRun(runId);
+    ctx.log.logLine('GATE', `${runId} ${gate.passed ? 'passed' : 'failed'}`);
+    ctx.log.logLine('STATE', `${runId} ${after?.state} (round ${after?.round})`);
+    logAndWake(ctx, out.from, out.to, out.type, runId);
+  } catch {
+    // best effort
+  }
+}
+
+/**
+ * Best effort when even the gate_failed fallback could not be stored: tell the orchestrator.
+ * Remaining limit: the run state is not changed here, so it stays in 'gating' until a human
+ * intervenes (the spec defines a single gate_failed fallback, not a second state change).
+ */
+function noticeStuckRun(ctx: ToolContext, runId: string, cause: string): void {
+  try {
+    ctx.db.insertMessage({
+      from: 'implementer',
+      to: 'orchestrator',
+      type: 'notice',
+      runId,
+      payload: { runId, reason: `gate handling failed, run stuck in gating: ${cause}` },
+    });
+    logAndWake(ctx, 'implementer', 'orchestrator', 'notice', runId);
+  } catch (err) {
+    ctx.log.logLine('ERROR', `${runId} could not notify the orchestrator: ${errorMessage(err)}`);
+  }
 }
 
 async function runInBackground(ctx: ToolContext, run: Run, summary: string): Promise<void> {
@@ -143,6 +169,7 @@ async function runInBackground(ctx: ToolContext, run: Run, summary: string): Pro
         'ERROR',
         `${run.id} gate_failed handling failed: ${errorMessage(fallbackErr)}`,
       );
+      noticeStuckRun(ctx, run.id, errorMessage(fallbackErr));
     }
   } finally {
     pendingGates.delete(run.id);
