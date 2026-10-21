@@ -35,8 +35,9 @@ function deferred() {
 
 describe('redact', () => {
   it('masks tokens, bearer headers and secret assignments', () => {
-    const out = redact('ghp_abcdefghijklmnopqrstu Bearer abcdefgh12345 API_KEY: xyz');
-    expect(out).not.toMatch(/ghp_abc|abcdefgh12345|xyz/);
+    expect(redact('ghp_abcdefghijklmnopqrstu Bearer abcdefgh12345 API_KEY: xyz')).toBe(
+      '[redacted] Bearer [redacted] API_KEY=[redacted]',
+    );
   });
   it('leaves ordinary text alone', () => {
     expect(redact('3 tests failed')).toBe('3 tests failed');
@@ -48,24 +49,31 @@ describe('submit_implementation', () => {
   let status = '';
   let ahead = '2';
 
-  const addRun = (patch: { state?: 'implementing' | 'reviewing'; round?: number } = {}) =>
+  const addRun = (
+    patch: {
+      state?: 'implementing' | 'reviewing';
+      round?: number;
+      baseBranch?: string;
+      worktreePath?: string;
+    } = {},
+  ) =>
     bus.db.insertRun({
       id: 'run-1-1',
       repo: 'o/r',
       repoPath: '/repo',
       issueNumber: 1,
       issueTitle: 'Title',
-      baseBranch: 'main',
+      baseBranch: patch.baseBranch ?? 'main',
       branch: 'agent/1-title',
-      worktreePath: '/wt',
+      worktreePath: patch.worktreePath ?? '/wt',
       state: patch.state ?? 'implementing',
       round: patch.round ?? 1,
     });
-  const submit = async () => {
+  const submit = async (summary = 'Did it') => {
     const client = await bus.connect('implementer');
     return client.callTool({
       name: 'submit_implementation',
-      arguments: { runId: 'run-1-1', summary: 'Did it' },
+      arguments: { runId: 'run-1-1', summary },
     });
   };
   const settle = () => Promise.all([...pendingGates.values()]);
@@ -107,7 +115,7 @@ describe('submit_implementation', () => {
       branch: 'agent/1-title',
       baseBranch: 'main',
       implementationSummary: 'Did it',
-      diffCommand: "git -C '/wt' diff 'origin/main'...HEAD",
+      diffCommand: 'git -C /wt diff origin/main...HEAD',
       issue: { number: 1, title: 'Title' },
       instructions: 'Review the diff read-only. Call submit_review.',
     });
@@ -123,14 +131,14 @@ describe('submit_implementation', () => {
     expect(run).toMatchObject({ state: 'implementing', round: 2 });
     const [msg] = bus.db.listUnacked('implementer');
     expect(msg?.type).toBe('gate_result');
-    expect(msg?.payload).toMatchObject({
+    expect(msg?.payload).toEqual({
+      runId: 'run-1-1',
+      round: 2,
       failedStep: 'test',
       exitCode: 2,
       outputTail: 'boom tail',
-      round: 2,
     });
     expect(run?.lastGate).toEqual(red);
-    expect(msg?.payload).toMatchObject({ passed: false });
     expect(bus.db.listUnacked('reviewer')).toEqual([]);
   });
 
@@ -156,9 +164,15 @@ describe('submit_implementation', () => {
     await submit();
     await settle();
     expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'implementing', round: 2 });
-    expect(bus.readLog()).toContain('spawn exploded');
+    expect(bus.readLog()).toMatch(/ERROR.*gate crashed: spawn exploded/);
     const [msg] = bus.db.listUnacked('implementer');
-    expect(msg?.payload).toMatchObject({ outputTail: expect.stringContaining('spawn exploded') });
+    expect(msg?.payload).toEqual({
+      runId: 'run-1-1',
+      round: 2,
+      failedStep: 'gate',
+      exitCode: 1,
+      outputTail: 'gate crashed: spawn exploded',
+    });
   });
 
   it('rejects uncommitted changes without a state change', async () => {
@@ -193,9 +207,11 @@ describe('submit_implementation', () => {
     mockRunGate.mockResolvedValue(green);
     await submit();
     await settle();
-    const argvs = mockExeca.mock.calls.map(([, argv]) => (argv as string[]).join(' '));
-    expect(argvs).toContain('-C /wt status --porcelain');
-    expect(argvs).toContain('-C /wt rev-list --count origin/main..HEAD');
+    const argvs = mockExeca.mock.calls.map(([cmd, argv]) => [cmd, ...(argv as string[])].join(' '));
+    expect(argvs).toEqual([
+      'git -C /wt status --porcelain',
+      'git -C /wt rev-list --count origin/main..HEAD --',
+    ]);
   });
 
   it('reports a git failure without a state change', async () => {
@@ -223,6 +239,9 @@ describe('submit_implementation', () => {
     await submit();
     const second = await submit();
     expect(second.isError).toBe(true);
+    expect(textOf(second)).toBe(
+      "run run-1-1 is in state 'gating', submit_implementation needs 'implementing'",
+    );
     expect(mockRunGate).toHaveBeenCalledTimes(1);
     gate.resolve(green);
   });
@@ -240,7 +259,7 @@ describe('submit_implementation', () => {
     expect(bus.readLog()).toContain('gate result dropped');
   });
 
-  it('blocks the run and notifies the orchestrator when persisting the outcome fails', async () => {
+  it('treats a failure to persist the outcome as gate_failed', async () => {
     addRun();
     mockRunGate.mockResolvedValue(green);
     const spy = vi.spyOn(bus.db, 'insertMessage').mockImplementationOnce(() => {
@@ -249,11 +268,68 @@ describe('submit_implementation', () => {
     await submit();
     await settle();
     spy.mockRestore();
-    expect(bus.db.getRun('run-1-1')?.state).toBe('blocked');
-    expect(bus.readLog()).toContain('disk full');
-    const [msg] = bus.db.listUnacked('orchestrator');
-    expect(msg?.payload).toMatchObject({ reason: 'gate handling failed: disk full' });
+    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'implementing', round: 2 });
+    expect(bus.readLog()).toMatch(/ERROR.*gate handling failed: disk full/);
     expect(bus.db.listUnacked('reviewer')).toEqual([]);
+    const [msg] = bus.db.listUnacked('implementer');
+    expect(msg?.payload).toEqual({
+      runId: 'run-1-1',
+      round: 2,
+      failedStep: 'gate',
+      exitCode: 1,
+      outputTail: 'gate handling failed: disk full',
+    });
+    expect(pendingGates.size).toBe(0);
+  });
+
+  it('blocks the run with the fallback gate when the gate_failed fallback also fails', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue(green);
+    const spy = vi
+      .spyOn(bus.db, 'insertMessage')
+      .mockImplementationOnce(() => {
+        throw new Error('disk full');
+      })
+      .mockImplementationOnce(() => {
+        throw new Error('still full');
+      });
+    await submit();
+    await settle();
+    spy.mockRestore();
+    const fallback: GateResult = {
+      passed: false,
+      steps: [
+        {
+          name: 'gate',
+          command: '',
+          exitCode: 1,
+          durationMs: 0,
+          outputTail: 'gate handling failed: disk full',
+        },
+      ],
+    };
+    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'blocked', lastGate: fallback });
+    expect(bus.readLog()).toContain('gate_failed fallback failed: still full');
+    const [msg] = bus.db.listUnacked('orchestrator');
+    expect(msg?.payload).toEqual({
+      runId: 'run-1-1',
+      reason: 'gate handling failed',
+      lastGate: fallback,
+    });
+    expect(bus.db.listUnacked('implementer')).toEqual([]);
+  });
+
+  it('still blocks the run when no message can be written at all', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue(green);
+    const spy = vi.spyOn(bus.db, 'insertMessage').mockImplementation(() => {
+      throw new Error('read-only');
+    });
+    await submit();
+    await settle();
+    spy.mockRestore();
+    expect(bus.db.getRun('run-1-1')?.state).toBe('blocked');
+    expect(bus.readLog()).toContain('could not notify the orchestrator: read-only');
     expect(pendingGates.size).toBe(0);
   });
 
@@ -289,20 +365,6 @@ describe('submit_implementation', () => {
     expect(wake).toHaveBeenCalledWith('reviewer');
   });
 
-  it('includes a per-step summary in gate_result', async () => {
-    addRun();
-    mockRunGate.mockResolvedValue(red);
-    await submit();
-    await settle();
-    const [msg] = bus.db.listUnacked('implementer');
-    expect(msg?.payload).toMatchObject({
-      steps: [
-        { name: 'lint', exitCode: 0 },
-        { name: 'test', exitCode: 2 },
-      ],
-    });
-  });
-
   it('redacts credentials in relayed output', async () => {
     addRun();
     mockRunGate.mockResolvedValue({
@@ -320,19 +382,39 @@ describe('submit_implementation', () => {
     await submit();
     await settle();
     const [msg] = bus.db.listUnacked('implementer');
-    expect(JSON.stringify(msg?.payload)).not.toContain('abc123');
+    expect(msg?.payload).toMatchObject({ outputTail: 'GITHUB_TOKEN=[redacted] failed' });
+    expect(bus.db.getRun('run-1-1')?.lastGate?.steps[0]?.outputTail).toBe(
+      'GITHUB_TOKEN=[redacted] failed',
+    );
   });
 
-  it('survives a failing git fetch', async () => {
+  it('passes the implementation summary to the reviewer unchanged', async () => {
     addRun();
     mockRunGate.mockResolvedValue(green);
-    mockExeca.mockImplementation(async (_cmd: string, args: string[]) => {
-      if (args.includes('fetch')) throw new Error('offline');
-      return { stdout: args.includes('status') ? '' : '2' };
-    });
-    const result = await submit();
+    await submit('Rotated API_KEY=old handling');
     await settle();
-    expect(result.isError).toBeFalsy();
+    const [msg] = bus.db.listUnacked('reviewer');
+    expect(msg?.payload).toMatchObject({ implementationSummary: 'Rotated API_KEY=old handling' });
+  });
+
+  it('single-quotes a worktree path with spaces in the diff command', async () => {
+    addRun({ worktreePath: "/tmp/my wt's" });
+    mockRunGate.mockResolvedValue(green);
+    await submit();
+    await settle();
+    const [msg] = bus.db.listUnacked('reviewer');
+    expect(msg?.payload).toMatchObject({
+      diffCommand: "git -C '/tmp/my wt'\\''s' diff origin/main...HEAD",
+    });
+  });
+
+  it('rejects a base branch that looks like an option without calling git', async () => {
+    addRun({ baseBranch: '--output=x' });
+    const result = await submit();
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe('run run-1-1 has an invalid base branch: --output=x');
+    expect(mockExeca).not.toHaveBeenCalled();
+    expect(bus.db.getRun('run-1-1')?.state).toBe('implementing');
   });
 
   it('lets only one of two concurrent submits start a gate', async () => {
