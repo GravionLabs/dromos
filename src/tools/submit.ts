@@ -87,7 +87,9 @@ function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: Gate
     });
     return { from: 'implementer', to: 'orchestrator', type: 'notice' };
   }
-  const failed = gate.steps.find((step) => step.exitCode !== 0) ?? gate.steps.at(-1);
+  // A red gate without steps still names a failed step and a non-zero exit code.
+  const failed = gate.steps.find((step) => step.exitCode !== 0) ??
+    gate.steps.at(-1) ?? { name: 'gate', exitCode: 1, outputTail: 'gate reported no steps' };
   ctx.db.insertMessage({
     from: 'orchestrator',
     to: 'implementer',
@@ -96,9 +98,9 @@ function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: Gate
     payload: {
       runId,
       round: next.round,
-      failedStep: failed?.name,
-      exitCode: failed?.exitCode,
-      outputTail: failed?.outputTail ?? '',
+      failedStep: failed.name,
+      exitCode: failed.exitCode,
+      outputTail: failed.outputTail,
     },
   });
   return { from: 'orchestrator', to: 'implementer', type: 'gate_result' };
@@ -199,8 +201,13 @@ export function registerSubmitTools(server: McpServer, ctx: ToolContext): void {
       }
       const next = transition(fresh, { type: 'implementation_submitted' }, ctx.config.maxRounds);
       ctx.db.updateRun(runId, { state: next.state, round: next.round });
-      ctx.log.logLine('STATE', `${runId} ${next.state} (round ${next.round})`);
+      // Start the gate right after the commit so a logging failure cannot strand the run in gating.
       pendingGates.set(runId, runInBackground(ctx, fresh, summary));
+      try {
+        ctx.log.logLine('STATE', `${runId} ${next.state} (round ${next.round})`);
+      } catch (err) {
+        ctx.log.logLine('ERROR', `${runId} could not log the state change: ${errorMessage(err)}`);
+      }
       return jsonResult({ status: 'gate_started' });
     },
   );

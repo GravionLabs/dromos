@@ -8,6 +8,27 @@ import { startTestBus, type TestBus, textOf } from '../test-helpers.js';
 import { pendingGates } from './submit.js';
 
 const mockExeca = vi.hoisted(() => vi.fn());
+/** When set, the bus log throws for lines matching it (once), to simulate a logging failure. */
+const failLog = vi.hoisted(() => ({ pattern: undefined as RegExp | undefined }));
+vi.mock('../bus-log.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../bus-log.js')>();
+  return {
+    ...real,
+    createBusLog: (dataDir: string) => {
+      const log = real.createBusLog(dataDir);
+      return {
+        file: log.file,
+        logLine: (kind: Parameters<typeof log.logLine>[0], text: string) => {
+          if (failLog.pattern?.test(`${kind} ${text}`)) {
+            failLog.pattern = undefined;
+            throw new Error('log down');
+          }
+          log.logLine(kind, text);
+        },
+      };
+    },
+  };
+});
 vi.mock('execa', () => ({ execa: mockExeca }));
 vi.mock('../gate.js', () => ({
   resolveGateCommands: vi.fn(() => [{ name: 'test', run: 'pnpm test' }]),
@@ -85,6 +106,7 @@ describe('submit_implementation', () => {
     bus = await startTestBus();
   });
   afterEach(async () => {
+    failLog.pattern = undefined;
     for (const release of held.splice(0)) release(green);
     await settle();
     await bus.close();
@@ -454,6 +476,34 @@ describe('submit_implementation', () => {
     expect(losers).toHaveLength(1);
     expect(textOf(losers[0])).toBe("run run-1-1 is no longer in state 'implementing'");
     expect(mockRunGate).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a generic failed step when a red gate has no steps', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue({ passed: false, steps: [] });
+    await submit();
+    await settle();
+    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'implementing', round: 2 });
+    const [msg] = bus.db.listUnacked('implementer');
+    expect(msg?.payload).toEqual({
+      runId: 'run-1-1',
+      round: 2,
+      failedStep: 'gate',
+      exitCode: 1,
+      outputTail: 'gate reported no steps',
+    });
+  });
+
+  it('still starts the gate when logging the gating state fails', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue(green);
+    failLog.pattern = /^STATE run-1-1 gating/;
+    const result = await submit();
+    await settle();
+    expect(JSON.parse(textOf(result))).toEqual({ status: 'gate_started' });
+    expect(mockRunGate).toHaveBeenCalledTimes(1);
+    expect(bus.db.getRun('run-1-1')?.state).toBe('reviewing');
+    expect(bus.readLog()).toMatch(/ERROR\s+run-1-1 could not log the state change: log down/);
   });
 
   it('reports the last step when a red gate has no non-zero step', async () => {
