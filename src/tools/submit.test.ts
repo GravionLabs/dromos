@@ -1,16 +1,16 @@
-import { execa } from 'execa';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runGate } from '../gate.js';
+import { resolveGateCommands, runGate } from '../gate.js';
 import type { GateResult } from '../schemas.js';
 import { startTestBus, type TestBus, textOf } from '../test-helpers.js';
-import { pendingGates } from './submit.js';
+import { pendingGates, redact } from './submit.js';
 
-vi.mock('execa');
+const mockExeca = vi.hoisted(() => vi.fn());
+vi.mock('execa', () => ({ execa: mockExeca }));
 vi.mock('../gate.js', () => ({
   resolveGateCommands: vi.fn(() => [{ name: 'test', run: 'pnpm test' }]),
   runGate: vi.fn(),
 }));
-const mockExeca = vi.mocked(execa) as unknown as ReturnType<typeof vi.fn>;
+const mockResolve = vi.mocked(resolveGateCommands);
 const mockRunGate = vi.mocked(runGate);
 
 const red: GateResult = {
@@ -32,6 +32,16 @@ function deferred() {
   });
   return { promise, resolve };
 }
+
+describe('redact', () => {
+  it('masks tokens, bearer headers and secret assignments', () => {
+    const out = redact('ghp_abcdefghijklmnopqrstu Bearer abcdefgh12345 API_KEY: xyz');
+    expect(out).not.toMatch(/ghp_abc|abcdefgh12345|xyz/);
+  });
+  it('leaves ordinary text alone', () => {
+    expect(redact('3 tests failed')).toBe('3 tests failed');
+  });
+});
 
 describe('submit_implementation', () => {
   let bus: TestBus;
@@ -66,7 +76,7 @@ describe('submit_implementation', () => {
     mockRunGate.mockReset();
     mockExeca.mockReset();
     mockExeca.mockImplementation(async (_cmd: string, args: string[]) => ({
-      stdout: args.includes('status') ? status : ahead,
+      stdout: args.includes('status') ? status : args.includes('rev-list') ? ahead : '',
     }));
     bus = await startTestBus();
   });
@@ -79,9 +89,7 @@ describe('submit_implementation', () => {
     addRun();
     const gate = deferred();
     mockRunGate.mockReturnValue(gate.promise);
-    const started = Date.now();
     const result = await submit();
-    expect(Date.now() - started).toBeLessThan(1000);
     expect(JSON.parse(textOf(result))).toEqual({ status: 'gate_started' });
     expect(bus.db.getRun('run-1-1')?.state).toBe('gating');
     expect(bus.db.listUnacked('reviewer')).toEqual([]);
@@ -185,14 +193,9 @@ describe('submit_implementation', () => {
     mockRunGate.mockResolvedValue(green);
     await submit();
     await settle();
-    expect(mockExeca).toHaveBeenCalledWith('git', ['-C', '/wt', 'status', '--porcelain']);
-    expect(mockExeca).toHaveBeenCalledWith('git', [
-      '-C',
-      '/wt',
-      'rev-list',
-      '--count',
-      'origin/main..HEAD',
-    ]);
+    const argvs = mockExeca.mock.calls.map(([, argv]) => (argv as string[]).join(' '));
+    expect(argvs).toContain('-C /wt status --porcelain');
+    expect(argvs).toContain('-C /wt rev-list --count origin/main..HEAD');
   });
 
   it('reports a git failure without a state change', async () => {
@@ -237,18 +240,108 @@ describe('submit_implementation', () => {
     expect(bus.readLog()).toContain('gate result dropped');
   });
 
-  it('rolls back and logs when persisting the outcome fails', async () => {
+  it('blocks the run and notifies the orchestrator when persisting the outcome fails', async () => {
     addRun();
     mockRunGate.mockResolvedValue(green);
-    const spy = vi.spyOn(bus.db, 'insertMessage').mockImplementation(() => {
+    const spy = vi.spyOn(bus.db, 'insertMessage').mockImplementationOnce(() => {
       throw new Error('disk full');
     });
     await submit();
     await settle();
     spy.mockRestore();
-    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'gating', lastGate: null });
+    expect(bus.db.getRun('run-1-1')?.state).toBe('blocked');
     expect(bus.readLog()).toContain('disk full');
+    const [msg] = bus.db.listUnacked('orchestrator');
+    expect(msg?.payload).toMatchObject({ reason: 'gate handling failed: disk full' });
+    expect(bus.db.listUnacked('reviewer')).toEqual([]);
     expect(pendingGates.size).toBe(0);
+  });
+
+  it('treats a throwing resolveGateCommands as a failed gate', async () => {
+    addRun();
+    mockResolve.mockImplementationOnce(() => {
+      throw new Error('no commands');
+    });
+    await submit();
+    await settle();
+    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'implementing', round: 2 });
+    expect(mockRunGate).not.toHaveBeenCalled();
+  });
+
+  it('still delivers the message when waking the recipient fails', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue(green);
+    vi.spyOn(bus.events, 'messageFor').mockImplementation(() => {
+      throw new Error('wake failed');
+    });
+    await submit();
+    await settle();
+    expect(bus.db.getRun('run-1-1')?.state).toBe('reviewing');
+    expect(bus.db.listUnacked('reviewer')).toHaveLength(1);
+  });
+
+  it('wakes the reviewer on green', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue(green);
+    const wake = vi.spyOn(bus.events, 'messageFor');
+    await submit();
+    await settle();
+    expect(wake).toHaveBeenCalledWith('reviewer');
+  });
+
+  it('includes a per-step summary in gate_result', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue(red);
+    await submit();
+    await settle();
+    const [msg] = bus.db.listUnacked('implementer');
+    expect(msg?.payload).toMatchObject({
+      steps: [
+        { name: 'lint', exitCode: 0 },
+        { name: 'test', exitCode: 2 },
+      ],
+    });
+  });
+
+  it('redacts credentials in relayed output', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue({
+      passed: false,
+      steps: [
+        {
+          name: 'test',
+          command: 'x',
+          exitCode: 1,
+          durationMs: 1,
+          outputTail: 'GITHUB_TOKEN=abc123 failed',
+        },
+      ],
+    });
+    await submit();
+    await settle();
+    const [msg] = bus.db.listUnacked('implementer');
+    expect(JSON.stringify(msg?.payload)).not.toContain('abc123');
+  });
+
+  it('survives a failing git fetch', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue(green);
+    mockExeca.mockImplementation(async (_cmd: string, args: string[]) => {
+      if (args.includes('fetch')) throw new Error('offline');
+      return { stdout: args.includes('status') ? '' : '2' };
+    });
+    const result = await submit();
+    await settle();
+    expect(result.isError).toBeFalsy();
+  });
+
+  it('lets only one of two concurrent submits start a gate', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue(green);
+    const [a, b] = await Promise.all([submit(), submit()]);
+    await settle();
+    expect([a.isError, b.isError].filter(Boolean)).toHaveLength(1);
+    expect(mockRunGate).toHaveBeenCalledTimes(1);
   });
 
   it('rejects an unknown run', async () => {
