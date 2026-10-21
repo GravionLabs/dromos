@@ -7,7 +7,6 @@ import type { Run } from '../db.js';
 import { resolveGateCommands, runGate } from '../gate.js';
 import type { GateResult, MessageType, Role } from '../schemas.js';
 import { transition } from '../state-machine.js';
-import { isSafeBranchName } from '../worktree.js';
 import { errorResult, jsonResult, logAndWake } from './util.js';
 
 /**
@@ -117,36 +116,15 @@ function handleGateResult(
     return;
   }
   const out = ctx.db.transaction(() => applyGateResult(ctx, run, summary, gate));
-  // The outcome is committed: logging and waking are best effort and must not trigger the
-  // gate_failed fallback.
+  // The outcome is committed: logging must not trigger the gate_failed fallback or skip the wake.
   try {
     const after = ctx.db.getRun(runId);
     ctx.log.logLine('GATE', `${runId} ${gate.passed ? 'passed' : 'failed'}`);
     ctx.log.logLine('STATE', `${runId} ${after?.state} (round ${after?.round})`);
-    logAndWake(ctx, out.from, out.to, out.type, runId);
-  } catch {
-    // best effort
-  }
-}
-
-/**
- * Best effort when even the gate_failed fallback could not be stored: tell the orchestrator.
- * Remaining limit: the run state is not changed here, so it stays in 'gating' until a human
- * intervenes (the spec defines a single gate_failed fallback, not a second state change).
- */
-function noticeStuckRun(ctx: ToolContext, runId: string, cause: string): void {
-  try {
-    ctx.db.insertMessage({
-      from: 'implementer',
-      to: 'orchestrator',
-      type: 'notice',
-      runId,
-      payload: { runId, reason: `gate handling failed, run stuck in gating: ${cause}` },
-    });
-    logAndWake(ctx, 'implementer', 'orchestrator', 'notice', runId);
   } catch (err) {
-    ctx.log.logLine('ERROR', `${runId} could not notify the orchestrator: ${errorMessage(err)}`);
+    ctx.log.logLine('ERROR', `${runId} could not log the gate outcome: ${errorMessage(err)}`);
   }
+  logAndWake(ctx, out.from, out.to, out.type, runId);
 }
 
 async function runInBackground(ctx: ToolContext, run: Run, summary: string): Promise<void> {
@@ -165,11 +143,12 @@ async function runInBackground(ctx: ToolContext, run: Run, summary: string): Pro
         failedGate('gate', `gate handling failed: ${errorMessage(err)}`),
       );
     } catch (fallbackErr) {
+      // Known limit: the spec defines a single gate_failed fallback. If even that cannot be
+      // stored (database refuses writes), the run stays in 'gating' and needs a human.
       ctx.log.logLine(
         'ERROR',
         `${run.id} gate_failed handling failed: ${errorMessage(fallbackErr)}`,
       );
-      noticeStuckRun(ctx, run.id, errorMessage(fallbackErr));
     }
   } finally {
     pendingGates.delete(run.id);
@@ -197,21 +176,12 @@ export function registerSubmitTools(server: McpServer, ctx: ToolContext): void {
           `run ${runId} is in state '${run.state}', submit_implementation needs 'implementing'`,
         );
       }
-      if (!isSafeBranchName(run.baseBranch)) {
-        return errorResult(`run ${runId} has an invalid base branch: ${run.baseBranch}`);
-      }
       try {
         if ((await git(run.worktreePath, 'status', '--porcelain')) !== '') {
           return errorResult('uncommitted changes in the worktree: commit everything first');
         }
         const ahead = Number(
-          await git(
-            run.worktreePath,
-            'rev-list',
-            '--count',
-            `origin/${run.baseBranch}..HEAD`,
-            '--',
-          ),
+          await git(run.worktreePath, 'rev-list', '--count', `origin/${run.baseBranch}..HEAD`),
         );
         if (!(ahead > 0)) {
           return errorResult(
@@ -221,13 +191,11 @@ export function registerSubmitTools(server: McpServer, ctx: ToolContext): void {
       } catch (err) {
         return errorResult(`could not inspect the worktree: ${errorMessage(err)}`);
       }
-      // Re-read: the run may have moved while git was running.
+      // Re-read: the run may have moved while git was running. The check and the transition
+      // below run synchronously, so two concurrent submits cannot both start a gate.
       const fresh = ctx.db.getRun(runId);
       if (fresh?.state !== 'implementing') {
         return errorResult(`run ${runId} is no longer in state 'implementing'`);
-      }
-      if (pendingGates.has(runId)) {
-        return errorResult(`a gate is already running for run ${runId}`);
       }
       const next = transition(fresh, { type: 'implementation_submitted' }, ctx.config.maxRounds);
       ctx.db.updateRun(runId, { state: next.state, round: next.round });

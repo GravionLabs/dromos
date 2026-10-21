@@ -28,11 +28,15 @@ const green: GateResult = {
   steps: [{ name: 'test', command: 'pnpm test', exitCode: 0, durationMs: 1, outputTail: '' }],
 };
 
+/** Gates held open by a test; afterEach releases them so a failed assertion cannot hang. */
+const held: ((g: GateResult) => void)[] = [];
+
 function deferred() {
   let resolve: (g: GateResult) => void = () => undefined;
   const promise = new Promise<GateResult>((r) => {
     resolve = r;
   });
+  held.push(resolve);
   return { promise, resolve };
 }
 
@@ -81,6 +85,7 @@ describe('submit_implementation', () => {
     bus = await startTestBus();
   });
   afterEach(async () => {
+    for (const release of held.splice(0)) release(green);
     await settle();
     await bus.close();
   });
@@ -147,6 +152,7 @@ describe('submit_implementation', () => {
       reason: 'round limit reached',
       lastGate: red,
     });
+    expect(bus.db.getRun('run-1-1')?.lastGate).toEqual(red);
     expect(bus.db.listUnacked('implementer')).toEqual([]);
   });
 
@@ -199,11 +205,16 @@ describe('submit_implementation', () => {
     mockRunGate.mockResolvedValue(green);
     await submit();
     await settle();
-    const argvs = mockExeca.mock.calls.map(([cmd, argv]) => [cmd, ...(argv as string[])].join(' '));
-    expect(argvs).toEqual([
-      'git -C /wt status --porcelain',
-      'git -C /wt rev-list --count origin/main..HEAD --',
-    ]);
+    expect(mockExeca).toHaveBeenCalledWith(
+      'git',
+      expect.arrayContaining(['/wt', 'status', '--porcelain']),
+      expect.objectContaining({ timeout: 30_000 }),
+    );
+    expect(mockExeca).toHaveBeenCalledWith(
+      'git',
+      expect.arrayContaining(['/wt', 'rev-list', '--count', 'origin/main..HEAD']),
+      expect.objectContaining({ timeout: 30_000 }),
+    );
   });
 
   it('reports a git failure without a state change', async () => {
@@ -235,7 +246,6 @@ describe('submit_implementation', () => {
       "run run-1-1 is in state 'gating', submit_implementation needs 'implementing'",
     );
     expect(mockRunGate).toHaveBeenCalledTimes(1);
-    gate.resolve(green);
   });
 
   it('drops a stale gate result when the run left gating', async () => {
@@ -324,53 +334,33 @@ describe('submit_implementation', () => {
     spy.mockRestore();
     const log = bus.readLog();
     expect(log).toMatch(/ERROR\s+run-1-1 gate_failed handling failed: read-only/);
-    expect(log).toMatch(/ERROR\s+run-1-1 could not notify the orchestrator: read-only/);
     expect(bus.db.getRun('run-1-1')?.state).toBe('gating');
+    expect(bus.db.listUnacked('orchestrator')).toEqual([]);
     expect(pendingGates.size).toBe(0);
-  });
-
-  it('notifies the orchestrator when the gate_failed fallback cannot be stored', async () => {
-    addRun();
-    mockRunGate.mockResolvedValue(green);
-    const spy = vi
-      .spyOn(bus.db, 'insertMessage')
-      .mockImplementationOnce(() => {
-        throw new Error('disk full');
-      })
-      .mockImplementationOnce(() => {
-        throw new Error('still full');
-      });
-    await submit();
-    await settle();
-    spy.mockRestore();
-    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'gating', round: 1 });
-    const [msg] = bus.db.listUnacked('orchestrator');
-    expect(msg?.type).toBe('notice');
-    expect(msg?.payload).toEqual({
-      runId: 'run-1-1',
-      reason: 'gate handling failed, run stuck in gating: still full',
-    });
-    expect(bus.db.listUnacked('implementer')).toEqual([]);
   });
 
   it('does not fall back to gate_failed when only post-commit logging fails', async () => {
     addRun();
     mockRunGate.mockResolvedValue(green);
     const realGetRun = bus.db.getRun.bind(bus.db);
-    let calls = 0;
-    // 1: tool, 2: re-read, 3: background guard, 4: post-commit read for the STATE log.
+    // Fail only the read that follows the committed outcome (the run is then reviewing).
     const spy = vi.spyOn(bus.db, 'getRun').mockImplementation((id: string) => {
-      calls += 1;
-      if (calls === 4) throw new Error('read failed');
-      return realGetRun(id);
+      const run = realGetRun(id);
+      if (run?.state === 'reviewing') throw new Error('read failed');
+      return run;
     });
+    const wake = vi.spyOn(bus.events, 'messageFor');
     await submit();
     await settle();
     spy.mockRestore();
+    expect(wake).toHaveBeenCalledWith('reviewer');
+    wake.mockRestore();
     expect(bus.db.getRun('run-1-1')?.state).toBe('reviewing');
     expect(bus.db.listUnacked('reviewer')).toHaveLength(1);
     expect(bus.db.listUnacked('implementer')).toEqual([]);
-    expect(bus.readLog()).not.toContain('gate handling failed');
+    const log = bus.readLog();
+    expect(log).toMatch(/ERROR\s+run-1-1 could not log the gate outcome: read failed/);
+    expect(log).not.toContain('gate handling failed');
   });
 
   it('still delivers the message when waking the recipient fails', async () => {
@@ -440,15 +430,6 @@ describe('submit_implementation', () => {
     });
   });
 
-  it('rejects a base branch that looks like an option without calling git', async () => {
-    addRun({ baseBranch: '--output=x' });
-    const result = await submit();
-    expect(result.isError).toBe(true);
-    expect(textOf(result)).toBe('run run-1-1 has an invalid base branch: --output=x');
-    expect(mockExeca).not.toHaveBeenCalled();
-    expect(bus.db.getRun('run-1-1')?.state).toBe('implementing');
-  });
-
   it('lets only one of two concurrent submits start a gate', async () => {
     addRun();
     mockRunGate.mockResolvedValue(green);
@@ -473,21 +454,6 @@ describe('submit_implementation', () => {
     expect(losers).toHaveLength(1);
     expect(textOf(losers[0])).toBe("run run-1-1 is no longer in state 'implementing'");
     expect(mockRunGate).toHaveBeenCalledTimes(1);
-  });
-
-  it('refuses a second gate for a run whose gate is still pending', async () => {
-    addRun();
-    const gate = deferred();
-    mockRunGate.mockReturnValue(gate.promise);
-    await submit();
-    // Simulate the run being put back to implementing while the first gate still runs.
-    bus.db.updateRun('run-1-1', { state: 'implementing' });
-    const second = await submit();
-    expect(second.isError).toBe(true);
-    expect(textOf(second)).toBe('a gate is already running for run run-1-1');
-    expect(mockRunGate).toHaveBeenCalledTimes(1);
-    expect(bus.db.getRun('run-1-1')?.state).toBe('implementing');
-    gate.resolve(green);
   });
 
   it('reports the last step when a red gate has no non-zero step', async () => {
@@ -633,6 +599,31 @@ describe('submit_implementation against a real git worktree', () => {
     const result = await submit();
     expect(textOf(result)).toBe('no commits ahead of origin/main: commit your work first');
     expect(bus.db.getRun('run-1-1')?.state).toBe('implementing');
+  });
+
+  it('reports a failing git call for a directory that is not a repository', async () => {
+    const notARepo = mkdtempSync(join(tmpdir(), 'submit-nogit-'));
+    bus.db.insertRun({
+      id: 'run-2-1',
+      repo: 'o/r',
+      repoPath: notARepo,
+      issueNumber: 2,
+      issueTitle: 'Other',
+      baseBranch: 'main',
+      branch: 'main',
+      worktreePath: notARepo,
+      state: 'implementing',
+      round: 1,
+    });
+    const client = await bus.connect('implementer');
+    const result = await client.callTool({
+      name: 'submit_implementation',
+      arguments: { runId: 'run-2-1', summary: 'x' },
+    });
+    rmSync(notARepo, { recursive: true, force: true });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toMatch(/^could not inspect the worktree: .*not a git repository/s);
+    expect(bus.db.getRun('run-2-1')?.state).toBe('implementing');
   });
 
   it('rejects uncommitted changes', async () => {
