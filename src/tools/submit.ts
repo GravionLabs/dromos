@@ -10,7 +10,11 @@ import { transition } from '../state-machine.js';
 import { isSafeBranchName } from '../worktree.js';
 import { errorResult, jsonResult, logAndWake } from './util.js';
 
-/** Background gates by run id; tests await these to observe completion. */
+/**
+ * Background gates by run id; tests await these to observe completion.
+ * Known limitation: gates live in memory only. If the bus restarts while a run is in 'gating',
+ * the run stays there; startup recovery of such runs is a follow-up outside this PBI.
+ */
 export const pendingGates = new Map<string, Promise<void>>();
 
 const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -40,29 +44,13 @@ async function evaluateGate(ctx: ToolContext, run: Run): Promise<GateResult> {
   }
 }
 
-/** Masks obvious credentials before gate output is stored or relayed to another agent. */
-export function redact(text: string): string {
-  return text
-    .replace(/\b(?:gh[pousr]_|github_pat_|sk-)[A-Za-z0-9_-]{16,}/g, '[redacted]')
-    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 [redacted]')
-    .replace(
-      /\b([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_?KEY)[A-Za-z0-9_]*)\s*[=:]\s*\S+/gi,
-      '$1=[redacted]',
-    );
-}
-
-const redactGate = (gate: GateResult): GateResult => ({
-  ...gate,
-  steps: gate.steps.map((step) => ({ ...step, outputTail: redact(step.outputTail) })),
-});
-
 /** Leaves plain paths and refs untouched (spec form) and single-quotes anything else. */
 const shellArg = (value: string) =>
   /^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 
 type Outbound = { from: Role; to: Role; type: MessageType };
 
-/** Persists the (already redacted) gate outcome, state change and outgoing message atomically. */
+/** Persists the gate outcome, state change and outgoing message atomically. */
 function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: GateResult): Outbound {
   const next = transition(
     run,
@@ -117,13 +105,17 @@ function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: Gate
   return { from: 'orchestrator', to: 'implementer', type: 'gate_result' };
 }
 
-function handleGateResult(ctx: ToolContext, runId: string, summary: string, raw: GateResult): void {
+function handleGateResult(
+  ctx: ToolContext,
+  runId: string,
+  summary: string,
+  gate: GateResult,
+): void {
   const run = ctx.db.getRun(runId);
   if (run?.state !== 'gating') {
     ctx.log.logLine('ERROR', `${runId} gate result dropped: run is in state ${run?.state}`);
     return;
   }
-  const gate = redactGate(raw);
   const out = ctx.db.transaction(() => applyGateResult(ctx, run, summary, gate));
   const after = ctx.db.getRun(runId);
   ctx.log.logLine('GATE', `${runId} ${gate.passed ? 'passed' : 'failed'}`);
@@ -131,56 +123,26 @@ function handleGateResult(ctx: ToolContext, runId: string, summary: string, raw:
   logAndWake(ctx, out.from, out.to, out.type, runId);
 }
 
-/**
- * Last resort when even the gate_failed fallback could not be persisted: never leave the run
- * stuck in gating. Blocks it and, if the database still accepts writes, notifies the orchestrator.
- */
-function blockStuckRun(ctx: ToolContext, runId: string, gate: GateResult): void {
-  try {
-    if (ctx.db.getRun(runId)?.state !== 'gating') return;
-    const lastGate = redactGate(gate);
-    try {
-      ctx.db.transaction(() => {
-        ctx.db.updateRun(runId, { state: 'blocked', lastGate });
-        ctx.db.insertMessage({
-          from: 'implementer',
-          to: 'orchestrator',
-          type: 'notice',
-          runId,
-          payload: { runId, reason: 'gate handling failed', lastGate },
-        });
-      });
-    } catch (err) {
-      ctx.log.logLine('ERROR', `${runId} could not notify the orchestrator: ${errorMessage(err)}`);
-      ctx.db.updateRun(runId, { state: 'blocked' });
-      ctx.log.logLine('STATE', `${runId} blocked (gate handling failed)`);
-      return;
-    }
-    ctx.log.logLine('STATE', `${runId} blocked (gate handling failed)`);
-    logAndWake(ctx, 'implementer', 'orchestrator', 'notice', runId);
-  } catch (err) {
-    ctx.log.logLine('ERROR', `${runId} could not block stuck run: ${errorMessage(err)}`);
-  }
-}
-
 async function runInBackground(ctx: ToolContext, run: Run, summary: string): Promise<void> {
   try {
     const gate = await evaluateGate(ctx, run);
+    handleGateResult(ctx, run.id, summary, gate);
+  } catch (err) {
+    // Spec: log every background error as ERROR and treat it as gate_failed, so the run
+    // leaves gating (implementing with round + 1, or blocked on the last round).
+    ctx.log.logLine('ERROR', `${run.id} gate handling failed: ${errorMessage(err)}`);
     try {
-      handleGateResult(ctx, run.id, summary, gate);
-    } catch (err) {
-      // Spec: log every background error as ERROR and treat it as gate_failed.
-      ctx.log.logLine('ERROR', `${run.id} gate handling failed: ${errorMessage(err)}`);
-      const fallback = failedGate('gate', `gate handling failed: ${errorMessage(err)}`);
-      try {
-        handleGateResult(ctx, run.id, summary, fallback);
-      } catch (fallbackErr) {
-        ctx.log.logLine(
-          'ERROR',
-          `${run.id} gate_failed fallback failed: ${errorMessage(fallbackErr)}`,
-        );
-        blockStuckRun(ctx, run.id, fallback);
-      }
+      handleGateResult(
+        ctx,
+        run.id,
+        summary,
+        failedGate('gate', `gate handling failed: ${errorMessage(err)}`),
+      );
+    } catch (fallbackErr) {
+      ctx.log.logLine(
+        'ERROR',
+        `${run.id} gate_failed handling failed: ${errorMessage(fallbackErr)}`,
+      );
     }
   } finally {
     pendingGates.delete(run.id);
@@ -234,8 +196,11 @@ export function registerSubmitTools(server: McpServer, ctx: ToolContext): void {
       }
       // Re-read: the run may have moved while git was running.
       const fresh = ctx.db.getRun(runId);
-      if (fresh?.state !== 'implementing' || pendingGates.has(runId)) {
+      if (fresh?.state !== 'implementing') {
         return errorResult(`run ${runId} is no longer in state 'implementing'`);
+      }
+      if (pendingGates.has(runId)) {
+        return errorResult(`a gate is already running for run ${runId}`);
       }
       const next = transition(fresh, { type: 'implementation_submitted' }, ctx.config.maxRounds);
       ctx.db.updateRun(runId, { state: next.state, round: next.round });

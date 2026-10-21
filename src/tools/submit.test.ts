@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveGateCommands, runGate } from '../gate.js';
 import type { GateResult } from '../schemas.js';
 import { startTestBus, type TestBus, textOf } from '../test-helpers.js';
-import { pendingGates, redact } from './submit.js';
+import { pendingGates } from './submit.js';
 
 const mockExeca = vi.hoisted(() => vi.fn());
 vi.mock('execa', () => ({ execa: mockExeca }));
@@ -32,17 +32,6 @@ function deferred() {
   });
   return { promise, resolve };
 }
-
-describe('redact', () => {
-  it('masks tokens, bearer headers and secret assignments', () => {
-    expect(redact('ghp_abcdefghijklmnopqrstu Bearer abcdefgh12345 API_KEY: xyz')).toBe(
-      '[redacted] Bearer [redacted] API_KEY=[redacted]',
-    );
-  });
-  it('leaves ordinary text alone', () => {
-    expect(redact('3 tests failed')).toBe('3 tests failed');
-  });
-});
 
 describe('submit_implementation', () => {
   let bus: TestBus;
@@ -282,57 +271,6 @@ describe('submit_implementation', () => {
     expect(pendingGates.size).toBe(0);
   });
 
-  it('blocks the run with the fallback gate when the gate_failed fallback also fails', async () => {
-    addRun();
-    mockRunGate.mockResolvedValue(green);
-    const spy = vi
-      .spyOn(bus.db, 'insertMessage')
-      .mockImplementationOnce(() => {
-        throw new Error('disk full');
-      })
-      .mockImplementationOnce(() => {
-        throw new Error('still full');
-      });
-    await submit();
-    await settle();
-    spy.mockRestore();
-    const fallback: GateResult = {
-      passed: false,
-      steps: [
-        {
-          name: 'gate',
-          command: '',
-          exitCode: 1,
-          durationMs: 0,
-          outputTail: 'gate handling failed: disk full',
-        },
-      ],
-    };
-    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'blocked', lastGate: fallback });
-    expect(bus.readLog()).toContain('gate_failed fallback failed: still full');
-    const [msg] = bus.db.listUnacked('orchestrator');
-    expect(msg?.payload).toEqual({
-      runId: 'run-1-1',
-      reason: 'gate handling failed',
-      lastGate: fallback,
-    });
-    expect(bus.db.listUnacked('implementer')).toEqual([]);
-  });
-
-  it('still blocks the run when no message can be written at all', async () => {
-    addRun();
-    mockRunGate.mockResolvedValue(green);
-    const spy = vi.spyOn(bus.db, 'insertMessage').mockImplementation(() => {
-      throw new Error('read-only');
-    });
-    await submit();
-    await settle();
-    spy.mockRestore();
-    expect(bus.db.getRun('run-1-1')?.state).toBe('blocked');
-    expect(bus.readLog()).toContain('could not notify the orchestrator: read-only');
-    expect(pendingGates.size).toBe(0);
-  });
-
   it('treats a throwing resolveGateCommands as a failed gate', async () => {
     addRun();
     mockResolve.mockImplementationOnce(() => {
@@ -342,50 +280,103 @@ describe('submit_implementation', () => {
     await settle();
     expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'implementing', round: 2 });
     expect(mockRunGate).not.toHaveBeenCalled();
+    expect(bus.readLog()).toMatch(/ERROR\s+run-1-1 gate crashed: no commands/);
+    const [msg] = bus.db.listUnacked('implementer');
+    expect(msg?.type).toBe('gate_result');
+    expect(msg?.payload).toEqual({
+      runId: 'run-1-1',
+      round: 2,
+      failedStep: 'gate',
+      exitCode: 1,
+      outputTail: 'gate crashed: no commands',
+    });
+  });
+
+  it('blocks the run when the gate_failed fallback lands on the last round', async () => {
+    addRun({ round: bus.config.maxRounds });
+    mockRunGate.mockResolvedValue(green);
+    const spy = vi.spyOn(bus.db, 'insertMessage').mockImplementationOnce(() => {
+      throw new Error('disk full');
+    });
+    await submit();
+    await settle();
+    spy.mockRestore();
+    expect(bus.db.getRun('run-1-1')?.state).toBe('blocked');
+    const [msg] = bus.db.listUnacked('orchestrator');
+    expect(msg?.payload).toMatchObject({
+      runId: 'run-1-1',
+      reason: 'round limit reached',
+      lastGate: { passed: false, steps: [{ outputTail: 'gate handling failed: disk full' }] },
+    });
+  });
+
+  it('logs ERROR and leaves the run when even the gate_failed fallback cannot be stored', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue(green);
+    const spy = vi.spyOn(bus.db, 'insertMessage').mockImplementation(() => {
+      throw new Error('read-only');
+    });
+    await submit();
+    await settle();
+    spy.mockRestore();
+    expect(bus.readLog()).toMatch(/ERROR\s+run-1-1 gate_failed handling failed: read-only/);
+    expect(pendingGates.size).toBe(0);
   });
 
   it('still delivers the message when waking the recipient fails', async () => {
     addRun();
     mockRunGate.mockResolvedValue(green);
-    vi.spyOn(bus.events, 'messageFor').mockImplementation(() => {
+    const wake = vi.spyOn(bus.events, 'messageFor').mockImplementation(() => {
       throw new Error('wake failed');
     });
     await submit();
     await settle();
+    expect(wake).toHaveBeenCalledWith('reviewer');
+    wake.mockRestore();
     expect(bus.db.getRun('run-1-1')?.state).toBe('reviewing');
     expect(bus.db.listUnacked('reviewer')).toHaveLength(1);
   });
 
-  it('wakes the reviewer on green', async () => {
+  it('wakes only the reviewer on green and logs GATE, STATE and MESSAGE', async () => {
     addRun();
     mockRunGate.mockResolvedValue(green);
     const wake = vi.spyOn(bus.events, 'messageFor');
     await submit();
     await settle();
-    expect(wake).toHaveBeenCalledWith('reviewer');
+    expect(wake.mock.calls).toEqual([['reviewer']]);
+    wake.mockRestore();
+    const log = bus.readLog();
+    expect(log).toMatch(/STATE\s+run-1-1 gating \(round 1\)/);
+    expect(log).toMatch(/GATE\s+run-1-1 passed/);
+    expect(log).toMatch(/STATE\s+run-1-1 reviewing \(round 1\)/);
+    expect(log).toMatch(/MESSAGE\s+implementer -> reviewer \[review_request\] run-1-1/);
   });
 
-  it('redacts credentials in relayed output', async () => {
+  it('wakes only the implementer on red and logs GATE, STATE and MESSAGE', async () => {
     addRun();
-    mockRunGate.mockResolvedValue({
-      passed: false,
-      steps: [
-        {
-          name: 'test',
-          command: 'x',
-          exitCode: 1,
-          durationMs: 1,
-          outputTail: 'GITHUB_TOKEN=abc123 failed',
-        },
-      ],
-    });
+    mockRunGate.mockResolvedValue(red);
+    const wake = vi.spyOn(bus.events, 'messageFor');
     await submit();
     await settle();
-    const [msg] = bus.db.listUnacked('implementer');
-    expect(msg?.payload).toMatchObject({ outputTail: 'GITHUB_TOKEN=[redacted] failed' });
-    expect(bus.db.getRun('run-1-1')?.lastGate?.steps[0]?.outputTail).toBe(
-      'GITHUB_TOKEN=[redacted] failed',
-    );
+    expect(wake.mock.calls).toEqual([['implementer']]);
+    wake.mockRestore();
+    const log = bus.readLog();
+    expect(log).toMatch(/GATE\s+run-1-1 failed/);
+    expect(log).toMatch(/STATE\s+run-1-1 implementing \(round 2\)/);
+    expect(log).toMatch(/MESSAGE\s+orchestrator -> implementer \[gate_result\] run-1-1/);
+  });
+
+  it('wakes only the orchestrator when the run is blocked', async () => {
+    addRun({ round: bus.config.maxRounds });
+    mockRunGate.mockResolvedValue(red);
+    const wake = vi.spyOn(bus.events, 'messageFor');
+    await submit();
+    await settle();
+    expect(wake.mock.calls).toEqual([['orchestrator']]);
+    wake.mockRestore();
+    const log = bus.readLog();
+    expect(log).toMatch(/STATE\s+run-1-1 blocked/);
+    expect(log).toMatch(/MESSAGE\s+implementer -> orchestrator \[notice\] run-1-1/);
   });
 
   it('passes the implementation summary to the reviewer unchanged', async () => {
@@ -420,10 +411,42 @@ describe('submit_implementation', () => {
   it('lets only one of two concurrent submits start a gate', async () => {
     addRun();
     mockRunGate.mockResolvedValue(green);
-    const [a, b] = await Promise.all([submit(), submit()]);
+    // Hold both status checks until both submits are past the first state check.
+    let release: () => void = () => undefined;
+    const bothArrived = new Promise<void>((r) => {
+      release = r;
+    });
+    let statusCalls = 0;
+    mockExeca.mockImplementation(async (_cmd: string, args: string[]) => {
+      if (args.includes('status')) {
+        statusCalls += 1;
+        if (statusCalls === 2) release();
+        await bothArrived;
+        return { stdout: '' };
+      }
+      return { stdout: '2' };
+    });
+    const results = await Promise.all([submit(), submit()]);
     await settle();
-    expect([a.isError, b.isError].filter(Boolean)).toHaveLength(1);
+    const losers = results.filter((r) => r.isError);
+    expect(losers).toHaveLength(1);
+    expect(textOf(losers[0])).toBe("run run-1-1 is no longer in state 'implementing'");
     expect(mockRunGate).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a second gate for a run whose gate is still pending', async () => {
+    addRun();
+    const gate = deferred();
+    mockRunGate.mockReturnValue(gate.promise);
+    await submit();
+    // Simulate the run being put back to implementing while the first gate still runs.
+    bus.db.updateRun('run-1-1', { state: 'implementing' });
+    const second = await submit();
+    expect(second.isError).toBe(true);
+    expect(textOf(second)).toBe('a gate is already running for run run-1-1');
+    expect(mockRunGate).toHaveBeenCalledTimes(1);
+    expect(bus.db.getRun('run-1-1')?.state).toBe('implementing');
+    gate.resolve(green);
   });
 
   it('rejects an unknown run', async () => {
