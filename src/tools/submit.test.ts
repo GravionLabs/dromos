@@ -25,6 +25,14 @@ const green: GateResult = {
   steps: [{ name: 'test', command: 'pnpm test', exitCode: 0, durationMs: 1, outputTail: '' }],
 };
 
+function deferred() {
+  let resolve: (g: GateResult) => void = () => undefined;
+  const promise = new Promise<GateResult>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 describe('submit_implementation', () => {
   let bus: TestBus;
   let status = '';
@@ -69,14 +77,16 @@ describe('submit_implementation', () => {
 
   it('returns gate_started before the gate resolves, then sends review_request on green', async () => {
     addRun();
-    let release: (g: GateResult) => void = () => undefined;
-    mockRunGate.mockReturnValue(new Promise((r) => (release = r)));
+    const gate = deferred();
+    mockRunGate.mockReturnValue(gate.promise);
+    const started = Date.now();
     const result = await submit();
+    expect(Date.now() - started).toBeLessThan(1000);
     expect(JSON.parse(textOf(result))).toEqual({ status: 'gate_started' });
     expect(bus.db.getRun('run-1-1')?.state).toBe('gating');
     expect(bus.db.listUnacked('reviewer')).toEqual([]);
 
-    release(green);
+    gate.resolve(green);
     await settle();
     const run = bus.db.getRun('run-1-1');
     expect(run?.state).toBe('reviewing');
@@ -89,7 +99,8 @@ describe('submit_implementation', () => {
       branch: 'agent/1-title',
       baseBranch: 'main',
       implementationSummary: 'Did it',
-      diffCommand: 'git -C /wt diff origin/main...HEAD',
+      diffCommand: "git -C '/wt' diff 'origin/main'...HEAD",
+      issue: { number: 1, title: 'Title' },
       instructions: 'Review the diff read-only. Call submit_review.',
     });
     expect(pendingGates.size).toBe(0);
@@ -110,6 +121,8 @@ describe('submit_implementation', () => {
       outputTail: 'boom tail',
       round: 2,
     });
+    expect(run?.lastGate).toEqual(red);
+    expect(msg?.payload).toMatchObject({ passed: false });
     expect(bus.db.listUnacked('reviewer')).toEqual([]);
   });
 
@@ -165,6 +178,77 @@ describe('submit_implementation', () => {
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain("is in state 'reviewing'");
     expect(mockExeca).not.toHaveBeenCalled();
+  });
+
+  it('asks git for status and the commit range against origin/<base>', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue(green);
+    await submit();
+    await settle();
+    expect(mockExeca).toHaveBeenCalledWith('git', ['-C', '/wt', 'status', '--porcelain']);
+    expect(mockExeca).toHaveBeenCalledWith('git', [
+      '-C',
+      '/wt',
+      'rev-list',
+      '--count',
+      'origin/main..HEAD',
+    ]);
+  });
+
+  it('reports a git failure without a state change', async () => {
+    addRun();
+    mockExeca.mockRejectedValue(new Error('not a repo'));
+    const result = await submit();
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('could not inspect the worktree: not a repo');
+    expect(bus.db.getRun('run-1-1')?.state).toBe('implementing');
+  });
+
+  it('rejects a non-numeric commit count', async () => {
+    addRun();
+    ahead = 'garbage';
+    const result = await submit();
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('no commits ahead');
+    expect(mockRunGate).not.toHaveBeenCalled();
+  });
+
+  it('rejects a double submit while the gate is running', async () => {
+    addRun();
+    const gate = deferred();
+    mockRunGate.mockReturnValue(gate.promise);
+    await submit();
+    const second = await submit();
+    expect(second.isError).toBe(true);
+    expect(mockRunGate).toHaveBeenCalledTimes(1);
+    gate.resolve(green);
+  });
+
+  it('drops a stale gate result when the run left gating', async () => {
+    addRun();
+    const gate = deferred();
+    mockRunGate.mockReturnValue(gate.promise);
+    await submit();
+    bus.db.updateRun('run-1-1', { state: 'blocked' });
+    gate.resolve(green);
+    await settle();
+    expect(bus.db.getRun('run-1-1')?.state).toBe('blocked');
+    expect(bus.db.listUnacked('reviewer')).toEqual([]);
+    expect(bus.readLog()).toContain('gate result dropped');
+  });
+
+  it('rolls back and logs when persisting the outcome fails', async () => {
+    addRun();
+    mockRunGate.mockResolvedValue(green);
+    const spy = vi.spyOn(bus.db, 'insertMessage').mockImplementation(() => {
+      throw new Error('disk full');
+    });
+    await submit();
+    await settle();
+    spy.mockRestore();
+    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'gating', lastGate: null });
+    expect(bus.readLog()).toContain('disk full');
+    expect(pendingGates.size).toBe(0);
   });
 
   it('rejects an unknown run', async () => {

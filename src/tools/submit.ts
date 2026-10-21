@@ -5,7 +5,7 @@ import { requireRole } from '../auth.js';
 import type { ToolContext } from '../context.js';
 import type { Run } from '../db.js';
 import { resolveGateCommands, runGate } from '../gate.js';
-import type { GateResult, Role } from '../schemas.js';
+import type { GateResult, MessageType, Role } from '../schemas.js';
 import { transition } from '../state-machine.js';
 import { errorResult, jsonResult } from './util.js';
 
@@ -19,7 +19,7 @@ async function git(worktreePath: string, ...args: string[]): Promise<string> {
   return String(stdout).trim();
 }
 
-function notify(ctx: ToolContext, from: Role, to: Role, type: string, runId: string): void {
+function notify(ctx: ToolContext, from: Role, to: Role, type: MessageType, runId: string): void {
   try {
     ctx.log.logLine('MESSAGE', `${from} -> ${to} [${type}] ${runId}`);
     ctx.events.messageFor(to);
@@ -49,20 +49,26 @@ async function evaluateGate(ctx: ToolContext, run: Run): Promise<GateResult> {
   }
 }
 
-function handleGateResult(ctx: ToolContext, runId: string, summary: string, gate: GateResult) {
-  const run = ctx.db.getRun(runId);
-  if (!run) return;
-  ctx.db.updateRun(runId, { lastGate: gate });
-  ctx.log.logLine('GATE', `${runId} ${gate.passed ? 'passed' : 'failed'}`);
+const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+
+type Outbound = { from: Role; to: Role; type: MessageType };
+
+/** Persists the gate outcome, state change and outgoing message atomically. */
+function applyGateResult(
+  ctx: ToolContext,
+  run: Run,
+  summary: string,
+  gate: GateResult,
+): Outbound | undefined {
   const next = transition(
     run,
     { type: gate.passed ? 'gate_passed' : 'gate_failed' },
     ctx.config.maxRounds,
   );
-  ctx.db.updateRun(runId, { state: next.state, round: next.round });
-  ctx.log.logLine('STATE', `${runId} ${next.state} (round ${next.round})`);
-
+  ctx.db.updateRun(run.id, { lastGate: gate, state: next.state, round: next.round });
+  const runId = run.id;
   if (gate.passed) {
+    const diffCommand = `git -C ${shellQuote(run.worktreePath)} diff ${shellQuote(`origin/${run.baseBranch}`)}...HEAD`;
     ctx.db.insertMessage({
       from: 'implementer',
       to: 'reviewer',
@@ -75,12 +81,11 @@ function handleGateResult(ctx: ToolContext, runId: string, summary: string, gate
         baseBranch: run.baseBranch,
         issue: { number: run.issueNumber, title: run.issueTitle },
         implementationSummary: summary,
-        diffCommand: `git -C ${run.worktreePath} diff origin/${run.baseBranch}...HEAD`,
+        diffCommand,
         instructions: 'Review the diff read-only. Call submit_review.',
       },
     });
-    notify(ctx, 'implementer', 'reviewer', 'review_request', runId);
-    return;
+    return { from: 'implementer', to: 'reviewer', type: 'review_request' };
   }
   if (next.state === 'blocked') {
     ctx.db.insertMessage({
@@ -90,8 +95,7 @@ function handleGateResult(ctx: ToolContext, runId: string, summary: string, gate
       runId,
       payload: { runId, reason: 'round limit reached', lastGate: gate },
     });
-    notify(ctx, 'implementer', 'orchestrator', 'notice', runId);
-    return;
+    return { from: 'implementer', to: 'orchestrator', type: 'notice' };
   }
   const failed = gate.steps.find((s) => s.exitCode !== 0) ?? gate.steps[gate.steps.length - 1];
   ctx.db.insertMessage({
@@ -109,7 +113,25 @@ function handleGateResult(ctx: ToolContext, runId: string, summary: string, gate
       steps: gate.steps.map((s) => ({ name: s.name, exitCode: s.exitCode })),
     },
   });
-  notify(ctx, 'orchestrator', 'implementer', 'gate_result', runId);
+  return { from: 'orchestrator', to: 'implementer', type: 'gate_result' };
+}
+
+function handleGateResult(
+  ctx: ToolContext,
+  runId: string,
+  summary: string,
+  gate: GateResult,
+): void {
+  const run = ctx.db.getRun(runId);
+  if (run?.state !== 'gating') {
+    ctx.log.logLine('ERROR', `${runId} gate result dropped: run is in state ${run?.state}`);
+    return;
+  }
+  const out = ctx.db.transaction(() => applyGateResult(ctx, run, summary, gate));
+  const after = ctx.db.getRun(runId);
+  ctx.log.logLine('GATE', `${runId} ${gate.passed ? 'passed' : 'failed'}`);
+  ctx.log.logLine('STATE', `${runId} ${after?.state} (round ${after?.round})`);
+  if (out) notify(ctx, out.from, out.to, out.type, runId);
 }
 
 async function runInBackground(ctx: ToolContext, run: Run, summary: string): Promise<void> {
