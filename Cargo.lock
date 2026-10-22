@@ -23,6 +23,7 @@ name = "dromos-schema-gen"
 version = "0.0.0"
 dependencies = [
  "prettyplease",
+ "quote",
  "schemars",
  "serde_json",
  "syn 3.0.9",

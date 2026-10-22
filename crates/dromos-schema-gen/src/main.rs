@@ -28,6 +28,8 @@ enum GenError {
     Typify(typify::Error),
     /// typify produced tokens that do not parse as a Rust file.
     Syntax(syn::Error),
+    /// The schema uses a shape the normalisation step cannot map to typify input.
+    Normalize(String),
 }
 
 impl fmt::Display for GenError {
@@ -36,6 +38,7 @@ impl fmt::Display for GenError {
             Self::Schema(e) => write!(f, "invalid JSON Schema: {e}"),
             Self::Typify(e) => write!(f, "typify failed: {e}"),
             Self::Syntax(e) => write!(f, "generated code does not parse: {e}"),
+            Self::Normalize(msg) => write!(f, "unsupported schema shape: {msg}"),
         }
     }
 }
@@ -45,10 +48,11 @@ impl fmt::Display for GenError {
 /// - `const: v` becomes `enum: [v]`: typify only recognises single-value enums as the fixed
 ///   discriminator of an internally tagged enum.
 /// - `$ref` entries of a `oneOf` are inlined: typify does not resolve references when looking for
-///   the tag. Definitions referenced only from such a `oneOf` are dropped afterwards.
+///   the tag. Definitions that are no longer referenced afterwards are dropped. A `oneOf` `$ref`
+///   with sibling keywords, a non-local or unknown target, or a recursive inlining is an error.
 /// - `format: date-time` is removed so timestamps stay strings validated by their `pattern`;
 ///   chrono would re-serialise `09:15:30.000Z` as `09:15:30Z` and break the wire format.
-fn normalize(schema: &mut Value) {
+fn normalize(schema: &mut Value) -> Result<(), GenError> {
     rewrite_keywords(schema);
 
     let Some(defs) = schema
@@ -56,19 +60,12 @@ fn normalize(schema: &mut Value) {
         .and_then(Value::as_object)
         .cloned()
     else {
-        return;
+        return Ok(());
     };
     let mut inlined = BTreeSet::new();
-    inline_one_of_refs(schema, &defs, &mut inlined);
-
-    let referenced = collect_refs(schema);
-    if let Some(defs) = schema.get_mut("definitions").and_then(Value::as_object_mut) {
-        for name in inlined {
-            if !referenced.contains(&format!("{DEF_PREFIX}{name}")) {
-                defs.remove(&name);
-            }
-        }
-    }
+    inline_one_of_refs(schema, &defs, &mut inlined, &mut Vec::new())?;
+    drop_unreferenced(schema, &inlined);
+    Ok(())
 }
 
 /// Prefix of local definition references.
@@ -98,40 +95,106 @@ fn rewrite_keywords(value: &mut Value) {
     }
 }
 
+/// Resolves a `oneOf` entry that carries `$ref` to the definition name it may be replaced by.
+fn one_of_ref_target<'a>(
+    entry: &'a Map<String, Value>,
+    defs: &Map<String, Value>,
+) -> Result<&'a str, GenError> {
+    let reference = entry
+        .get("$ref")
+        .and_then(Value::as_str)
+        .ok_or_else(|| GenError::Normalize("oneOf `$ref` must be a string".to_owned()))?;
+    if entry.len() != 1 {
+        return Err(GenError::Normalize(format!(
+            "oneOf entry `{reference}` has keywords besides `$ref`; inline it in the schema"
+        )));
+    }
+    let name = reference.strip_prefix(DEF_PREFIX).ok_or_else(|| {
+        GenError::Normalize(format!(
+            "oneOf `$ref` `{reference}` is not a local definition"
+        ))
+    })?;
+    if !defs.contains_key(name) {
+        return Err(GenError::Normalize(format!(
+            "oneOf `$ref` `{reference}` points to a missing definition"
+        )));
+    }
+    Ok(name)
+}
+
 fn inline_one_of_refs(
     value: &mut Value,
     defs: &Map<String, Value>,
     inlined: &mut BTreeSet<String>,
-) {
+    active: &mut Vec<String>,
+) -> Result<(), GenError> {
     match value {
         Value::Object(map) => {
             if let Some(Value::Array(variants)) = map.get_mut("oneOf") {
                 for variant in variants.iter_mut() {
-                    let target = variant
-                        .as_object()
-                        .filter(|v| v.len() == 1)
-                        .and_then(|v| v.get("$ref"))
-                        .and_then(Value::as_str)
-                        .and_then(|r| r.strip_prefix(DEF_PREFIX))
-                        .map(str::to_owned);
-                    if let Some(name) = target
-                        && let Some(def) = defs.get(&name)
-                    {
-                        *variant = def.clone();
-                        inlined.insert(name);
+                    let target = match variant.as_object() {
+                        Some(entry) if entry.contains_key("$ref") => {
+                            Some(one_of_ref_target(entry, defs)?.to_owned())
+                        }
+                        _ => None,
+                    };
+                    if let Some(name) = target {
+                        if active.contains(&name) {
+                            return Err(GenError::Normalize(format!(
+                                "definition `{name}` inlines itself through `oneOf`"
+                            )));
+                        }
+                        *variant = defs[&name].clone();
+                        inlined.insert(name.clone());
+                        active.push(name);
+                        inline_one_of_refs(variant, defs, inlined, active)?;
+                        active.pop();
+                    } else {
+                        inline_one_of_refs(variant, defs, inlined, active)?;
                     }
                 }
             }
-            for v in map.values_mut() {
-                inline_one_of_refs(v, defs, inlined);
+            for (key, child) in map.iter_mut() {
+                if key == "oneOf" && child.is_array() {
+                    continue;
+                }
+                inline_one_of_refs(child, defs, inlined, active)?;
             }
         }
         Value::Array(items) => {
-            for v in items {
-                inline_one_of_refs(v, defs, inlined);
+            for item in items {
+                inline_one_of_refs(item, defs, inlined, active)?;
             }
         }
         _ => {}
+    }
+    Ok(())
+}
+
+/// Removes inlined definitions nobody references any more, repeating until nothing changes so
+/// definitions referenced only from other dropped definitions (or from themselves) go too.
+fn drop_unreferenced(schema: &mut Value, inlined: &BTreeSet<String>) {
+    loop {
+        let Some(defs) = schema.get("definitions").and_then(Value::as_object) else {
+            return;
+        };
+        // A definition's references to itself do not keep it alive.
+        let unreferenced = inlined.iter().find(|name| {
+            if !defs.contains_key(*name) {
+                return false;
+            }
+            let mut rest = schema.clone();
+            if let Some(rest_defs) = rest["definitions"].as_object_mut() {
+                rest_defs.remove(*name);
+            }
+            !collect_refs(&rest).contains(&format!("{DEF_PREFIX}{name}"))
+        });
+        let Some(name) = unreferenced.cloned() else {
+            return;
+        };
+        if let Some(defs) = schema.get_mut("definitions").and_then(Value::as_object_mut) {
+            defs.remove(&name);
+        }
     }
 }
 
@@ -153,10 +216,61 @@ fn collect_refs(value: &Value) -> BTreeSet<String> {
     refs
 }
 
+/// `SCREAMING_SNAKE_CASE` of a `PascalCase` definition name.
+fn screaming_snake(name: &str) -> String {
+    let mut out = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c.is_uppercase() && i > 0 {
+            out.push('_');
+        }
+        out.extend(c.to_uppercase());
+    }
+    out
+}
+
+/// For a root `$ref` to a `oneOf` union, builds `pub const <NAME>_TYPES` listing the `type` tag
+/// of every variant in schema order, so hand-written code can match the generated enum exactly.
+fn root_union_tags(schema: &Value) -> Result<Option<syn::Item>, GenError> {
+    let Some(name) = schema
+        .get("$ref")
+        .and_then(Value::as_str)
+        .and_then(|r| r.strip_prefix(DEF_PREFIX))
+    else {
+        return Ok(None);
+    };
+    let Some(variants) = schema
+        .pointer(&format!("/definitions/{name}/oneOf"))
+        .and_then(Value::as_array)
+    else {
+        return Ok(None);
+    };
+    let tags = variants
+        .iter()
+        .map(|variant| match variant.pointer("/properties/type/enum") {
+            Some(Value::Array(values)) if values.len() == 1 => {
+                values[0].as_str().map(|t| format!("{t:?}"))
+            }
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| {
+            GenError::Normalize(format!(
+                "every `{name}` variant needs a single string `type` tag"
+            ))
+        })?;
+    let item = format!(
+        "/// `type` tags of [`{name}`], in schema order.\npub const {}_TYPES: &[&str] = &[{}];",
+        screaming_snake(name),
+        tags.join(", ")
+    );
+    syn::parse_str(&item).map(Some).map_err(GenError::Syntax)
+}
+
 /// Converts a JSON Schema document into formatted Rust source with the `@generated` header.
 fn generate(schema_json: &str) -> Result<String, GenError> {
     let mut raw: Value = serde_json::from_str(schema_json).map_err(GenError::Schema)?;
-    normalize(&mut raw);
+    normalize(&mut raw)?;
+    let tags = root_union_tags(&raw)?;
     let schema: schemars::schema::RootSchema =
         serde_json::from_value(raw).map_err(GenError::Schema)?;
 
@@ -167,7 +281,8 @@ fn generate(schema_json: &str) -> Result<String, GenError> {
     let mut space = TypeSpace::new(&settings);
     space.add_root_schema(schema).map_err(GenError::Typify)?;
 
-    let file = syn::parse2::<syn::File>(space.to_stream()).map_err(GenError::Syntax)?;
+    let mut file = syn::parse2::<syn::File>(space.to_stream()).map_err(GenError::Syntax)?;
+    file.items.extend(tags);
     Ok(format!("{HEADER}{}", prettyplease::unparse(&file)))
 }
 
@@ -205,6 +320,7 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quote::ToTokens;
     use serde_json::json;
 
     #[test]
@@ -244,14 +360,14 @@ mod tests {
     #[test]
     fn normalize_turns_const_into_single_value_enum() {
         let mut schema = json!({"type": "string", "const": "hook:idle"});
-        normalize(&mut schema);
+        normalize(&mut schema).unwrap();
         assert_eq!(schema, json!({"type": "string", "enum": ["hook:idle"]}));
     }
 
     #[test]
     fn normalize_drops_date_time_format_but_keeps_pattern() {
         let mut schema = json!({"type": "string", "format": "date-time", "pattern": "^x$"});
-        normalize(&mut schema);
+        normalize(&mut schema).unwrap();
         assert_eq!(schema, json!({"type": "string", "pattern": "^x$"}));
     }
 
@@ -261,7 +377,7 @@ mod tests {
             "const": {"type": "string"},
             "format": {"type": "string", "const": "x"}
         }});
-        normalize(&mut schema);
+        normalize(&mut schema).unwrap();
         assert_eq!(
             schema,
             json!({"type": "object", "properties": {
@@ -274,7 +390,7 @@ mod tests {
     #[test]
     fn normalize_keeps_other_formats() {
         let mut schema = json!({"type": "string", "format": "uuid"});
-        normalize(&mut schema);
+        normalize(&mut schema).unwrap();
         assert_eq!(schema, json!({"type": "string", "format": "uuid"}));
     }
 
@@ -288,7 +404,7 @@ mod tests {
                 "B": {"type": "object"}
             }
         });
-        normalize(&mut schema);
+        normalize(&mut schema).unwrap();
         assert_eq!(
             schema,
             json!({
@@ -306,12 +422,122 @@ mod tests {
 
     #[test]
     fn normalize_leaves_schema_without_definitions_alone() {
-        let mut schema = json!({"oneOf": [{"$ref": "#/definitions/Missing"}]});
-        normalize(&mut schema);
+        let mut schema = json!({"oneOf": [{"type": "string"}, {"type": "integer"}]});
+        normalize(&mut schema).unwrap();
         assert_eq!(
             schema,
-            json!({"oneOf": [{"$ref": "#/definitions/Missing"}]})
+            json!({"oneOf": [{"type": "string"}, {"type": "integer"}]})
         );
+    }
+
+    #[test]
+    fn normalize_drops_definitions_referenced_only_from_dropped_ones() {
+        let mut schema = json!({
+            "$ref": "#/definitions/U",
+            "definitions": {
+                "U": {"oneOf": [{"$ref": "#/definitions/A"}, {"$ref": "#/definitions/B"}]},
+                "A": {"type": "object", "properties": {"me": {"$ref": "#/definitions/A"}}},
+                "B": {"type": "object", "properties": {"a": {"$ref": "#/definitions/A"}}}
+            }
+        });
+        normalize(&mut schema).unwrap();
+        let defs = schema["definitions"].as_object().unwrap();
+        // A stays: the inlined copies inside U still reference it. B is gone.
+        assert_eq!(defs.keys().collect::<Vec<_>>(), ["A", "U"]);
+    }
+
+    #[test]
+    fn normalize_drops_self_referencing_definition_once_unused() {
+        let mut schema = json!({
+            "$ref": "#/definitions/U",
+            "definitions": {
+                "U": {"oneOf": [{"$ref": "#/definitions/A"}]},
+                "A": {"type": "object", "properties": {"n": {"type": "integer"}},
+                      "not": {"$ref": "#/definitions/A"}}
+            }
+        });
+        normalize(&mut schema).unwrap();
+        // The inlined copy in U references A, so A must survive.
+        assert!(schema["definitions"].get("A").is_some());
+
+        let mut unused = json!({
+            "definitions": {
+                "U": {"oneOf": [{"$ref": "#/definitions/B"}]},
+                "B": {"type": "object"},
+                "C": {"type": "object", "properties": {"c": {"$ref": "#/definitions/C"}}}
+            }
+        });
+        normalize(&mut unused).unwrap();
+        // C was never inlined, so it is kept even though only it references itself.
+        assert_eq!(
+            unused["definitions"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .collect::<Vec<_>>(),
+            ["C", "U"]
+        );
+    }
+
+    fn normalize_error(mut schema: Value) -> String {
+        match normalize(&mut schema) {
+            Err(GenError::Normalize(msg)) => msg,
+            other => panic!("expected a normalisation error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn normalize_rejects_one_of_ref_with_sibling_keywords() {
+        let msg = normalize_error(json!({"definitions": {
+            "U": {"oneOf": [{"$ref": "#/definitions/A", "description": "x"}]},
+            "A": {"type": "object"}
+        }}));
+        assert!(msg.contains("keywords besides `$ref`"), "{msg}");
+    }
+
+    #[test]
+    fn normalize_rejects_missing_one_of_target() {
+        let msg = normalize_error(json!({"definitions": {
+            "U": {"oneOf": [{"$ref": "#/definitions/Missing"}]}
+        }}));
+        assert!(msg.contains("missing definition"), "{msg}");
+    }
+
+    #[test]
+    fn normalize_rejects_non_local_one_of_ref() {
+        let msg = normalize_error(json!({"definitions": {
+            "U": {"oneOf": [{"$ref": "other.json#/A"}]}
+        }}));
+        assert!(msg.contains("not a local definition"), "{msg}");
+    }
+
+    #[test]
+    fn normalize_rejects_recursive_one_of_inlining() {
+        let msg = normalize_error(json!({"definitions": {
+            "U": {"oneOf": [{"$ref": "#/definitions/U"}]}
+        }}));
+        assert!(msg.contains("inlines itself"), "{msg}");
+    }
+
+    fn parse_items(code: &str) -> Vec<syn::Item> {
+        syn::parse_file(code).unwrap().items
+    }
+
+    fn find_enum<'a>(items: &'a [syn::Item], name: &str) -> &'a syn::ItemEnum {
+        items
+            .iter()
+            .find_map(|item| match item {
+                syn::Item::Enum(e) if e.ident == name => Some(e),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no enum {name}"))
+    }
+
+    fn attr_text(attrs: &[syn::Attribute]) -> Vec<String> {
+        attrs
+            .iter()
+            .map(|a| a.meta.to_token_stream().to_string())
+            .collect()
     }
 
     #[test]
@@ -326,8 +552,96 @@ mod tests {
                       "required": ["type"], "additionalProperties": false}
             }
         }"##;
+        let items = parse_items(&generate(schema).unwrap());
+        let ev = find_enum(&items, "Ev");
+        assert!(
+            attr_text(&ev.attrs)
+                .contains(&r#"serde (tag = "type" , deny_unknown_fields)"#.to_owned()),
+            "{:?}",
+            attr_text(&ev.attrs)
+        );
+        let variants: Vec<(String, Vec<String>)> = ev
+            .variants
+            .iter()
+            .map(|v| (v.ident.to_string(), attr_text(&v.attrs)))
+            .collect();
+        assert_eq!(
+            variants,
+            [
+                ("A".to_owned(), vec![r#"serde (rename = "a")"#.to_owned()]),
+                ("B".to_owned(), vec![r#"serde (rename = "b")"#.to_owned()]),
+            ]
+        );
+        // The variant structs were inlined, so no standalone A/B types are generated.
+        assert!(
+            !items
+                .iter()
+                .any(|i| matches!(i, syn::Item::Struct(s) if s.ident == "A" || s.ident == "B"))
+        );
+        let tags = items
+            .iter()
+            .find_map(|i| match i {
+                syn::Item::Const(c) if c.ident == "EV_TYPES" => {
+                    Some(c.expr.to_token_stream().to_string())
+                }
+                _ => None,
+            })
+            .expect("EV_TYPES const");
+        assert_eq!(tags, r#"& ["a" , "b"]"#);
+    }
+
+    #[test]
+    fn untagged_root_union_is_an_error() {
+        let schema = r##"{
+            "$ref": "#/definitions/Ev",
+            "definitions": {
+                "Ev": {"oneOf": [{"type": "string"}, {"type": "integer"}]}
+            }
+        }"##;
+        assert!(matches!(generate(schema), Err(GenError::Normalize(_))));
+    }
+
+    fn field_type(items: &[syn::Item], strukt: &str, field: &str) -> String {
+        items
+            .iter()
+            .find_map(|i| match i {
+                syn::Item::Struct(s) if s.ident == strukt => s
+                    .fields
+                    .iter()
+                    .find(|f| f.ident.as_ref().is_some_and(|id| id == field))
+                    .map(|f| f.ty.to_token_stream().to_string()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no field {strukt}.{field}"))
+    }
+
+    #[test]
+    fn date_time_becomes_string_not_chrono() {
+        let schema = r#"{"definitions": {"Stamp": {
+            "type": "object",
+            "properties": {
+                "plain": {"type": "string", "format": "date-time"},
+                "checked": {"type": "string", "format": "date-time", "pattern": "^\\d{4}Z$"}
+            },
+            "required": ["plain", "checked"]
+        }}}"#;
         let code = generate(schema).unwrap();
-        assert!(code.contains("#[serde(tag = \"type\""), "{code}");
-        assert!(code.contains("pub enum Ev"), "{code}");
+        assert!(!code.contains("chrono"), "{code}");
+        let items = parse_items(&code);
+        assert_eq!(
+            field_type(&items, "Stamp", "plain"),
+            ":: std :: string :: String"
+        );
+        assert_eq!(field_type(&items, "Stamp", "checked"), "StampChecked");
+        assert!(
+            code.contains(r#"::regress::Regex::new("^\\d{4}Z$")"#),
+            "{code}"
+        );
+    }
+
+    #[test]
+    fn screaming_snake_splits_pascal_case() {
+        assert_eq!(screaming_snake("BusEvent"), "BUS_EVENT");
+        assert_eq!(screaming_snake("Ev"), "EV");
     }
 }

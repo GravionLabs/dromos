@@ -436,3 +436,5 @@ pub mod error {
         }
     }
 }
+/// `type` tags of [`BusEvent`], in schema order.
+pub const BUS_EVENT_TYPES: &[&str] = &["hook:idle", "hook:busy"];

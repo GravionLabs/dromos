@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use dromos_mux_proto::{BusEvent, HookEventCli, HookEventRole, HookEventState};
+use dromos_mux_proto::{BUS_EVENT_TYPES, BusEvent, HookEventCli, HookEventRole, HookEventState};
 use serde_json::{Value, json};
 
 fn fixture_paths() -> Vec<PathBuf> {
@@ -141,6 +141,69 @@ fn rejects_unknown_enum_value() {
     let mut event = valid_event();
     event["data"]["cli"] = json!("gemini");
     assert!(parse(event).is_err());
+}
+
+#[test]
+fn rejects_fractional_id() {
+    let mut event = valid_event();
+    event["id"] = json!(1.5);
+    assert!(parse(event).is_err());
+}
+
+#[test]
+fn rejects_string_id() {
+    let mut event = valid_event();
+    event["id"] = json!("1");
+    assert!(parse(event).is_err());
+}
+
+#[test]
+fn rejects_null_id() {
+    let mut event = valid_event();
+    event["id"] = Value::Null;
+    assert!(parse(event).is_err());
+}
+
+#[test]
+fn rejects_id_beyond_i64() {
+    let mut event = valid_event();
+    event["id"] = json!(9_223_372_036_854_775_808_u64);
+    assert!(parse(event).is_err());
+}
+
+#[test]
+fn accepts_largest_safe_integer_id_and_issue() {
+    let mut event = valid_event();
+    event["id"] = json!(9_007_199_254_740_991_i64);
+    event["issue"] = json!(-9_007_199_254_740_991_i64);
+    let parsed = parse(event.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&parsed).unwrap(), event);
+}
+
+/// Documented asymmetry (see the crate docs): the schema bounds ids to ±2^53-1, the generated
+/// `i64` does not. Fails if the bound starts being enforced, so the docs get updated with it.
+#[test]
+fn accepts_id_beyond_safe_integer_range() {
+    let mut event = valid_event();
+    event["id"] = json!(9_007_199_254_740_992_i64);
+    assert!(parse(event).is_ok());
+}
+
+#[test]
+fn bus_event_types_match_generated_enum_tags() {
+    // serde lists every variant tag of the internally tagged enum in its unknown-variant error.
+    let err = parse(json!({"type": "__probe__"})).unwrap_err().to_string();
+    // Same wording as serde's `OneOf` display: "expected `a`", "`a` or `b`", "one of `a`, ...".
+    let tags: Vec<String> = BUS_EVENT_TYPES.iter().map(|t| format!("`{t}`")).collect();
+    let expected = match tags.as_slice() {
+        [one] => one.clone(),
+        [a, b] => format!("{a} or {b}"),
+        all => format!("one of {}", all.join(", ")),
+    };
+    assert!(
+        err.ends_with(&format!("expected {expected}")),
+        "BUS_EVENT_TYPES {BUS_EVENT_TYPES:?} differs from the BusEvent tags: {err}"
+    );
 }
 
 mod event_wrapper {
