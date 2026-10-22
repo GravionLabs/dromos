@@ -1,0 +1,16 @@
+{
+  "id": 41,
+  "type": "hook:idle",
+  "at": "2026-10-22T09:15:30.000Z",
+  "source": "implementer",
+  "agentId": "implementer-1",
+  "issue": 39,
+  "runId": null,
+  "data": {
+    "role": "implementer",
+    "cli": "claude",
+    "state": "idle",
+    "model": "claude-sonnet-5-5",
+    "sessionId": "sess-7f3a"
+  }
+}
