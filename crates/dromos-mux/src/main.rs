@@ -1,5 +1,6 @@
 //! `dromos-mux`: terminal multiplexer (daemon and client).
 
+use std::ffi::OsString;
 use std::process::ExitCode;
 
 const USAGE: &str = "usage: dromos-mux <daemon|client>";
@@ -13,21 +14,24 @@ enum Command {
 #[derive(Debug, PartialEq, Eq)]
 struct Usage;
 
-fn parse<I, S>(args: I) -> Result<Command, Usage>
+fn parse<I>(args: I) -> Result<Command, Usage>
 where
-    I: IntoIterator<Item = S>,
-    S: AsRef<str>,
+    I: IntoIterator<Item = OsString>,
 {
     let mut args = args.into_iter();
-    match (args.next().as_ref().map(AsRef::as_ref), args.next()) {
-        (Some("daemon"), None) => Ok(Command::Daemon),
-        (Some("client"), None) => Ok(Command::Client),
+    let sub = args.next().ok_or(Usage)?;
+    if args.next().is_some() {
+        return Err(Usage);
+    }
+    match sub.to_str() {
+        Some("daemon") => Ok(Command::Daemon),
+        Some("client") => Ok(Command::Client),
         _ => Err(Usage),
     }
 }
 
 fn main() -> ExitCode {
-    match parse(std::env::args().skip(1)) {
+    match parse(std::env::args_os().skip(1)) {
         Ok(Command::Daemon) => {
             println!(
                 "dromos-mux daemon: not implemented yet (protocol v{})",
@@ -50,28 +54,52 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
 
+    fn args(list: &[&str]) -> Vec<OsString> {
+        list.iter().map(OsString::from).collect()
+    }
+
     #[test]
     fn parses_daemon() {
-        assert_eq!(parse(["daemon"]), Ok(Command::Daemon));
+        assert_eq!(parse(args(&["daemon"])), Ok(Command::Daemon));
     }
 
     #[test]
     fn parses_client() {
-        assert_eq!(parse(["client"]), Ok(Command::Client));
+        assert_eq!(parse(args(&["client"])), Ok(Command::Client));
     }
 
     #[test]
     fn rejects_unknown_subcommand() {
-        assert_eq!(parse(["bogus"]), Err(Usage));
+        assert_eq!(parse(args(&["bogus"])), Err(Usage));
     }
 
     #[test]
     fn rejects_missing_subcommand() {
-        assert_eq!(parse(Vec::<String>::new()), Err(Usage));
+        assert_eq!(parse(args(&[])), Err(Usage));
     }
 
     #[test]
     fn rejects_extra_arguments() {
-        assert_eq!(parse(["daemon", "extra"]), Err(Usage));
+        assert_eq!(parse(args(&["daemon", "extra"])), Err(Usage));
+        assert_eq!(parse(args(&["client", "daemon"])), Err(Usage));
+    }
+
+    #[test]
+    fn rejects_help_flags_and_empty_string() {
+        for flag in ["--help", "-h", ""] {
+            assert_eq!(parse(args(&[flag])), Err(Usage));
+        }
+    }
+
+    #[test]
+    fn rejects_case_variants() {
+        assert_eq!(parse(args(&["Daemon"])), Err(Usage));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_non_utf8_argument() {
+        use std::os::unix::ffi::OsStringExt;
+        assert_eq!(parse([OsString::from_vec(vec![0xff, 0xfe])]), Err(Usage));
     }
 }

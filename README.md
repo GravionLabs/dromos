@@ -85,5 +85,7 @@ pnpm typecheck   # tsc --noEmit
 pnpm dev         # tsx watch src/index.ts
 
 cargo build --workspace
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```

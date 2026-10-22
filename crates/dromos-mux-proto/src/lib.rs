@@ -5,12 +5,5 @@
 /// Version of the daemon/client IPC protocol.
 pub const PROTOCOL_VERSION: u32 = 1;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn protocol_version_starts_at_one() {
-        assert_eq!(PROTOCOL_VERSION, 1);
-    }
-}
+// Version 0 is reserved for "unset"; fail the build if it is ever used.
+const _: () = assert!(PROTOCOL_VERSION > 0);
