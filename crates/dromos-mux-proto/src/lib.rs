@@ -6,10 +6,13 @@
 //! Timestamps (`at`) stay strings validated by the schema's ISO-8601 pattern instead of
 //! `chrono::DateTime`, so events re-serialise byte-for-byte as the TypeScript bus wrote them.
 
+mod event;
+
 #[allow(clippy::all, missing_docs)]
 #[rustfmt::skip]
 mod generated;
 
+pub use event::{Event, KNOWN_TYPES};
 pub use generated::error::ConversionError;
 pub use generated::{
     BusEvent, BusEventAt, BusEventSource, HookEvent, HookEventCli, HookEventModel, HookEventRole,

@@ -142,3 +142,87 @@ fn rejects_unknown_enum_value() {
     event["data"]["cli"] = json!("gemini");
     assert!(parse(event).is_err());
 }
+
+mod event_wrapper {
+    use super::*;
+    use dromos_mux_proto::{Event, KNOWN_TYPES};
+
+    fn hook_idle() -> Value {
+        read_json(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schema/fixtures/hook-idle.json"),
+        )
+    }
+
+    #[test]
+    fn every_fixture_is_known_and_round_trips() {
+        for path in fixture_paths() {
+            let input = read_json(&path);
+            let event: Event = serde_json::from_value(input.clone()).unwrap();
+            assert!(
+                matches!(event, Event::Known(_)),
+                "{} is not Known",
+                path.display()
+            );
+            assert_eq!(serde_json::to_value(&event).unwrap(), input);
+        }
+    }
+
+    #[test]
+    fn known_types_match_fixture_types() {
+        let mut fixture_types: Vec<String> = fixture_paths()
+            .iter()
+            .map(|p| read_json(p)["type"].as_str().unwrap().to_owned())
+            .collect();
+        fixture_types.sort();
+        let mut known: Vec<String> = KNOWN_TYPES.iter().map(|s| (*s).to_owned()).collect();
+        known.sort();
+        assert_eq!(fixture_types, known);
+    }
+
+    #[test]
+    fn unknown_type_maps_to_unknown_and_round_trips_unchanged() {
+        let input = json!({"type": "future.thing", "id": 7, "extra": {"a": [1, 2, null]}});
+        let event: Event = serde_json::from_value(input.clone()).unwrap();
+        assert_eq!(
+            event,
+            Event::Unknown {
+                event_type: "future.thing".into(),
+                raw: input.clone()
+            }
+        );
+        assert_eq!(serde_json::to_value(&event).unwrap(), input);
+        let text = serde_json::to_string(&event).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&text).unwrap(), input);
+    }
+
+    #[test]
+    fn known_type_with_invalid_data_fails() {
+        let mut input = hook_idle();
+        input["data"] = json!("not an object");
+        assert!(serde_json::from_value::<Event>(input).is_err());
+    }
+
+    #[test]
+    fn known_type_with_unknown_field_fails() {
+        let mut input = hook_idle();
+        input["surprise"] = json!(true);
+        assert!(serde_json::from_value::<Event>(input).is_err());
+    }
+
+    #[test]
+    fn missing_type_fails() {
+        let mut input = hook_idle();
+        input.as_object_mut().unwrap().remove("type");
+        assert!(serde_json::from_value::<Event>(input).is_err());
+    }
+
+    #[test]
+    fn non_string_type_fails() {
+        assert!(serde_json::from_value::<Event>(json!({"type": 5})).is_err());
+    }
+
+    #[test]
+    fn non_object_input_fails() {
+        assert!(serde_json::from_value::<Event>(json!([1, 2])).is_err());
+    }
+}
