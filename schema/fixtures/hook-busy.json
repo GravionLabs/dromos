@@ -1,0 +1,14 @@
+{
+  "id": 42,
+  "type": "hook:busy",
+  "at": "2026-10-22T09:16:02.500Z",
+  "source": "reviewer",
+  "agentId": null,
+  "issue": null,
+  "runId": "run-2026-10-22-01",
+  "data": {
+    "role": "reviewer",
+    "cli": "copilot",
+    "state": "busy"
+  }
+}
