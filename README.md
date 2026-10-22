@@ -23,6 +23,13 @@ The bus is terminal-agnostic: plain windows, tabs, tmux, VS Code terminals and S
 
 Early development. Implemented: project foundation and messaging (`post`, `ack`, `inbox`, `/events`, bus log) over streamable HTTP at `/mcp/<role>`. Everything else below is **planned**, including the `dromos` CLI (`package.json` has no `bin` yet). Order of work: [ROADMAP.md](ROADMAP.md).
 
+## Repository layout
+
+- `src/`: TypeScript MCP bus
+- `crates/dromos-mux`: terminal multiplexer (daemon and client binary)
+- `crates/dromos-mux-proto`: event and IPC types shared by daemon and client
+- `.github/workflows/`: GitHub Actions workflows
+
 ## Usage (planned)
 
 Start each role in any terminal. The bus starts automatically if it is not running:
@@ -65,6 +72,8 @@ A `status` tool reports the state of a run.
 
 TypeScript 7 (strict, ESM), pnpm, Vitest, Biome (lint and format), `@modelcontextprotocol/sdk` (streamable HTTP), Zod, better-sqlite3. Planned: execa, commander, `gh` CLI, optional WezTerm CLI. Requires Node >= 22.
 
+Rust (edition 2024, Cargo workspace under `crates/`, toolchain pinned in `rust-toolchain.toml`) for `dromos-mux`.
+
 ## Development
 
 ```bash
@@ -74,4 +83,9 @@ pnpm test        # vitest run
 pnpm lint        # biome check .
 pnpm typecheck   # tsc --noEmit
 pnpm dev         # tsx watch src/index.ts
+
+cargo build --workspace
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 ```
