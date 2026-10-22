@@ -47,6 +47,41 @@ describe('BusEventSchema validation', () => {
     expect(BusEventSchema.safeParse(rest).success).toBe(false);
   });
 
+  // Strictness parity with the generated Rust types (crates/dromos-mux-proto/tests/fixtures.rs).
+  it('rejects an unknown envelope field', () => {
+    expect(BusEventSchema.safeParse({ ...valid(), extra: true }).success).toBe(false);
+  });
+
+  it('rejects an unknown data field', () => {
+    const data = { ...(valid().data as object), extra: true };
+    expect(BusEventSchema.safeParse({ ...valid(), data }).success).toBe(false);
+  });
+
+  it('rejects a timestamp with a UTC offset instead of Z', () => {
+    expect(BusEventSchema.safeParse({ ...valid(), at: '2026-10-22T09:15:30+02:00' }).success).toBe(
+      false,
+    );
+  });
+
+  it('rejects an impossible date', () => {
+    expect(BusEventSchema.safeParse({ ...valid(), at: '2026-02-29T00:00:00Z' }).success).toBe(
+      false,
+    );
+  });
+
+  it('accepts a leap day in a leap year', () => {
+    expect(BusEventSchema.safeParse({ ...valid(), at: '2028-02-29T00:00:00Z' }).success).toBe(true);
+  });
+
+  it('rejects an empty model', () => {
+    const data = { ...(valid().data as object), model: '' };
+    expect(BusEventSchema.safeParse({ ...valid(), data }).success).toBe(false);
+  });
+
+  it('rejects an id outside the safe integer range', () => {
+    expect(BusEventSchema.safeParse({ ...valid(), id: 2 ** 53 }).success).toBe(false);
+  });
+
   it('rejects data that is not a hook event', () => {
     expect(BusEventSchema.safeParse({ ...valid(), data: { state: 'idle' } }).success).toBe(false);
   });

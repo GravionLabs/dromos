@@ -1,10 +1,13 @@
 import { z } from 'zod';
 import { HookEventSchema, RoleSchema } from '../schemas.js';
 
-const hookData = HookEventSchema.meta({ id: 'HookEvent' });
+// Strict objects: unknown keys are rejected, matching `additionalProperties: false` in the exported
+// JSON Schema and `deny_unknown_fields` in the generated Rust types.
+const hookData = z.strictObject(HookEventSchema.shape).meta({ id: 'HookEvent' });
 
 /** Fields shared by every bus event. `source` is the role that emitted the event. */
 const envelope = {
+  /** Safe integer (±2^53-1). The generated Rust type is a wider i64; the bus is the producer. */
   id: z.number().int(),
   at: z.iso.datetime(),
   source: RoleSchema,
@@ -14,11 +17,11 @@ const envelope = {
 };
 
 export const HookIdleEventSchema = z
-  .object({ ...envelope, type: z.literal('hook:idle'), data: hookData })
+  .strictObject({ ...envelope, type: z.literal('hook:idle'), data: hookData })
   .meta({ id: 'HookIdleEvent' });
 
 export const HookBusyEventSchema = z
-  .object({ ...envelope, type: z.literal('hook:busy'), data: hookData })
+  .strictObject({ ...envelope, type: z.literal('hook:busy'), data: hookData })
   .meta({ id: 'HookBusyEvent' });
 
 export const BusEventSchema = z
