@@ -1,0 +1,5 @@
+# Generated and byte-compared files: keep LF on every OS so the drift checks
+# (dromos-schema-gen unit test, Vitest schema guard, CI git diff) also pass on
+# Windows checkouts with core.autocrlf=true.
+schema/** text eol=lf
+crates/dromos-mux-proto/src/generated.rs text eol=lf
