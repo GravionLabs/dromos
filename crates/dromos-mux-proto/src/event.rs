@@ -6,9 +6,10 @@ use serde_json::Value;
 
 use crate::BusEvent;
 
-/// `type` values the generated [`BusEvent`] knows. Keep in sync with the generated enum; the
-/// fixtures test checks that every fixture type is listed here and every entry has a fixture.
-pub const KNOWN_TYPES: &[&str] = &["hook:idle", "hook:busy"];
+/// `type` values the generated [`BusEvent`] knows, taken from the generated
+/// [`BUS_EVENT_TYPES`](crate::BUS_EVENT_TYPES) so a new variant can never fall into
+/// [`Event::Unknown`]. Tags match case-sensitively.
+pub const KNOWN_TYPES: &[&str] = crate::BUS_EVENT_TYPES;
 
 /// A bus event as received by the mux.
 ///
@@ -19,10 +20,16 @@ pub enum Event {
     /// An event whose `type` the generated schema knows, validated strictly.
     Known(BusEvent),
     /// An event with an unrecognised `type`; `raw` is the untouched JSON and is serialised as is.
+    ///
+    /// **Untrusted:** nothing beyond `type` being a string is validated. The envelope fields may
+    /// be missing, `raw` may hold arbitrary nesting and size, and both `event_type` and string
+    /// values in `raw` may contain control characters or terminal escape sequences. Bound the
+    /// input size before deserialising, and escape or truncate these values before displaying
+    /// or logging them.
     Unknown {
-        /// The value of the `type` field.
+        /// The value of the `type` field (untrusted, see above).
         event_type: String,
-        /// The complete original JSON object.
+        /// The complete original JSON object (untrusted, see above).
         raw: Value,
     },
 }

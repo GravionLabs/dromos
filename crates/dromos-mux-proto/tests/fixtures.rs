@@ -285,6 +285,58 @@ mod event_wrapper {
     }
 
     #[test]
+    fn known_type_tags_are_case_sensitive() {
+        for tag in ["HOOK:IDLE", "Hook:Idle", "hook:Idle", " hook:idle"] {
+            let mut input = hook_idle();
+            input["type"] = json!(tag);
+            let event: Event = serde_json::from_value(input.clone()).unwrap();
+            assert_eq!(
+                event,
+                Event::Unknown {
+                    event_type: tag.into(),
+                    raw: input
+                },
+                "{tag:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_type_without_envelope_is_accepted() {
+        let input = json!({"type": "future.thing"});
+        let event: Event = serde_json::from_value(input.clone()).unwrap();
+        assert_eq!(
+            event,
+            Event::Unknown {
+                event_type: "future.thing".into(),
+                raw: input
+            }
+        );
+    }
+
+    #[test]
+    fn empty_type_is_unknown() {
+        let event: Event = serde_json::from_value(json!({"type": ""})).unwrap();
+        assert!(matches!(event, Event::Unknown { ref event_type, .. } if event_type.is_empty()));
+    }
+
+    #[test]
+    fn bus_event_rejects_unknown_type() {
+        let mut input = hook_idle();
+        input["type"] = json!("future.thing");
+        let err = serde_json::from_value::<BusEvent>(input).unwrap_err();
+        assert!(
+            err.to_string().contains("unknown variant `future.thing`"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn known_types_are_the_generated_tags() {
+        assert_eq!(KNOWN_TYPES, ["hook:idle", "hook:busy"]);
+    }
+
+    #[test]
     fn non_object_input_fails() {
         assert!(serde_json::from_value::<Event>(json!([1, 2])).is_err());
     }
