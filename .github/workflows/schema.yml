@@ -1,0 +1,41 @@
+name: Schema
+
+on:
+  push:
+    branches: [main, release/next]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  schema-drift:
+    name: schema-drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Regenerate JSON Schema
+        run: pnpm run schema
+      - name: Regenerate Rust types
+        run: cargo run -p dromos-schema-gen --locked
+      - name: Fail on drift
+        run: |
+          if ! git diff --exit-code -- schema crates/dromos-mux-proto/src/generated.rs; then
+            echo "::error::Generated event schema or Rust types are stale. Run 'pnpm run schema && cargo run -p dromos-schema-gen' and commit the result."
+            exit 1
+          fi
+      - name: TypeScript fixture tests
+        run: pnpm exec vitest run src/events

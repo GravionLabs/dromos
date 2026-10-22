@@ -30,6 +30,20 @@ Early development. Implemented: project foundation and messaging (`post`, `ack`,
 - `crates/dromos-mux-proto`: event and IPC types shared by daemon and client
 - `.github/workflows/`: GitHub Actions workflows
 
+## Event schema
+
+The Zod `BusEvent` union in `src/events/schema.ts` is the single source of truth. Two artifacts are generated from it and checked in: `schema/events.schema.json` and `crates/dromos-mux-proto/src/generated.rs` (never edit either by hand).
+
+To add an event type:
+
+1. Add the variant to the Zod union in `src/events/schema.ts`.
+2. `pnpm run schema` to regenerate `schema/events.schema.json`.
+3. `cargo run -p dromos-schema-gen` to regenerate `generated.rs`.
+4. Add one fixture per type in `schema/fixtures/` (it must parse in TypeScript and round-trip in Rust).
+5. Add the type string to `KNOWN_TYPES` in `crates/dromos-mux-proto/src/event.rs`; unknown `type` values map to `Event::Unknown`. A test checks the list against the fixtures.
+
+CI (`.github/workflows/schema.yml`) reruns both generators and fails on `git diff --exit-code`, then runs the TypeScript fixture tests. This overlaps on purpose with the generator unit test run by `cargo test`, which also fails when `generated.rs` is stale; the CI step additionally catches a stale `events.schema.json`.
+
 ## Usage (planned)
 
 Start each role in any terminal. The bus starts automatically if it is not running:
