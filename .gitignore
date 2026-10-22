@@ -5,3 +5,7 @@ coverage/
 *.log
 .env
 .env.*
+
+
+# APM dependencies
+apm_modules/
