@@ -1,3 +1,4 @@
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_AGENTS } from './http.js';
 import { startTestBus, type TestBus, textOf } from './test-helpers.js';
@@ -10,6 +11,7 @@ describe('agent-bus server', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await bus.close();
   });
 
@@ -122,8 +124,8 @@ describe('agent-bus server', () => {
           clientInfo: { name: 'x', version: '0' },
         },
       });
-      const init = (headers: Record<string, string> = {}) =>
-        fetch(`${bus.http.url}/mcp/implementer`, {
+      const init = (headers: Record<string, string> = {}, role = 'implementer') =>
+        fetch(`${bus.http.url}/mcp/${role}`, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
@@ -237,40 +239,44 @@ describe('agent-bus server', () => {
       });
 
       it('re-checks inside the session callback when a registration lands after the pre-check', async () => {
-        const realGetAgent = bus.db.getAgent.bind(bus.db);
-        // The pre-check sees no row; a concurrent reviewer registration lands right after it.
-        vi.spyOn(bus.db, 'getAgent').mockImplementationOnce((id) => {
-          const seen = realGetAgent(id);
-          bus.db.insertAgent({ id: 'racer', role: 'reviewer', cli: 'claude' });
-          return seen;
-        });
+        const realHandle = StreamableHTTPServerTransport.prototype.handleRequest;
+        // The implementer request has passed the pre-check once its transport handles the request;
+        // a competing reviewer registration completes right then, before the session callback.
+        let rival: Response | undefined;
+        vi.spyOn(StreamableHTTPServerTransport.prototype, 'handleRequest').mockImplementationOnce(
+          async function (this: StreamableHTTPServerTransport, ...args) {
+            rival = await init({ 'x-agent-id': 'racer' }, 'reviewer');
+            return realHandle.apply(this, args);
+          },
+        );
         const res = await init({ 'x-agent-id': 'racer' });
-        expect(res.status).toBe(400);
+        expect(rival?.status).toBe(200);
+        expect(res.ok).toBe(false);
         expect(res.headers.get('mcp-session-id')).toBeNull();
-        expect(await res.json()).toMatchObject({
-          jsonrpc: '2.0',
-          error: { code: -32700, data: 'Error: agent racer is registered as reviewer' },
-        });
-        expect(bus.db.getAgent('racer')?.role).toBe('reviewer');
-        expect(bus.db.listEvents().filter((e) => e.kind === 'agent.registered')).toEqual([]);
+        expect(bus.db.listAgents().map((a) => [a.id, a.role])).toEqual([['racer', 'reviewer']]);
+        const registered = bus.db.listEvents().filter((e) => e.kind === 'agent.registered');
+        expect(registered.map((e) => e.role)).toEqual(['reviewer']);
       });
 
-      it('rolls back the agent row and logs when registration fails after the insert', async () => {
+      it('rolls back the agent row, closes the transport and logs when registration fails after the insert', async () => {
+        const close = vi.spyOn(StreamableHTTPServerTransport.prototype, 'close');
         vi.spyOn(bus.db, 'insertEvent').mockImplementationOnce(() => {
           throw new Error('disk full');
         });
         const res = await init({ 'x-agent-id': 'impl-fail' });
         expect(res.status).toBe(400);
         expect(res.headers.get('mcp-session-id')).toBeNull();
-        expect(await res.json()).toMatchObject({
-          error: { code: -32700, data: 'Error: agent registration failed' },
-        });
+        expect(await res.text()).toContain('agent registration failed');
+        expect(close).toHaveBeenCalledTimes(1);
         expect(bus.db.getAgent('impl-fail')).toBeUndefined();
+        // Nothing was registered, so closing the transport must not emit an exited transition.
         expect(bus.db.listEvents()).toEqual([]);
         expect(bus.readLog()).toContain('register impl-fail: Error: disk full');
-        // The failed session is gone: the id can register cleanly afterwards.
+        expect(bus.readLog()).not.toContain('impl-fail exited');
+        // The failed session is gone: the id can register cleanly afterwards, as a fresh agent.
         expect((await init({ 'x-agent-id': 'impl-fail' })).status).toBe(200);
         expect(bus.db.getAgent('impl-fail')?.state).toBe('idle');
+        expect(bus.db.listEvents().map((e) => e.kind)).toEqual(['agent.registered']);
       });
 
       it('rejects a malformed X-Agent-Id with 400', async () => {

@@ -188,8 +188,10 @@ describe('agent.state events', () => {
   });
 
   it('logs and drops an agent.registered event that fails validation, keeping the agent', async () => {
+    // No request can reach this branch: a new agent has no run, and the X-Agent-Id, X-Agent-Cli
+    // and X-Agent-Model checks in http.ts are stricter than the envelope. The guard is defensive,
+    // so the only way to exercise it is to hand it a row the envelope rejects (runId > 128).
     const realInsert = bus.db.insertAgent.bind(bus.db);
-    // New agents carry no run, so feed the envelope an over-long runId through the stored row.
     vi.spyOn(bus.db, 'insertAgent').mockImplementationOnce((agent) => ({
       ...realInsert(agent),
       runId: 'r'.repeat(129),
@@ -208,7 +210,9 @@ describe('agent.state events', () => {
       await local.connect('implementer', 'impl-1');
       local.db.close();
       await expect(local.http.close()).resolves.toBeUndefined();
-      expect(local.readLog()).toMatch(/ERROR.*mark impl-1 exited: /);
+      expect(local.readLog()).toMatch(
+        /^\d{2}:\d{2}:\d{2} ERROR {8}mark impl-1 exited: TypeError: The database connection is not open$/m,
+      );
     } finally {
       rmSync(local.config.dataDir, { recursive: true, force: true });
     }
