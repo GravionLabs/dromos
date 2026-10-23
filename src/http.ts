@@ -390,22 +390,27 @@ export async function startHttp({
         type: `hook:${state}`,
         at: new Date().toISOString(),
         source: `hook/${cli}`,
+        // A hook names a role, not an instance (the instance is resolved below), so agentId holds
+        // the role here, unlike emitAgentEvent which has the real agent id.
         agentId: role,
         issue: null,
         runId: null,
         data: parsed.data,
       });
+      log.logLine('HOOK', `${role} ${state} (${cli}${model ? `, ${model}` : ''})`);
+      const agentId = hookAgentId(req, role);
+      if (agentId) {
+        setAgentState(agentId, state);
+      }
     } catch (error) {
       if (error instanceof EventValidationError) {
         sendJson(res, 400, { error: error.detail });
         return;
       }
-      throw error;
-    }
-    log.logLine('HOOK', `${role} ${state} (${cli}${model ? `, ${model}` : ''})`);
-    const agentId = hookAgentId(req, role);
-    if (agentId) {
-      setAgentState(agentId, state);
+      // The row may already be stored (e.g. a stream subscriber threw), so report a server error.
+      log.logLine('ERROR', `hook ${role} ${state}: ${String(error)}`);
+      sendJson(res, 500, { error: 'internal error' });
+      return;
     }
     res.writeHead(204).end();
   }
