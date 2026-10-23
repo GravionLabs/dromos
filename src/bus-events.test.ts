@@ -8,6 +8,9 @@ const event = (id: number): BusEvent => ({
   kind: 'hook:idle',
   data: null,
   createdAt: '2026-01-01T00:00:00.000Z',
+  agentId: null,
+  issue: null,
+  runId: null,
 });
 
 describe('BusEvents event channel', () => {

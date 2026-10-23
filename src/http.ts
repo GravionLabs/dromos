@@ -420,7 +420,13 @@ export async function startHttp({
     }
     // Persist first; subscribers are notified only after the commit and outside the request path.
     const rows = db.transaction(() =>
-      accepted.map((e) => db.insertEvent(e.source, e.type, e.data)),
+      accepted.map((e) =>
+        db.insertEvent(e.source, e.type, e.data, {
+          agentId: e.agentId,
+          issue: e.issue,
+          runId: e.runId,
+        }),
+      ),
     );
     const shown = accepted.slice(0, 5).map((e) => `${e.source} ${e.type}`);
     log.logLine(

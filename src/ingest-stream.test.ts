@@ -80,6 +80,45 @@ describe('POST /ingest reaches GET /events/stream', () => {
     expect(frame?.event.role).toBe('apm-hub/hook');
   });
 
+  it('carries agentId, issue and runId through the live frame and the replay', async () => {
+    const stream = await open();
+    const withCtx = { ...event, agentId: 'a1b2', issue: 43, runId: 'run-43-1' };
+    const bare = { ...event, agentId: null, issue: null, runId: null };
+    const res1 = await ingest(bus, withCtx);
+    const res2 = await ingest(bus, bare);
+    const [first] = ((await res1.json()) as { ids: number[] }).ids;
+    expect(res2.status).toBe(202);
+
+    const live = await firstFrame(stream, 2000);
+    expect(live?.event).toMatchObject({ id: first, agentId: 'a1b2', issue: 43, runId: 'run-43-1' });
+    expect(live?.event.role).toBe('apm-hub/hook');
+
+    const replay = await fetch(`${bus.http.url}/events/stream`, {
+      headers: { 'last-event-id': String((first as number) - 1) },
+      signal: (() => {
+        const c = new AbortController();
+        controllers.push(c);
+        return c.signal;
+      })(),
+    });
+    const frames: BusEvent[] = [];
+    const reader = replay.body?.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    while (frames.length < 2 && reader) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      frames.length = 0;
+      for (const m of text.matchAll(/^data: (.+)$/gm)) {
+        frames.push(JSON.parse(m[1] as string) as BusEvent);
+      }
+    }
+    expect(frames).toHaveLength(2);
+    expect(frames[0]).toMatchObject({ agentId: 'a1b2', issue: 43, runId: 'run-43-1' });
+    expect(frames[1]).toMatchObject({ agentId: null, issue: null, runId: null });
+  });
+
   it('delivers a posted agent.run event with its data', async () => {
     const stream = await open();
     const agentRun = {

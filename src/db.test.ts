@@ -28,6 +28,59 @@ describe('db', () => {
     db.close();
   });
 
+  describe('migration 3', () => {
+    it('keeps version-2 event rows and adds nullable agent_id, issue and run_id', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'agent-bus-db-'));
+      try {
+        const file = join(dir, 'bus.db');
+        const raw = new Database(file);
+        raw.exec(MIGRATIONS[0] as string);
+        raw.exec(MIGRATIONS[1] as string);
+        raw.pragma('user_version = 2');
+        raw
+          .prepare(
+            `INSERT INTO events (role, kind, data_json, created_at)
+             VALUES ('implementer', 'hook:idle', '{"a":1}', '2026-01-01T00:00:00Z')`,
+          )
+          .run();
+        raw.close();
+
+        const migrated = openDb(file);
+        expect(migrated.schemaVersion()).toBe(MIGRATIONS.length);
+        expect(migrated.listEvents()).toEqual([
+          {
+            id: 1,
+            role: 'implementer',
+            kind: 'hook:idle',
+            data: { a: 1 },
+            createdAt: '2026-01-01T00:00:00Z',
+            agentId: null,
+            issue: null,
+            runId: null,
+          },
+        ]);
+        migrated.close();
+
+        // Reopening applies nothing twice and keeps the row.
+        const again = openDb(file);
+        expect(again.listEvents()).toHaveLength(1);
+        again.close();
+
+        const check = new Database(file, { readonly: true });
+        const columns = check.prepare('PRAGMA table_info(events)').all() as {
+          name: string;
+          notnull: number;
+        }[];
+        check.close();
+        for (const name of ['agent_id', 'issue', 'run_id']) {
+          expect(columns.find((c) => c.name === name)?.notnull).toBe(0);
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe('migration 2', () => {
     it('keeps version-1 rows and adds agents plus nullable message agent columns', () => {
       const dir = mkdtempSync(join(tmpdir(), 'agent-bus-db-'));
@@ -329,6 +382,18 @@ describe('db', () => {
       expect(db.listEventsSince(ids[0] as number).map((e) => e.kind)).toEqual(['hook:b', 'hook:c']);
       expect(db.listEventsSince(0, 2).map((e) => e.kind)).toEqual(['hook:a', 'hook:b']);
       expect(db.listEventsSince(ids[2] as number)).toEqual([]);
+    });
+
+    it('stores the envelope context and returns NULLs without it', () => {
+      const withCtx = db.insertEvent('s', 'progress', null, {
+        agentId: 'a1',
+        issue: 43,
+        runId: 'r1',
+      });
+      const without = db.insertEvent('s', 'progress', null);
+      expect(withCtx).toMatchObject({ agentId: 'a1', issue: 43, runId: 'r1' });
+      expect(without).toMatchObject({ agentId: null, issue: null, runId: null });
+      expect(db.listEventsSince(0).map((e) => e.agentId)).toEqual(['a1', null]);
     });
 
     it('returns an empty list for an empty table', () => {

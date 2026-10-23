@@ -50,7 +50,7 @@ curl -i -X POST http://127.0.0.1:4777/ingest \
 # {"ids":[1]}
 ```
 
-The event then appears on `GET /events/stream` as `id: 1` with `data: {"id":1,"role":"apm-hub/hook","kind":"progress",...}` (`role` is the `source`, `kind` is the `type`).
+The event then appears on `GET /events/stream` as `id: 1` with `data: {"id":1,"role":"apm-hub/hook","kind":"progress",...}` (`role` is the `source`, `kind` is the `type`). The envelope fields `agentId`, `issue` and `runId` are stored with the event and appear in the frame and in `Last-Event-ID` replays as `agentId`, `issue`, `runId`; they are `null` for events recorded without them (for example `POST /events`). Databases created before this are migrated in place on startup (three nullable columns, existing rows get `null`).
 
 - Allowed `type` values: `progress`, `attention`, `usage`, `queue.item`, `agent.state`, `agent.run`. Any other type answers `403 { error }`.
 - `agent.run` reports one subagent run of a client session (parent, tool call, depth). It is a client-side subagent, not a bus agent: bus agent instances use `agent.registered` / `agent.state`.
