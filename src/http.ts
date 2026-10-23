@@ -39,7 +39,11 @@ const DEFAULT_CLI = 'unknown';
 /** Printable ASCII token for X-Agent-Cli / X-Agent-Model. */
 const CLI_VALUE = /^[\x21-\x7e]{1,64}$/;
 const MODEL_VALUE = /^[\x21-\x7e]{1,128}$/;
-/** Upper bound on registered agents; stops unauthenticated initialize calls from growing the table. */
+/**
+ * Upper bound on registered agents; stops unauthenticated initialize calls from growing the table.
+ * Known limit: within the current trust model (no authentication, loopback only) a local caller can
+ * still fill the cap and lock out new agents. Exited rows are not reclaimed; a real fix needs auth.
+ */
 const MAX_AGENTS = 1000;
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -120,30 +124,33 @@ export async function startHttp({
           return;
         }
         const agentId = requested ?? `${role}-${randomUUID().slice(0, 8)}`;
-        const known = db.getAgent(agentId);
-        if (known && known.role !== role) {
-          sendJson(res, 409, { error: `agent ${agentId} is registered as ${known.role}` });
-          return;
-        }
-        if (!known && db.listAgents().length >= MAX_AGENTS) {
-          sendJson(res, 503, { error: 'agent limit reached' });
+        const precheck = checkRegistration(agentId, role);
+        if (precheck) {
+          sendJson(res, precheck.status, { error: precheck.error });
           return;
         }
         res.setHeader('x-agent-id', agentId);
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (id) => {
-            sessions.set(id, { transport, role, agentId });
             // Register only once the session exists, so a failed connect leaves no orphan row.
-            const current = db.getAgent(agentId);
-            if (!current) {
-              const cli = cliHeader ?? DEFAULT_CLI;
-              const model = modelHeader ?? null;
-              const agent = db.insertAgent({ id: agentId, role, cli, model });
-              emitAgentEvent(agent, 'agent.registered', { role, cli, model });
-              log.logLine('STATE', `${agentId} registered as ${role}`);
-            } else if (current.state === 'exited') {
-              setAgentState(agentId, 'idle');
+            // This callback is synchronous end to end, so the re-check and the insert are atomic.
+            sessions.set(id, { transport, role, agentId });
+            let failure: { status: number; error: string } | undefined;
+            try {
+              failure = checkRegistration(agentId, role);
+              if (!failure) {
+                registerOrWake(agentId, role, cliHeader ?? DEFAULT_CLI, modelHeader ?? null);
+              }
+            } catch (error) {
+              failure = { status: 500, error: 'agent registration failed' };
+              log.logLine('ERROR', `register ${agentId}: ${String(error)}`);
+            }
+            if (failure) {
+              // Throwing makes the SDK answer with a JSON-RPC error instead of a session.
+              sessions.delete(id);
+              transport.onclose = undefined;
+              throw new Error(failure.error);
             }
           },
         });
@@ -180,6 +187,33 @@ export async function startHttp({
     sendJson(res, 405, { error: 'method not allowed' });
   }
 
+  /** Why an agent id cannot be registered for this role right now, or undefined when it can. */
+  function checkRegistration(
+    agentId: string,
+    role: Role,
+  ): { status: number; error: string } | undefined {
+    const known = db.getAgent(agentId);
+    if (known && known.role !== role) {
+      return { status: 409, error: `agent ${agentId} is registered as ${known.role}` };
+    }
+    if (!known && db.listAgents().length >= MAX_AGENTS) {
+      return { status: 503, error: 'agent limit reached' };
+    }
+    return undefined;
+  }
+
+  /** Inserts a new agent and emits agent.registered, or marks a returning exited agent idle. */
+  function registerOrWake(agentId: string, role: Role, cli: string, model: string | null): void {
+    const current = db.getAgent(agentId);
+    if (!current) {
+      const agent = db.insertAgent({ id: agentId, role, cli, model });
+      emitAgentEvent(agent, 'agent.registered', { role, cli, model });
+      log.logLine('STATE', `${agentId} registered as ${role}`);
+    } else if (current.state === 'exited') {
+      setAgentState(agentId, 'idle');
+    }
+  }
+
   /** Validates an agent event against the bus envelope, then stores its payload. */
   function emitAgentEvent(
     agent: { id: string; role: Role; runId: string | null },
@@ -200,7 +234,7 @@ export async function startHttp({
     if (!checked.success) {
       log.logLine(
         'ERROR',
-        `invalid ${type} event for ${agent.id}: ${z.prettifyError(checked.error)}`,
+        `dropped invalid ${type} event for agent ${agent.id} (${agent.role}): ${z.prettifyError(checked.error)}`,
       );
       return;
     }

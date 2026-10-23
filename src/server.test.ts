@@ -193,6 +193,42 @@ describe('agent-bus server', () => {
         expect(bus.db.getAgent('impl-d')).toBeUndefined();
       });
 
+      it('rejects over-length, comma-joined and invalid model header values with 400', async () => {
+        expect((await init({ 'x-agent-id': `a${'b'.repeat(128)}` })).status).toBe(400);
+        expect((await init({ 'x-agent-id': 'one, two' })).status).toBe(400);
+        expect((await init({ 'x-agent-model': 'a b' })).status).toBe(400);
+        expect((await init({ 'x-agent-model': 'm'.repeat(129) })).status).toBe(400);
+        expect((await init({ 'x-agent-cli': 'c'.repeat(65) })).status).toBe(400);
+        expect(bus.db.listAgents()).toEqual([]);
+      });
+
+      it('answers 503 when the agent table is full, but still admits known agents', async () => {
+        for (let i = 0; i < 1000; i++) {
+          bus.db.insertAgent({ id: `fill-${i}`, role: 'implementer', cli: 'claude' });
+        }
+        expect((await init()).status).toBe(503);
+        expect((await init({ 'x-agent-id': 'fill-0' })).status).toBe(200);
+      });
+
+      it('lets only one of two concurrent initializes win for the same id', async () => {
+        const initAs = (role: string) =>
+          fetch(`${bus.http.url}/mcp/${role}`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              accept: 'application/json, text/event-stream',
+              'x-agent-id': 'racer',
+            },
+            body: initBody,
+          });
+        const results = await Promise.all([initAs('implementer'), initAs('reviewer')]);
+        const winners = results.filter((r) => r.headers.get('mcp-session-id'));
+        expect(winners).toHaveLength(1);
+        expect(results.filter((r) => !r.headers.get('mcp-session-id'))[0]?.ok).toBe(false);
+        expect(bus.db.listAgents()).toHaveLength(1);
+        expect(bus.db.listEvents().filter((e) => e.kind === 'agent.registered')).toHaveLength(1);
+      });
+
       it('rejects a malformed X-Agent-Id with 400', async () => {
         expect((await init({ 'x-agent-id': 'bad id!' })).status).toBe(400);
       });

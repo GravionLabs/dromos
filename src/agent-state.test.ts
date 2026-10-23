@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { startTestBus, type TestBus } from './test-helpers.js';
 
@@ -67,8 +68,8 @@ describe('agent.state events', () => {
     expect(stateEvents()).toEqual([]);
   });
 
-  /** Opens a raw MCP session for the agent and ends it with DELETE, like a client leaving. */
-  const openAndClose = async (agentId: string): Promise<void> => {
+  /** Opens a raw MCP session for the agent and returns its session id. */
+  const open = async (agentId: string): Promise<string> => {
     const res = await fetch(`${bus.http.url}/mcp/implementer`, {
       method: 'POST',
       headers: {
@@ -87,13 +88,17 @@ describe('agent.state events', () => {
         },
       }),
     });
-    const sessionId = res.headers.get('mcp-session-id') ?? '';
     await res.text();
+    return res.headers.get('mcp-session-id') ?? '';
+  };
+  /** Ends a raw MCP session with DELETE, like a client leaving. */
+  const end = async (sessionId: string, agentId: string): Promise<void> => {
     await fetch(`${bus.http.url}/mcp/implementer`, {
       method: 'DELETE',
       headers: { 'mcp-session-id': sessionId, 'x-agent-id': agentId },
     });
   };
+  const openAndClose = async (agentId: string): Promise<void> => end(await open(agentId), agentId);
 
   it('marks the agent exited when its session closes', async () => {
     await openAndClose('impl-1');
@@ -111,9 +116,22 @@ describe('agent.state events', () => {
   it('resets an exited agent to idle when it reconnects with the same id', async () => {
     await openAndClose('impl-1');
     await expect.poll(() => bus.db.getAgent('impl-1')?.state).toBe('exited');
-    await bus.connect('implementer', 'impl-1');
+    const sessionId = await open('impl-1');
     expect(bus.db.getAgent('impl-1')?.state).toBe('idle');
     expect(stateEvents()).toEqual([{ state: 'idle' }, { state: 'exited' }]); // newest first
+    await end(sessionId, 'impl-1');
+    await expect.poll(() => bus.db.getAgent('impl-1')?.state).toBe('exited');
+  });
+
+  it('keeps the agent alive until its last session closes', async () => {
+    const first = await open('impl-1');
+    const second = await open('impl-1');
+    await end(first, 'impl-1');
+    await new Promise((r) => setTimeout(r, 100));
+    expect(bus.db.getAgent('impl-1')?.state).toBe('idle');
+    expect(stateEvents()).toEqual([]);
+    await end(second, 'impl-1');
+    await expect.poll(() => bus.db.getAgent('impl-1')?.state).toBe('exited');
   });
 
   it('ignores a role-only hook when two live agents share the role', async () => {
@@ -122,5 +140,45 @@ describe('agent.state events', () => {
     await hook('busy');
     expect(bus.db.getAgent('impl-1')?.state).toBe('idle');
     expect(bus.db.getAgent('impl-2')?.state).toBe('idle');
+    expect(stateEvents()).toEqual([]);
+  });
+
+  it('applies a role-only hook to the single live agent when a sibling has exited', async () => {
+    await openAndClose('impl-old');
+    await expect.poll(() => bus.db.getAgent('impl-old')?.state).toBe('exited');
+    await bus.connect('implementer', 'impl-new');
+    await hook('busy');
+    expect(bus.db.getAgent('impl-new')?.state).toBe('busy');
+    expect(bus.db.getAgent('impl-old')?.state).toBe('exited');
+    expect(stateEvents()).toEqual([{ state: 'busy' }, { state: 'exited' }]);
+  });
+
+  it('logs and drops an agent event that fails envelope validation, keeping the state change', async () => {
+    const runId = 'r'.repeat(200);
+    bus.db.insertRun({
+      id: runId,
+      repo: 'GravionLabs/demo',
+      repoPath: '/work/demo',
+      issueNumber: 1,
+      issueTitle: 'Do the thing',
+      baseBranch: 'main',
+      branch: 'agent/1-do-the-thing',
+      worktreePath: '/work/wt-demo-1',
+    });
+    bus.db.insertAgent({ id: 'impl-x', role: 'implementer', cli: 'claude', runId });
+    expect((await hook('busy', { 'x-agent-id': 'impl-x' })).status).toBe(204);
+    expect(bus.db.getAgent('impl-x')?.state).toBe('busy');
+    expect(stateEvents()).toEqual([]);
+    expect(bus.readLog()).toContain(
+      'dropped invalid agent.state event for agent impl-x (implementer)',
+    );
+  });
+
+  it('survives a closed database when a session closes during shutdown', async () => {
+    const local = await startTestBus();
+    await local.connect('implementer', 'impl-1');
+    local.db.close();
+    await expect(local.http.close()).resolves.toBeUndefined();
+    rmSync(local.config.dataDir, { recursive: true, force: true });
   });
 });
