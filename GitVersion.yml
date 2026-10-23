@@ -1,0 +1,6 @@
+mode: ContinuousDeployment
+next-version: 0.1.0
+branches:
+  release:
+    regex: ^release/next$
+    increment: Minor
