@@ -7,6 +7,7 @@
       "!dist",
       "!coverage",
       "!.agents",
+      "!.claude",
       "!.github/ISSUE_TEMPLATE",
       "!pnpm-lock.yaml",
       "!schema/events.schema.json"
