@@ -1,0 +1,15 @@
+{
+  "id": 46,
+  "type": "queue.item",
+  "at": "2026-10-22T09:30:45.000Z",
+  "source": "apm-hub/queue",
+  "agentId": null,
+  "issue": 97,
+  "runId": null,
+  "data": {
+    "state": "exited",
+    "exitCode": 0,
+    "durationMs": 734000,
+    "mode": "pbi"
+  }
+}

@@ -10,6 +10,13 @@
 //! integer range (±2^53-1), which the generated types do not enforce: the TypeScript bus is the
 //! producer and validates the bound with Zod, and `i64` is a strict superset. Code that writes
 //! events from Rust must stay within ±2^53-1 itself.
+//!
+//! The same holds for numeric bounds (`exitCode` 0..=3; `durationMs`, `contextTokens` and
+//! `costUsd` non-negative), forbidden characters in free text (control characters, bidi and
+//! zero-width characters, line and paragraph separators) and the `queue.item` state/result
+//! coupling: typify does not generate them. Deserialising a bare [`BusEvent`] therefore accepts
+//! violations. Deserialise through [`Event`], which enforces them after parsing, or call
+//! [`check_constraints`] on a [`BusEvent`] you obtained otherwise.
 
 mod event;
 
@@ -18,7 +25,7 @@ mod event;
 #[rustfmt::skip]
 mod generated;
 
-pub use event::{Event, KNOWN_TYPES};
+pub use event::{ConstraintError, Event, KNOWN_TYPES, check_constraints};
 pub use generated::error::ConversionError;
 pub use generated::{
     BUS_EVENT_TYPES, BusEvent, BusEventAt, BusEventSource, HookEvent, HookEventCli, HookEventModel,

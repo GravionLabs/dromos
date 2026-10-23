@@ -58,7 +58,7 @@ fn hook_idle_fixture_maps_to_hook_idle_variant() {
     };
     assert_eq!(id, 41);
     assert_eq!(at.as_str(), "2026-10-22T09:15:30.000Z");
-    assert_eq!(agent_id.as_deref(), Some("implementer-1"));
+    assert_eq!(agent_id.as_ref().map(|v| v.as_str()), Some("implementer-1"));
     assert_eq!(issue, Some(39));
     assert_eq!(run_id, None);
     assert_eq!(data.role, HookEventRole::Implementer);
@@ -76,6 +76,278 @@ fn hook_busy_fixture_maps_to_hook_busy_variant() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schema/fixtures/hook-busy.json");
     let event: BusEvent = serde_json::from_value(read_json(&path)).unwrap();
     assert!(matches!(event, BusEvent::HookBusy { id: 42, .. }));
+}
+
+fn fixture(name: &str) -> Value {
+    read_json(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../schema/fixtures")
+            .join(name),
+    )
+}
+
+#[test]
+fn external_fixtures_map_to_their_variants() {
+    let load = |name: &str| parse(fixture(name)).unwrap();
+    assert!(matches!(load("progress.json"), BusEvent::Progress { .. }));
+    assert!(matches!(load("attention.json"), BusEvent::Attention { .. }));
+    assert!(matches!(load("usage.json"), BusEvent::Usage { .. }));
+    assert!(matches!(
+        load("queue-item.json"),
+        BusEvent::QueueItem { .. }
+    ));
+}
+
+#[test]
+fn accepts_free_form_source_and_rejects_malformed() {
+    let mut event = valid_event();
+    event["source"] = json!("apm-hub/subagent-stop");
+    assert!(parse(event.clone()).is_ok());
+    event["source"] = json!("a".repeat(128));
+    assert!(parse(event.clone()).is_ok());
+    for bad in ["", "Apm Hub", "1abc", &"a".repeat(129)] {
+        event["source"] = json!(bad);
+        assert!(parse(event.clone()).is_err(), "{bad:?}");
+    }
+}
+
+fn remove_data(event: &mut Value, key: &str) {
+    event["data"].as_object_mut().unwrap().remove(key);
+}
+
+fn event_from(name: &str, mutate: impl Fn(&mut Value)) -> Result<dromos_mux_proto::Event, String> {
+    let mut event = fixture(name);
+    mutate(&mut event);
+    serde_json::from_value::<dromos_mux_proto::Event>(event).map_err(|e| e.to_string())
+}
+
+/// `Event` (not the bare `BusEvent`) must accept the mutated fixture.
+fn assert_accepted(name: &str, label: &str, mutate: impl Fn(&mut Value)) {
+    if let Err(e) = event_from(name, mutate) {
+        panic!("{name}: {label} was rejected: {e}");
+    }
+}
+
+/// `Event` must reject the mutated fixture with an error containing `expected`. `Event` also
+/// enforces what the generated types cannot (bounds, forbidden characters, queue.item coupling).
+fn assert_rejected(name: &str, label: &str, expected: &str, mutate: impl Fn(&mut Value)) {
+    match event_from(name, mutate) {
+        Ok(_) => panic!("{name}: {label} was accepted"),
+        Err(e) => assert!(
+            e.contains(expected),
+            "{name}: {label} failed with `{e}`, expected it to contain `{expected}`"
+        ),
+    }
+}
+
+#[test]
+fn rejects_invalid_progress_data() {
+    let p = "progress.json";
+    assert_rejected(p, "extra key", "unknown field `extra`", |e| {
+        e["data"]["extra"] = json!(1);
+    });
+    assert_rejected(p, "empty line", "shorter than 1", |e| {
+        e["data"]["line"] = json!("");
+    });
+    assert_rejected(p, "long line", "longer than 1000", |e| {
+        e["data"]["line"] = json!("x".repeat(1001));
+    });
+    assert_rejected(p, "ANSI escape", "data.line", |e| {
+        e["data"]["line"] = json!("a\u{1b}[31mred");
+    });
+    assert_rejected(p, "long agent", "longer than 64", |e| {
+        e["data"]["agent"] = json!("x".repeat(65));
+    });
+    assert_rejected(p, "missing agent", "missing field `agent`", |e| {
+        remove_data(e, "agent");
+    });
+    assert_rejected(p, "null agent", "invalid type: null", |e| {
+        e["data"]["agent"] = Value::Null;
+    });
+    assert_rejected(p, "long agentId", "longer than 128", |e| {
+        e["agentId"] = json!("x".repeat(129));
+    });
+    assert_rejected(p, "empty runId", "shorter than 1", |e| {
+        e["runId"] = json!("");
+    });
+}
+
+#[test]
+fn rejects_invalid_attention_data() {
+    let a = "attention.json";
+    assert_rejected(a, "unknown kind", "unknown variant `DONE`", |e| {
+        e["data"]["kind"] = json!("DONE");
+    });
+    assert_rejected(a, "empty summary", "shorter than 1", |e| {
+        e["data"]["summary"] = json!("");
+    });
+    assert_rejected(a, "long summary", "longer than 2000", |e| {
+        e["data"]["summary"] = json!("x".repeat(2001));
+    });
+    assert_rejected(a, "newline", "data.summary", |e| {
+        e["data"]["summary"] = json!("line\nbreak");
+    });
+    assert_rejected(a, "fractional pr", "invalid type", |e| {
+        e["data"]["pr"] = json!(1.5);
+    });
+    assert_rejected(a, "missing pr", "missing field `pr`", |e| {
+        remove_data(e, "pr");
+    });
+}
+
+#[test]
+fn rejects_invalid_usage_data() {
+    let u = "usage.json";
+    assert_rejected(
+        u,
+        "negative tokens",
+        "data.contextTokens must be >= 0",
+        |e| {
+            e["data"]["contextTokens"] = json!(-1);
+        },
+    );
+    assert_rejected(u, "negative cost", "data.costUsd must be >= 0", |e| {
+        e["data"]["costUsd"] = json!(-0.01);
+    });
+    assert_rejected(u, "empty model", "shorter than 1", |e| {
+        e["data"]["model"] = json!("");
+    });
+    assert_rejected(u, "long model", "longer than 128", |e| {
+        e["data"]["model"] = json!("x".repeat(129));
+    });
+    assert_rejected(u, "missing cost", "missing field `costUsd`", |e| {
+        remove_data(e, "costUsd");
+    });
+    assert_rejected(u, "null tokens", "invalid type: null", |e| {
+        e["data"]["contextTokens"] = Value::Null;
+    });
+}
+
+#[test]
+fn rejects_invalid_queue_item_data() {
+    let q = "queue-item.json";
+    assert_rejected(q, "exit code 4", "data.exitCode must be 0..=3", |e| {
+        e["data"]["exitCode"] = json!(4);
+    });
+    assert_rejected(q, "exit code -1", "data.exitCode must be 0..=3", |e| {
+        e["data"]["exitCode"] = json!(-1);
+    });
+    assert_rejected(
+        q,
+        "negative duration",
+        "data.durationMs must be >= 0",
+        |e| {
+            e["data"]["durationMs"] = json!(-1);
+        },
+    );
+    assert_rejected(q, "unknown state", "unknown variant `running`", |e| {
+        e["data"]["state"] = json!("running");
+    });
+    assert_rejected(q, "long mode", "longer than 64", |e| {
+        e["data"]["mode"] = json!("x".repeat(65));
+    });
+    assert_rejected(q, "missing mode", "missing field `mode`", |e| {
+        remove_data(e, "mode");
+    });
+}
+
+#[test]
+fn queue_item_state_coupling_cases_are_isolated() {
+    let q = "queue-item.json";
+    let coupling = "started has no exitCode or durationMs";
+    assert_rejected(q, "exited without exitCode", coupling, |e| {
+        e["data"]["exitCode"] = Value::Null;
+    });
+    assert_rejected(q, "started with exitCode only", coupling, |e| {
+        e["data"]["state"] = json!("started");
+        e["data"]["durationMs"] = Value::Null;
+    });
+    assert_rejected(q, "started with durationMs only", coupling, |e| {
+        e["data"]["state"] = json!("started");
+        e["data"]["exitCode"] = Value::Null;
+    });
+    assert_accepted(q, "exited with null durationMs", |e| {
+        e["data"]["durationMs"] = Value::Null;
+    });
+    assert_accepted(q, "started with nothing", |e| {
+        e["data"]["state"] = json!("started");
+        e["data"]["exitCode"] = Value::Null;
+        e["data"]["durationMs"] = Value::Null;
+    });
+}
+
+#[test]
+fn accepts_boundary_values() {
+    assert_accepted("usage.json", "zero usage", |e| {
+        e["data"]["contextTokens"] = json!(0);
+        e["data"]["costUsd"] = json!(0.0);
+    });
+    assert_accepted("queue-item.json", "exit code 3", |e| {
+        e["data"]["exitCode"] = json!(3);
+    });
+    assert_accepted("progress.json", "line at the cap", |e| {
+        e["data"]["line"] = json!("x".repeat(1000));
+    });
+    // The cap counts code points, as in the JSON Schema and Zod 4.
+    assert_accepted("progress.json", "1000 astral code points", |e| {
+        e["data"]["line"] = json!("\u{1F600}".repeat(1000));
+    });
+}
+
+#[test]
+fn bare_bus_event_skips_the_constraint_checks_but_check_constraints_catches_them() {
+    let mut input = fixture("queue-item.json");
+    input["data"]["exitCode"] = json!(99);
+    let bare = parse(input).unwrap();
+    assert!(dromos_mux_proto::check_constraints(&bare).is_err());
+}
+
+/// Applies a `schema/parity.json` mutation: `{"repeat": [char, n]}` expands to a repeated string.
+fn expand(value: &Value) -> Value {
+    match value.get("repeat") {
+        Some(r) => json!(
+            r[0].as_str()
+                .unwrap()
+                .repeat(r[1].as_u64().unwrap() as usize)
+        ),
+        None => value.clone(),
+    }
+}
+
+fn set_path(event: &mut Value, path: &str, value: Value) {
+    let mut node = event;
+    let mut parts = path.split('.').peekable();
+    while let Some(part) = parts.next() {
+        if parts.peek().is_none() {
+            node[part] = value;
+            return;
+        }
+        node = &mut node[part];
+    }
+}
+
+/// Same cases as `src/events/schema.test.ts`: both languages must agree on every one.
+#[test]
+fn parity_cases_agree_with_typescript() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schema/parity.json");
+    let cases = read_json(&path);
+    let cases = cases["cases"].as_array().unwrap();
+    assert!(cases.len() > 100, "parity.json looks truncated");
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let valid = case["valid"].as_bool().unwrap();
+        let mut event = fixture(case["fixture"].as_str().unwrap());
+        for (path, value) in case
+            .get("set")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+        {
+            set_path(&mut event, path, expand(value));
+        }
+        let result = serde_json::from_value::<dromos_mux_proto::Event>(event);
+        assert_eq!(result.is_ok(), valid, "parity case `{name}`: {result:?}");
+    }
 }
 
 fn valid_event() -> Value {
@@ -333,7 +605,17 @@ mod event_wrapper {
 
     #[test]
     fn known_types_are_the_generated_tags() {
-        assert_eq!(KNOWN_TYPES, ["hook:idle", "hook:busy"]);
+        assert_eq!(
+            KNOWN_TYPES,
+            [
+                "hook:idle",
+                "hook:busy",
+                "progress",
+                "attention",
+                "usage",
+                "queue.item"
+            ]
+        );
     }
 
     #[test]
