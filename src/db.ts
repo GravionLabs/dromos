@@ -260,6 +260,8 @@ export interface Db {
   updateRun(id: string, patch: RunPatch): Run | undefined;
   insertEvent(role: string, kind: string, data: unknown): BusEvent;
   listEvents(role?: string, limit?: number): BusEvent[];
+  /** Events with id strictly greater than `afterId`, ascending, for stream replay. */
+  listEventsSince(afterId: number, limit?: number): BusEvent[];
   /** Runs `fn` in one SQLite transaction; rolls back when it throws. */
   transaction<T>(fn: () => T): T;
   schemaVersion(): number;
@@ -336,6 +338,9 @@ export function openDb(file: string): Db {
   const getEvent = db.prepare<[number | bigint], EventRow>('SELECT * FROM events WHERE id = ?');
   const listEvents = db.prepare<[string | null, string | null, number], EventRow>(
     `SELECT * FROM events WHERE (? IS NULL OR role = ?) ORDER BY id DESC LIMIT ?`,
+  );
+  const listEventsSince = db.prepare<[number, number], EventRow>(
+    'SELECT * FROM events WHERE id > ? ORDER BY id ASC LIMIT ?',
   );
 
   const toEvent = (row: EventRow): BusEvent => ({
@@ -450,6 +455,9 @@ export function openDb(file: string): Db {
     },
     listEvents(role, limit = 50) {
       return listEvents.all(role ?? null, role ?? null, limit).map(toEvent);
+    },
+    listEventsSince(afterId, limit = 1000) {
+      return listEventsSince.all(afterId, limit).map(toEvent);
     },
     transaction(fn) {
       return db.transaction(fn)();

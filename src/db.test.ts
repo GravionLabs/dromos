@@ -322,5 +322,17 @@ describe('db', () => {
       ]);
       expect(db.listEvents(undefined, 1)).toHaveLength(1);
     });
+
+    it('lists events strictly after an id, ascending, honouring the limit', () => {
+      const ids = ['a', 'b', 'c'].map((k) => db.insertEvent('implementer', `hook:${k}`, null).id);
+      expect(db.listEventsSince(0).map((e) => e.kind)).toEqual(['hook:a', 'hook:b', 'hook:c']);
+      expect(db.listEventsSince(ids[0] as number).map((e) => e.kind)).toEqual(['hook:b', 'hook:c']);
+      expect(db.listEventsSince(0, 2).map((e) => e.kind)).toEqual(['hook:a', 'hook:b']);
+      expect(db.listEventsSince(ids[2] as number)).toEqual([]);
+    });
+
+    it('returns an empty list for an empty table', () => {
+      expect(db.listEventsSince(0)).toEqual([]);
+    });
   });
 });

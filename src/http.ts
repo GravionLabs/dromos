@@ -8,6 +8,7 @@ import { BusEvents } from './bus-events.js';
 import { type BusLog, createBusLog } from './bus-log.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
+import { recordEvent } from './event-store.js';
 import { BusEventSchema } from './events/schema.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
@@ -250,7 +251,7 @@ export async function startHttp({
       );
       return;
     }
-    db.insertEvent(agent.role, type, checked.data.data);
+    recordEvent(db, events, agent.role, type, checked.data.data);
   }
 
   /** Update agents.state and emit agent.state, but only when the state actually changes. */
@@ -292,7 +293,7 @@ export async function startHttp({
       return;
     }
     const { role, cli, state, model } = parsed.data;
-    db.insertEvent(role, `hook:${state}`, parsed.data);
+    recordEvent(db, events, role, `hook:${state}`, parsed.data);
     log.logLine('HOOK', `${role} ${state} (${cli}${model ? `, ${model}` : ''})`);
     const agentId = hookAgentId(req, role);
     if (agentId) {
