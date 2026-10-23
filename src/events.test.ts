@@ -28,6 +28,23 @@ describe('POST /events', () => {
     expect(bus.readLog()).toMatch(/ HOOK {9}implementer idle \(claude\)\n$/);
   });
 
+  it('broadcasts exactly one event whose id equals the stored row id', async () => {
+    const seen: { id: number; kind: string }[] = [];
+    bus.events.onEvent((e) => seen.push({ id: e.id, kind: e.kind }));
+    await post('{"role":"implementer","cli":"claude","state":"idle"}');
+    const stored = bus.db.listEvents('implementer');
+    expect(stored).toHaveLength(1);
+    expect(seen).toEqual([{ id: stored[0]?.id, kind: 'hook:idle' }]);
+  });
+
+  it('broadcasts nothing for an invalid event', async () => {
+    const seen: number[] = [];
+    bus.events.onEvent((e) => seen.push(e.id));
+    await post('{"role":"implementer","cli":"claude","state":"sleeping"}');
+    expect(seen).toEqual([]);
+    expect(bus.db.listEvents()).toEqual([]);
+  });
+
   it('includes the model in the log line when given', async () => {
     await post('{"role":"reviewer","cli":"copilot","state":"busy","model":"GPT-Luna"}');
     expect(bus.readLog()).toContain('reviewer busy (copilot, GPT-Luna)');

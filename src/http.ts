@@ -8,6 +8,8 @@ import { BusEvents } from './bus-events.js';
 import { type BusLog, createBusLog } from './bus-log.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
+import { recordEvent } from './event-store.js';
+import { createEventStream } from './event-stream.js';
 import { BusEventSchema } from './events/schema.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
@@ -19,6 +21,12 @@ export interface HttpOptions {
   events?: BusEvents;
   /** Human-readable log; defaults to `<dataDir>/bus.log`. */
   log?: BusLog;
+  /** Heartbeat interval of `GET /events/stream` in ms; defaults to 15 s. */
+  heartbeatMs?: number;
+  /** Concurrent `GET /events/stream` connections; defaults to 64. */
+  maxEventStreams?: number;
+  /** Live backlog in bytes after which a slow stream client is disconnected; defaults to 1 MiB. */
+  maxStreamBufferedBytes?: number;
 }
 
 interface Session {
@@ -65,8 +73,20 @@ export async function startHttp({
   db,
   events = new BusEvents(),
   log = createBusLog(config.dataDir),
+  heartbeatMs,
+  maxEventStreams,
+  maxStreamBufferedBytes,
 }: HttpOptions): Promise<RunningHttp> {
   const { host, port } = config;
+  const eventStream = createEventStream({
+    db,
+    events,
+    log,
+    heartbeatMs,
+    maxStreams: maxEventStreams,
+    maxBufferedBytes: maxStreamBufferedBytes,
+    allowedHosts: [host],
+  });
   const sessions = new Map<string, Session>();
 
   async function handleMcp(req: IncomingMessage, res: ServerResponse, role: Role): Promise<void> {
@@ -250,7 +270,7 @@ export async function startHttp({
       );
       return;
     }
-    db.insertEvent(agent.role, type, checked.data.data);
+    recordEvent(db, events, agent.role, type, checked.data.data);
   }
 
   /** Update agents.state and emit agent.state, but only when the state actually changes. */
@@ -292,7 +312,7 @@ export async function startHttp({
       return;
     }
     const { role, cli, state, model } = parsed.data;
-    db.insertEvent(role, `hook:${state}`, parsed.data);
+    recordEvent(db, events, role, `hook:${state}`, parsed.data);
     log.logLine('HOOK', `${role} ${state} (${cli}${model ? `, ${model}` : ''})`);
     const agentId = hookAgentId(req, role);
     if (agentId) {
@@ -305,6 +325,14 @@ export async function startHttp({
     const path = new URL(req.url ?? '/', 'http://localhost').pathname;
     if (req.method === 'GET' && path === '/health') {
       sendJson(res, 200, { ok: true });
+      return;
+    }
+    if (path === '/events/stream') {
+      eventStream.handle(req, res).catch((error: unknown) => {
+        if (!res.headersSent) {
+          sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
+        }
+      });
       return;
     }
     if (path === '/events') {

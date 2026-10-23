@@ -6,7 +6,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { BusEvents } from './bus-events.js';
 import { type Config, ConfigSchema } from './config.js';
 import { type Db, openDb } from './db.js';
-import { type RunningHttp, startHttp } from './http.js';
+import { type HttpOptions, type RunningHttp, startHttp } from './http.js';
 import type { Role } from './schemas.js';
 
 export interface TestBus {
@@ -21,12 +21,15 @@ export interface TestBus {
 }
 
 /** Starts a bus on a random port with an in-memory database. */
-export async function startTestBus(overrides: Record<string, unknown> = {}): Promise<TestBus> {
+export async function startTestBus(
+  overrides: Record<string, unknown> = {},
+  httpOptions: Pick<HttpOptions, 'heartbeatMs' | 'maxEventStreams' | 'maxStreamBufferedBytes'> = {},
+): Promise<TestBus> {
   const dataDir = mkdtempSync(join(tmpdir(), 'agent-bus-test-'));
   const config = ConfigSchema.parse({ port: 0, dataDir, ...overrides });
   const db = openDb(':memory:');
   const events = new BusEvents();
-  const http = await startHttp({ config, db, events });
+  const http = await startHttp({ config, db, events, ...httpOptions });
   const clients: Client[] = [];
   return {
     http,
