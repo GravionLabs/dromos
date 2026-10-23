@@ -9,7 +9,7 @@ import { type BusLog, createBusLog } from './bus-log.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
 import { recordEvent } from './event-store.js';
-import { handleEventStream } from './event-stream.js';
+import { createEventStream } from './event-stream.js';
 import { BusEventSchema } from './events/schema.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
@@ -23,6 +23,10 @@ export interface HttpOptions {
   log?: BusLog;
   /** Heartbeat interval of `GET /events/stream` in ms; defaults to 15 s. */
   heartbeatMs?: number;
+  /** Concurrent `GET /events/stream` connections; defaults to 64. */
+  maxEventStreams?: number;
+  /** Live backlog in bytes after which a slow stream client is disconnected; defaults to 1 MiB. */
+  maxStreamBufferedBytes?: number;
 }
 
 interface Session {
@@ -70,8 +74,19 @@ export async function startHttp({
   events = new BusEvents(),
   log = createBusLog(config.dataDir),
   heartbeatMs,
+  maxEventStreams,
+  maxStreamBufferedBytes,
 }: HttpOptions): Promise<RunningHttp> {
   const { host, port } = config;
+  const eventStream = createEventStream({
+    db,
+    events,
+    log,
+    heartbeatMs,
+    maxStreams: maxEventStreams,
+    maxBufferedBytes: maxStreamBufferedBytes,
+    allowedHosts: [host],
+  });
   const sessions = new Map<string, Session>();
 
   async function handleMcp(req: IncomingMessage, res: ServerResponse, role: Role): Promise<void> {
@@ -313,13 +328,11 @@ export async function startHttp({
       return;
     }
     if (path === '/events/stream') {
-      try {
-        handleEventStream(req, res, { db, events, heartbeatMs });
-      } catch (error) {
+      eventStream.handle(req, res).catch((error: unknown) => {
         if (!res.headersSent) {
           sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
         }
-      }
+      });
       return;
     }
     if (path === '/events') {

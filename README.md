@@ -34,7 +34,9 @@ data: {"id":42,"role":"implementer","kind":"hook:idle","data":{...},"createdAt":
 
 - Resume: the `Last-Event-ID` header (sent by `EventSource` on reconnect) or `?since=<id>` replays every event with a larger id in id order, then switches to live events, without gaps or duplicates. The header wins over `?since`. Without either, only live events are sent. A value that is not a non-negative integer answers `400 { error }`; `?since=0` replays everything.
 - Heartbeat: a `: heartbeat` comment every 15 seconds keeps idle connections open.
-- Other methods answer 405. Like `POST /events` the stream has no authentication and relies on the loopback binding.
+- An id beyond the newest stored event is treated as the newest id, so later live events still arrive.
+- Limits: at most 64 concurrent streams (further requests get 503); a live client whose unsent backlog exceeds 1 MiB is disconnected and can resume with `Last-Event-ID`.
+- Security: `Host` (and `Origin`, when sent) must name `127.0.0.1`, `localhost`, `[::1]` or the configured bind host, else 403 (DNS-rebinding guard). There is no authentication, like `POST /events`. Other methods answer 405.
 
 ## Repository layout
 
