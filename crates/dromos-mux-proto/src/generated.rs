@@ -139,7 +139,7 @@ pub enum BusEvent {
             rename = "agentId",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        agent_id: ::std::option::Option<::std::string::String>,
+        agent_id: ::std::option::Option<BusEventAgentId>,
         at: BusEventAt,
         data: HookEvent,
         id: i64,
@@ -149,7 +149,7 @@ pub enum BusEvent {
             rename = "runId",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        run_id: ::std::option::Option<::std::string::String>,
+        run_id: ::std::option::Option<BusEventRunId>,
         source: BusEventSource,
     },
     #[serde(rename = "hook:busy")]
@@ -158,7 +158,7 @@ pub enum BusEvent {
             rename = "agentId",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        agent_id: ::std::option::Option<::std::string::String>,
+        agent_id: ::std::option::Option<BusEventAgentId>,
         at: BusEventAt,
         data: HookEvent,
         id: i64,
@@ -168,7 +168,7 @@ pub enum BusEvent {
             rename = "runId",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        run_id: ::std::option::Option<::std::string::String>,
+        run_id: ::std::option::Option<BusEventRunId>,
         source: BusEventSource,
     },
     #[serde(rename = "progress")]
@@ -177,7 +177,7 @@ pub enum BusEvent {
             rename = "agentId",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        agent_id: ::std::option::Option<::std::string::String>,
+        agent_id: ::std::option::Option<BusEventAgentId>,
         at: BusEventAt,
         data: ProgressData,
         id: i64,
@@ -187,7 +187,7 @@ pub enum BusEvent {
             rename = "runId",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        run_id: ::std::option::Option<::std::string::String>,
+        run_id: ::std::option::Option<BusEventRunId>,
         source: BusEventSource,
     },
     #[serde(rename = "attention")]
@@ -196,7 +196,7 @@ pub enum BusEvent {
             rename = "agentId",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        agent_id: ::std::option::Option<::std::string::String>,
+        agent_id: ::std::option::Option<BusEventAgentId>,
         at: BusEventAt,
         data: AttentionData,
         id: i64,
@@ -206,7 +206,7 @@ pub enum BusEvent {
             rename = "runId",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        run_id: ::std::option::Option<::std::string::String>,
+        run_id: ::std::option::Option<BusEventRunId>,
         source: BusEventSource,
     },
     #[serde(rename = "usage")]
@@ -215,7 +215,7 @@ pub enum BusEvent {
             rename = "agentId",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        agent_id: ::std::option::Option<::std::string::String>,
+        agent_id: ::std::option::Option<BusEventAgentId>,
         at: BusEventAt,
         data: UsageData,
         id: i64,
@@ -225,7 +225,7 @@ pub enum BusEvent {
             rename = "runId",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        run_id: ::std::option::Option<::std::string::String>,
+        run_id: ::std::option::Option<BusEventRunId>,
         source: BusEventSource,
     },
     #[serde(rename = "queue.item")]
@@ -234,7 +234,7 @@ pub enum BusEvent {
             rename = "agentId",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        agent_id: ::std::option::Option<::std::string::String>,
+        agent_id: ::std::option::Option<BusEventAgentId>,
         at: BusEventAt,
         data: QueueItemData,
         id: i64,
@@ -244,9 +244,66 @@ pub enum BusEvent {
             rename = "runId",
             deserialize_with = "::std::option::Option::deserialize"
         )]
-        run_id: ::std::option::Option<::std::string::String>,
+        run_id: ::std::option::Option<BusEventRunId>,
         source: BusEventSource,
     },
+}
+///`BusEventAgentId`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct BusEventAgentId(::std::string::String);
+impl ::std::ops::Deref for BusEventAgentId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<BusEventAgentId> for ::std::string::String {
+    fn from(value: BusEventAgentId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for BusEventAgentId {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for BusEventAgentId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for BusEventAgentId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for BusEventAgentId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 ///`BusEventAt`
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -301,6 +358,63 @@ impl ::std::convert::TryFrom<::std::string::String> for BusEventAt {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for BusEventAt {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`BusEventRunId`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct BusEventRunId(::std::string::String);
+impl ::std::ops::Deref for BusEventRunId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<BusEventRunId> for ::std::string::String {
+    fn from(value: BusEventRunId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for BusEventRunId {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for BusEventRunId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for BusEventRunId {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for BusEventRunId {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -748,8 +862,65 @@ pub struct QueueItemData {
     )]
     pub exit_code: ::std::option::Option<i64>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub mode: ::std::option::Option<::std::string::String>,
+    pub mode: ::std::option::Option<QueueItemDataMode>,
     pub state: QueueItemDataState,
+}
+///`QueueItemDataMode`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QueueItemDataMode(::std::string::String);
+impl ::std::ops::Deref for QueueItemDataMode {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QueueItemDataMode> for ::std::string::String {
+    fn from(value: QueueItemDataMode) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QueueItemDataMode {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QueueItemDataMode {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for QueueItemDataMode {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QueueItemDataMode {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 ///`QueueItemDataState`
 #[derive(
@@ -815,7 +986,64 @@ pub struct UsageData {
     #[serde(rename = "costUsd", deserialize_with = "::std::option::Option::deserialize")]
     pub cost_usd: ::std::option::Option<f64>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
-    pub model: ::std::option::Option<::std::string::String>,
+    pub model: ::std::option::Option<UsageDataModel>,
+}
+///`UsageDataModel`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct UsageDataModel(::std::string::String);
+impl ::std::ops::Deref for UsageDataModel {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<UsageDataModel> for ::std::string::String {
+    fn from(value: UsageDataModel) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for UsageDataModel {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for UsageDataModel {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for UsageDataModel {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for UsageDataModel {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 /// Error types.
 pub mod error {

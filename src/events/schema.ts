@@ -5,9 +5,22 @@ import { HookEventSchema } from '../schemas.js';
 // JSON Schema and `deny_unknown_fields` in the generated Rust types.
 const hookData = z.strictObject(HookEventSchema.shape).meta({ id: 'HookEvent' });
 
+// Free text from external producers must not carry control characters (terminal escape sequences,
+// ANSI colour codes, newlines): consumers render these values. The check is a refinement, so it is
+// not part of the exported JSON Schema; the Rust `Event` deserialiser repeats it.
+// `max` counts UTF-16 units here but code points in JSON Schema and Rust, so Zod is the stricter
+// of the three for astral characters.
+const noControlChars = (s: string) => !/\p{Cc}/u.test(s);
+const text = (min: number, max: number) =>
+  z.string().min(min).max(max).refine(noControlChars, 'control characters are not allowed');
+
 /**
  * Fields shared by every bus event. `source` names the emitter: a role name for bus events, a free
  * identifier such as `apm-hub/subagent-stop` for external producers.
+ *
+ * `source` is a label, not an authenticated identity: the schema cannot stop a producer from
+ * claiming a role name such as `orchestrator`. The ingest endpoint (#83) must authenticate the
+ * caller and set or restrict `source` itself; consumers must not trust it for authorisation.
  */
 const envelope = {
   /** Safe integer (±2^53-1). The generated Rust type is a wider i64; the bus is the producer. */
@@ -18,9 +31,9 @@ const envelope = {
     .min(1)
     .max(128)
     .regex(/^[a-z][a-z0-9._/-]*$/),
-  agentId: z.string().nullable(),
+  agentId: text(1, 128).nullable(),
   issue: z.number().int().nullable(),
-  runId: z.string().nullable(),
+  runId: text(1, 128).nullable(),
 };
 
 export const HookIdleEventSchema = z
@@ -36,9 +49,7 @@ export const ProgressEventSchema = z
   .strictObject({
     ...envelope,
     type: z.literal('progress'),
-    data: z
-      .strictObject({ line: z.string().min(1).max(1000), agent: z.string().min(1).max(64) })
-      .meta({ id: 'ProgressData' }),
+    data: z.strictObject({ line: text(1, 1000), agent: text(1, 64) }).meta({ id: 'ProgressData' }),
   })
   .meta({ id: 'ProgressEvent' });
 
@@ -50,7 +61,7 @@ export const AttentionEventSchema = z
     data: z
       .strictObject({
         kind: z.enum(['GATE', 'BLOCKED', 'FAILED', 'QUESTION']),
-        summary: z.string().min(1).max(2000),
+        summary: text(1, 2000),
         pr: z.number().int().nullable(),
       })
       .meta({ id: 'AttentionData' }),
@@ -66,7 +77,7 @@ export const UsageEventSchema = z
       .strictObject({
         contextTokens: z.number().int().min(0),
         costUsd: z.number().min(0).nullable(),
-        model: z.string().nullable(),
+        model: text(1, 128).nullable(),
       })
       .meta({ id: 'UsageData' }),
   })
@@ -80,10 +91,20 @@ export const QueueItemEventSchema = z
     data: z
       .strictObject({
         state: z.enum(['started', 'exited']),
+        /** Queue runner exit codes 0..3 (#43, apm-hub#392); null while `started`. */
         exitCode: z.number().int().min(0).max(3).nullable(),
         durationMs: z.number().int().min(0).nullable(),
-        mode: z.string().nullable(),
+        mode: text(1, 64).nullable(),
       })
+      // `started` carries no result yet; `exited` always carries an exit code. Not expressible in
+      // the exported JSON Schema; the Rust `Event` deserialiser repeats it.
+      .refine(
+        (d) =>
+          d.state === 'started'
+            ? d.exitCode === null && d.durationMs === null
+            : d.exitCode !== null,
+        'started has no exitCode or durationMs; exited requires an exitCode',
+      )
       .meta({ id: 'QueueItemData' }),
   })
   .meta({ id: 'QueueItemEvent' });

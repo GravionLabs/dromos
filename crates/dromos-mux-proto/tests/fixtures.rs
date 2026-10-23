@@ -58,7 +58,7 @@ fn hook_idle_fixture_maps_to_hook_idle_variant() {
     };
     assert_eq!(id, 41);
     assert_eq!(at.as_str(), "2026-10-22T09:15:30.000Z");
-    assert_eq!(agent_id.as_deref(), Some("implementer-1"));
+    assert_eq!(agent_id.as_ref().map(|v| v.as_str()), Some("implementer-1"));
     assert_eq!(issue, Some(39));
     assert_eq!(run_id, None);
     assert_eq!(data.role, HookEventRole::Implementer);
@@ -78,14 +78,17 @@ fn hook_busy_fixture_maps_to_hook_busy_variant() {
     assert!(matches!(event, BusEvent::HookBusy { id: 42, .. }));
 }
 
+fn fixture(name: &str) -> Value {
+    read_json(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../schema/fixtures")
+            .join(name),
+    )
+}
+
 #[test]
 fn external_fixtures_map_to_their_variants() {
-    let load = |name: &str| {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../schema/fixtures")
-            .join(name);
-        serde_json::from_value::<BusEvent>(read_json(&path)).unwrap()
-    };
+    let load = |name: &str| parse(fixture(name)).unwrap();
     assert!(matches!(load("progress.json"), BusEvent::Progress { .. }));
     assert!(matches!(load("attention.json"), BusEvent::Attention { .. }));
     assert!(matches!(load("usage.json"), BusEvent::Usage { .. }));
@@ -100,27 +103,151 @@ fn accepts_free_form_source_and_rejects_malformed() {
     let mut event = valid_event();
     event["source"] = json!("apm-hub/subagent-stop");
     assert!(parse(event.clone()).is_ok());
-    for bad in ["", "Apm Hub", "1abc"] {
+    event["source"] = json!("a".repeat(128));
+    assert!(parse(event.clone()).is_ok());
+    for bad in ["", "Apm Hub", "1abc", &"a".repeat(129)] {
         event["source"] = json!(bad);
         assert!(parse(event.clone()).is_err(), "{bad:?}");
     }
 }
 
+fn remove_data(event: &mut Value, key: &str) {
+    event["data"].as_object_mut().unwrap().remove(key);
+}
+
+/// Every mutation must be rejected by `Event`, which also enforces what the generated types
+/// cannot (numeric bounds, control characters, queue.item coupling).
+fn assert_rejected(name: &str, mutate: impl Fn(&mut Value), label: &str) {
+    let mut event = fixture(name);
+    mutate(&mut event);
+    assert!(
+        serde_json::from_value::<dromos_mux_proto::Event>(event).is_err(),
+        "{name}: {label} was accepted"
+    );
+}
+
 #[test]
-fn rejects_invalid_external_data() {
-    let load = |name: &str| {
-        read_json(
-            &Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../schema/fixtures")
-                .join(name),
-        )
+fn rejects_invalid_progress_data() {
+    let p = "progress.json";
+    assert_rejected(p, |e| e["data"]["extra"] = json!(1), "extra key");
+    assert_rejected(p, |e| e["data"]["line"] = json!(""), "empty line");
+    assert_rejected(
+        p,
+        |e| e["data"]["line"] = json!("x".repeat(1001)),
+        "long line",
+    );
+    assert_rejected(
+        p,
+        |e| e["data"]["line"] = json!("a\u{1b}[31mred"),
+        "ANSI escape",
+    );
+    assert_rejected(
+        p,
+        |e| e["data"]["agent"] = json!("x".repeat(65)),
+        "long agent",
+    );
+    assert_rejected(p, |e| remove_data(e, "agent"), "missing agent");
+    assert_rejected(p, |e| e["data"]["agent"] = Value::Null, "null agent");
+    assert_rejected(p, |e| e["agentId"] = json!("x".repeat(129)), "long agentId");
+    assert_rejected(p, |e| e["runId"] = json!(""), "empty runId");
+}
+
+#[test]
+fn rejects_invalid_attention_data() {
+    let a = "attention.json";
+    assert_rejected(a, |e| e["data"]["kind"] = json!("DONE"), "unknown kind");
+    assert_rejected(a, |e| e["data"]["summary"] = json!(""), "empty summary");
+    assert_rejected(
+        a,
+        |e| e["data"]["summary"] = json!("x".repeat(2001)),
+        "long summary",
+    );
+    assert_rejected(
+        a,
+        |e| e["data"]["summary"] = json!("line\nbreak"),
+        "newline",
+    );
+    assert_rejected(a, |e| e["data"]["pr"] = json!(1.5), "fractional pr");
+    assert_rejected(a, |e| remove_data(e, "pr"), "missing pr");
+}
+
+#[test]
+fn rejects_invalid_usage_data() {
+    let u = "usage.json";
+    assert_rejected(
+        u,
+        |e| e["data"]["contextTokens"] = json!(-1),
+        "negative tokens",
+    );
+    assert_rejected(u, |e| e["data"]["costUsd"] = json!(-0.01), "negative cost");
+    assert_rejected(u, |e| e["data"]["model"] = json!(""), "empty model");
+    assert_rejected(
+        u,
+        |e| e["data"]["model"] = json!("x".repeat(129)),
+        "long model",
+    );
+    assert_rejected(u, |e| remove_data(e, "costUsd"), "missing cost");
+    assert_rejected(
+        u,
+        |e| e["data"]["contextTokens"] = Value::Null,
+        "null tokens",
+    );
+}
+
+#[test]
+fn rejects_invalid_queue_item_data() {
+    let q = "queue-item.json";
+    assert_rejected(q, |e| e["data"]["exitCode"] = json!(4), "exit code 4");
+    assert_rejected(q, |e| e["data"]["exitCode"] = json!(-1), "exit code -1");
+    assert_rejected(
+        q,
+        |e| e["data"]["durationMs"] = json!(-1),
+        "negative duration",
+    );
+    assert_rejected(
+        q,
+        |e| e["data"]["state"] = json!("running"),
+        "unknown state",
+    );
+    assert_rejected(
+        q,
+        |e| e["data"]["mode"] = json!("x".repeat(65)),
+        "long mode",
+    );
+    assert_rejected(
+        q,
+        |e| e["data"]["exitCode"] = Value::Null,
+        "exited without exit code",
+    );
+    assert_rejected(
+        q,
+        |e| e["data"]["state"] = json!("started"),
+        "started with a result",
+    );
+    assert_rejected(q, |e| remove_data(e, "mode"), "missing mode");
+}
+
+#[test]
+fn accepts_boundary_values_and_started_item() {
+    use dromos_mux_proto::Event;
+    let ok = |name: &str, mutate: &dyn Fn(&mut Value)| {
+        let mut event = fixture(name);
+        mutate(&mut event);
+        serde_json::from_value::<Event>(event).unwrap();
     };
-    let mut attention = load("attention.json");
-    attention["data"]["kind"] = json!("DONE");
-    assert!(parse(attention).is_err());
-    let mut progress = load("progress.json");
-    progress["data"]["extra"] = json!(1);
-    assert!(parse(progress).is_err());
+    ok("usage.json", &|e| {
+        e["data"]["contextTokens"] = json!(0);
+        e["data"]["costUsd"] = json!(0.0);
+    });
+    ok("queue-item.json", &|e| e["data"]["exitCode"] = json!(3));
+    ok("queue-item.json", &|e| {
+        e["data"]["state"] = json!("started");
+        e["data"]["exitCode"] = Value::Null;
+        e["data"]["durationMs"] = Value::Null;
+    });
+    ok("progress.json", &|e| {
+        e["data"]["line"] = json!("x".repeat(1000))
+    });
 }
 
 fn valid_event() -> Value {

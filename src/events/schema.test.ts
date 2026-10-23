@@ -16,7 +16,7 @@ describe('BusEventSchema fixtures', () => {
 
   it('has exactly one fixture per event type', () => {
     expect([...fixtureFiles].sort()).toEqual(
-      BUS_EVENT_TYPES.map((t) => `${t.replace(/[:.]/, '-')}.json`).sort(),
+      BUS_EVENT_TYPES.map((t) => `${t.replace(/[:.]/g, '-')}.json`).sort(),
     );
     const types = fixtureFiles.map((f) => readFixture(f).type);
     expect([...types].sort()).toEqual([...BUS_EVENT_TYPES].sort());
@@ -38,18 +38,18 @@ describe('BusEventSchema validation', () => {
     expect(BusEventSchema.safeParse({ ...valid(), id: 1.5 }).success).toBe(false);
   });
 
+  const withSource = (source: string) => BusEventSchema.safeParse({ ...valid(), source }).success;
+
   it('accepts a free-form source identifier', () => {
-    const ok = (source: string) => BusEventSchema.safeParse({ ...valid(), source }).success;
-    expect(ok('apm-hub/subagent-stop')).toBe(true);
-    expect(ok('implementer')).toBe(true);
+    expect(withSource('apm-hub/subagent-stop')).toBe(true);
+    expect(withSource('implementer')).toBe(true);
+    expect(withSource('a'.repeat(128))).toBe(true);
   });
 
   it('rejects an empty, malformed or oversized source', () => {
-    const ok = (source: string) => BusEventSchema.safeParse({ ...valid(), source }).success;
-    expect(ok('')).toBe(false);
-    expect(ok('Apm Hub')).toBe(false);
-    expect(ok('1abc')).toBe(false);
-    expect(ok('a'.repeat(129))).toBe(false);
+    for (const source of ['', 'Apm Hub', '1abc', 'a'.repeat(129)]) {
+      expect(withSource(source), source).toBe(false);
+    }
   });
 
   it('rejects a missing nullable envelope field', () => {
@@ -98,59 +98,100 @@ describe('BusEventSchema validation', () => {
 });
 
 describe('external event types', () => {
-  const bad = (f: string, patch: (e: Record<string, unknown>) => void) => {
+  /** Parses the named fixture with `patch` applied; the fixture itself stays untouched. */
+  const accepts = (f: string, patch: (e: Record<string, unknown>) => void) => {
     const e = readFixture(f);
     patch(e);
     return BusEventSchema.safeParse(e).success;
   };
   const withData = (f: string, extra: Record<string, unknown>) =>
-    bad(f, (e) => {
+    accepts(f, (e) => {
       e.data = { ...(e.data as object), ...extra };
     });
+  const withoutData = (f: string, key: string) =>
+    accepts(f, (e) => {
+      const { [key]: _drop, ...rest } = e.data as Record<string, unknown>;
+      e.data = rest;
+    });
 
-  it('progress fixture uses a non-role source and a null agentId', () => {
-    const e = readFixture('progress.json');
-    expect(e.source).toBe('apm-hub/subagent-stop');
-    expect(e.agentId).toBeNull();
+  it('accepts a non-role source with a null agentId on progress', () => {
+    expect(
+      accepts('progress.json', (e) => {
+        e.source = 'apm-hub/other';
+        e.agentId = null;
+      }),
+    ).toBe(true);
   });
 
-  it('rejects an extra progress data key', () => {
+  it('rejects an extra progress data key and a missing or null agent', () => {
     expect(withData('progress.json', { extra: 1 })).toBe(false);
+    expect(withoutData('progress.json', 'agent')).toBe(false);
+    expect(withData('progress.json', { agent: null })).toBe(false);
   });
 
-  it('rejects an empty or oversized progress line', () => {
+  it('bounds progress line and agent', () => {
     expect(withData('progress.json', { line: '' })).toBe(false);
+    expect(withData('progress.json', { line: 'x'.repeat(1000) })).toBe(true);
     expect(withData('progress.json', { line: 'x'.repeat(1001) })).toBe(false);
+    expect(withData('progress.json', { agent: 'x'.repeat(65) })).toBe(false);
+  });
+
+  it('rejects control characters and ANSI escapes in free text', () => {
+    expect(withData('progress.json', { line: 'a\u001b[31mred' })).toBe(false);
+    expect(withData('attention.json', { summary: 'two\nlines' })).toBe(false);
+    expect(withData('usage.json', { model: 'm\u0007' })).toBe(false);
+    expect(withData('queue-item.json', { mode: 'a\tb' })).toBe(false);
+    expect(accepts('progress.json', (e) => (e.runId = 'run\u0000'))).toBe(false);
+  });
+
+  it('caps agentId and runId at 128 characters and rejects empty ones', () => {
+    expect(accepts('progress.json', (e) => (e.agentId = 'x'.repeat(128)))).toBe(true);
+    expect(accepts('progress.json', (e) => (e.agentId = 'x'.repeat(129)))).toBe(false);
+    expect(accepts('progress.json', (e) => (e.runId = ''))).toBe(false);
   });
 
   it('accepts every attention kind and rejects others', () => {
     for (const kind of ['GATE', 'BLOCKED', 'FAILED', 'QUESTION']) {
-      expect(withData('attention.json', { kind })).toBe(true);
+      expect(withData('attention.json', { kind }), kind).toBe(true);
     }
     expect(withData('attention.json', { kind: 'DONE' })).toBe(false);
   });
 
-  it('accepts a null attention pr and rejects a fractional one', () => {
+  it('bounds attention summary and pr', () => {
     expect(withData('attention.json', { pr: null })).toBe(true);
     expect(withData('attention.json', { pr: 1.5 })).toBe(false);
+    expect(withoutData('attention.json', 'pr')).toBe(false);
+    expect(withData('attention.json', { summary: '' })).toBe(false);
+    expect(withData('attention.json', { summary: 'x'.repeat(2000) })).toBe(true);
+    expect(withData('attention.json', { summary: 'x'.repeat(2001) })).toBe(false);
   });
 
   it('validates usage bounds', () => {
     expect(withData('usage.json', { costUsd: null, model: null })).toBe(true);
-    expect(withData('usage.json', { contextTokens: 0 })).toBe(true);
+    expect(withData('usage.json', { contextTokens: 0, costUsd: 0 })).toBe(true);
     expect(withData('usage.json', { contextTokens: -1 })).toBe(false);
     expect(withData('usage.json', { costUsd: -0.01 })).toBe(false);
+    expect(withData('usage.json', { model: 'x'.repeat(129) })).toBe(false);
+    expect(withoutData('usage.json', 'costUsd')).toBe(false);
   });
 
-  it('validates queue.item state and exit code range', () => {
-    expect(
-      withData('queue-item.json', { state: 'started', exitCode: null, durationMs: null }),
-    ).toBe(true);
+  it('validates queue.item state, exit code range and mode', () => {
     expect(withData('queue-item.json', { exitCode: 3 })).toBe(true);
     expect(withData('queue-item.json', { exitCode: 4 })).toBe(false);
     expect(withData('queue-item.json', { exitCode: -1 })).toBe(false);
     expect(withData('queue-item.json', { state: 'running' })).toBe(false);
     expect(withData('queue-item.json', { durationMs: -1 })).toBe(false);
+    expect(withData('queue-item.json', { mode: 'x'.repeat(65) })).toBe(false);
+    expect(withoutData('queue-item.json', 'mode')).toBe(false);
+  });
+
+  it('couples queue.item state with exitCode and durationMs', () => {
+    const started = { state: 'started', exitCode: null, durationMs: null };
+    expect(withData('queue-item.json', started)).toBe(true);
+    expect(withData('queue-item.json', { ...started, exitCode: 0 })).toBe(false);
+    expect(withData('queue-item.json', { ...started, durationMs: 5 })).toBe(false);
+    expect(withData('queue-item.json', { exitCode: null })).toBe(false);
+    expect(withData('queue-item.json', { durationMs: null })).toBe(true);
   });
 });
 

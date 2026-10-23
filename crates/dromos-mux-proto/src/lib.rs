@@ -10,6 +10,11 @@
 //! integer range (±2^53-1), which the generated types do not enforce: the TypeScript bus is the
 //! producer and validates the bound with Zod, and `i64` is a strict superset. Code that writes
 //! events from Rust must stay within ±2^53-1 itself.
+//!
+//! The same holds for numeric bounds (`exitCode` 0..=3, `durationMs`, `contextTokens` and
+//! `costUsd` non-negative), control characters in free text and the `queue.item` state/result coupling: typify does
+//! not generate them, so a bare [`BusEvent`] accepts violations. Deserialise through [`Event`],
+//! which enforces them after parsing.
 
 mod event;
 

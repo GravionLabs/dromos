@@ -44,9 +44,15 @@
           "pattern": "^[a-z][a-z0-9._/-]*$"
         },
         "agentId": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "issue": {
@@ -62,9 +68,15 @@
           ]
         },
         "runId": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "type": {
@@ -147,9 +159,15 @@
           "pattern": "^[a-z][a-z0-9._/-]*$"
         },
         "agentId": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "issue": {
@@ -165,9 +183,15 @@
           ]
         },
         "runId": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "type": {
@@ -210,9 +234,15 @@
           "pattern": "^[a-z][a-z0-9._/-]*$"
         },
         "agentId": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "issue": {
@@ -228,9 +258,15 @@
           ]
         },
         "runId": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "type": {
@@ -293,9 +329,15 @@
           "pattern": "^[a-z][a-z0-9._/-]*$"
         },
         "agentId": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "issue": {
@@ -311,9 +353,15 @@
           ]
         },
         "runId": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "type": {
@@ -393,9 +441,15 @@
           "pattern": "^[a-z][a-z0-9._/-]*$"
         },
         "agentId": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "issue": {
@@ -411,9 +465,15 @@
           ]
         },
         "runId": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "type": {
@@ -456,9 +516,15 @@
           ]
         },
         "model": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
           ]
         }
       },
@@ -489,9 +555,15 @@
           "pattern": "^[a-z][a-z0-9._/-]*$"
         },
         "agentId": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "issue": {
@@ -507,9 +579,15 @@
           ]
         },
         "runId": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "type": {
@@ -567,9 +645,15 @@
           ]
         },
         "mode": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
           ]
         }
       },
