@@ -170,3 +170,20 @@ export const BUS_EVENT_TYPES = [
   'agent.registered',
   'agent.state',
 ] as const satisfies readonly BusEvent['type'][];
+
+/**
+ * Event types an external producer may post to `POST /ingest`. Extend this list to open a new type
+ * to ingest; every entry must be a `BusEvent['type']`.
+ */
+export const INGEST_TYPES = [
+  'progress',
+  'attention',
+  'usage',
+  'queue.item',
+  'agent.state',
+] as const satisfies readonly BusEvent['type'][];
+export type IngestType = (typeof INGEST_TYPES)[number];
+
+export function isIngestType(type: unknown): type is IngestType {
+  return typeof type === 'string' && (INGEST_TYPES as readonly string[]).includes(type);
+}

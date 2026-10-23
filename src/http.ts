@@ -10,7 +10,7 @@ import type { Config } from './config.js';
 import type { Db } from './db.js';
 import { recordEvent } from './event-store.js';
 import { createEventStream } from './event-stream.js';
-import { BusEventSchema } from './events/schema.js';
+import { type BusEvent, BusEventSchema, INGEST_TYPES, isIngestType } from './events/schema.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
 
@@ -321,6 +321,61 @@ export async function startHttp({
     res.writeHead(204).end();
   }
 
+  /** `POST /ingest`: one event or a non-empty array from an external producer, all-or-nothing. */
+  async function handleIngest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.method !== 'POST') {
+      sendJson(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    let body: unknown;
+    try {
+      body = await readJson(req);
+    } catch {
+      sendJson(res, 400, { error: 'invalid JSON body' });
+      return;
+    }
+    const items: unknown[] = Array.isArray(body) ? body : [body];
+    if (items.length === 0) {
+      sendJson(res, 400, { error: 'empty batch' });
+      return;
+    }
+    const isObject = (v: unknown): v is Record<string, unknown> =>
+      typeof v === 'object' && v !== null && !Array.isArray(v);
+    // Type allowlist first, so a well-formed but disallowed type is 403 rather than 400.
+    const denied = items.find(
+      (item) => isObject(item) && 'type' in item && !isIngestType(item.type),
+    );
+    if (denied !== undefined) {
+      sendJson(res, 403, {
+        error: `type not allowed; allowed: ${INGEST_TYPES.join(', ')}`,
+      });
+      return;
+    }
+    // id and at are server-owned: client values are discarded and replaced before validation.
+    const at = new Date().toISOString();
+    const accepted: BusEvent[] = [];
+    for (const [i, item] of items.entries()) {
+      if (!isObject(item)) {
+        sendJson(res, 400, { error: `item ${i}: expected an object` });
+        return;
+      }
+      const checked = BusEventSchema.safeParse({ ...item, id: 0, at });
+      if (!checked.success) {
+        sendJson(res, 400, { error: `item ${i}: ${z.prettifyError(checked.error)}` });
+        return;
+      }
+      accepted.push(checked.data);
+    }
+    const ids = db.transaction(() =>
+      accepted.map((e) => recordEvent(db, events, e.source, e.type, e.data).id),
+    );
+    log.logLine(
+      'INGEST',
+      `${accepted.length} event(s): ${accepted.map((e) => `${e.source} ${e.type}`).join(', ')}`,
+    );
+    sendJson(res, 202, { ids });
+  }
+
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? '/', 'http://localhost').pathname;
     if (req.method === 'GET' && path === '/health') {
@@ -329,6 +384,14 @@ export async function startHttp({
     }
     if (path === '/events/stream') {
       eventStream.handle(req, res).catch((error: unknown) => {
+        if (!res.headersSent) {
+          sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
+        }
+      });
+      return;
+    }
+    if (path === '/ingest') {
+      handleIngest(req, res).catch((error: unknown) => {
         if (!res.headersSent) {
           sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
         }
