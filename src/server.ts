@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ToolContext } from './context.js';
 import { registerInboxTool } from './tools/inbox.js';
 import { registerMessagingTools } from './tools/messaging.js';
+import { registerReviewTools } from './tools/review.js';
 import { registerRunTools } from './tools/runs.js';
 import { registerSubmitTools } from './tools/submit.js';
 
@@ -25,6 +26,7 @@ export function createBusServer(ctx: ToolContext): McpServer {
   registerInboxTool(server, ctx);
   registerRunTools(server, ctx);
   registerSubmitTools(server, ctx);
+  registerReviewTools(server, ctx);
 
   return server;
 }
