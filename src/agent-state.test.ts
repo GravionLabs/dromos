@@ -1,5 +1,6 @@
 import { rmSync } from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { BusEventSchema } from './events/schema.js';
 import { startTestBus, type TestBus } from './test-helpers.js';
 
 describe('agent.state events', () => {
@@ -154,7 +155,19 @@ describe('agent.state events', () => {
   });
 
   it('logs and drops an agent event that fails envelope validation, keeping the state change', async () => {
-    const runId = 'r'.repeat(200);
+    // The runs table accepts any length, the event envelope caps runId at 128 code points.
+    const runId = 'r'.repeat(129);
+    const envelope = {
+      id: 0,
+      type: 'agent.state',
+      at: new Date().toISOString(),
+      source: 'implementer',
+      agentId: 'impl-x',
+      issue: null,
+      data: { state: 'busy' },
+    };
+    expect(BusEventSchema.safeParse({ ...envelope, runId: 'r'.repeat(128) }).success).toBe(true);
+    expect(BusEventSchema.safeParse({ ...envelope, runId }).success).toBe(false);
     bus.db.insertRun({
       id: runId,
       repo: 'GravionLabs/demo',
@@ -174,11 +187,30 @@ describe('agent.state events', () => {
     );
   });
 
-  it('survives a closed database when a session closes during shutdown', async () => {
+  it('logs and drops an agent.registered event that fails validation, keeping the agent', async () => {
+    const realInsert = bus.db.insertAgent.bind(bus.db);
+    // New agents carry no run, so feed the envelope an over-long runId through the stored row.
+    vi.spyOn(bus.db, 'insertAgent').mockImplementationOnce((agent) => ({
+      ...realInsert(agent),
+      runId: 'r'.repeat(129),
+    }));
+    await bus.connect('implementer', 'impl-v');
+    expect(bus.db.getAgent('impl-v')?.state).toBe('idle');
+    expect(bus.db.listEvents().filter((e) => e.kind === 'agent.registered')).toEqual([]);
+    expect(bus.readLog()).toContain(
+      'dropped invalid agent.registered event for agent impl-v (implementer)',
+    );
+  });
+
+  it('logs an ERROR and still closes when the database is gone during shutdown', async () => {
     const local = await startTestBus();
-    await local.connect('implementer', 'impl-1');
-    local.db.close();
-    await expect(local.http.close()).resolves.toBeUndefined();
-    rmSync(local.config.dataDir, { recursive: true, force: true });
+    try {
+      await local.connect('implementer', 'impl-1');
+      local.db.close();
+      await expect(local.http.close()).resolves.toBeUndefined();
+      expect(local.readLog()).toMatch(/ERROR.*mark impl-1 exited: /);
+    } finally {
+      rmSync(local.config.dataDir, { recursive: true, force: true });
+    }
   });
 });

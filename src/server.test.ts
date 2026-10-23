@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MAX_AGENTS } from './http.js';
 import { startTestBus, type TestBus, textOf } from './test-helpers.js';
 
 describe('agent-bus server', () => {
@@ -203,11 +204,14 @@ describe('agent-bus server', () => {
       });
 
       it('answers 503 when the agent table is full, but still admits known agents', async () => {
-        for (let i = 0; i < 1000; i++) {
+        for (let i = 0; i < MAX_AGENTS; i++) {
           bus.db.insertAgent({ id: `fill-${i}`, role: 'implementer', cli: 'claude' });
         }
-        expect((await init()).status).toBe(503);
+        expect((await init({ 'x-agent-id': 'one-too-many' })).status).toBe(503);
+        expect(bus.db.getAgent('one-too-many')).toBeUndefined();
+        expect(bus.db.listAgents()).toHaveLength(MAX_AGENTS);
         expect((await init({ 'x-agent-id': 'fill-0' })).status).toBe(200);
+        expect(bus.db.listAgents()).toHaveLength(MAX_AGENTS);
       });
 
       it('lets only one of two concurrent initializes win for the same id', async () => {
@@ -224,9 +228,49 @@ describe('agent-bus server', () => {
         const results = await Promise.all([initAs('implementer'), initAs('reviewer')]);
         const winners = results.filter((r) => r.headers.get('mcp-session-id'));
         expect(winners).toHaveLength(1);
-        expect(results.filter((r) => !r.headers.get('mcp-session-id'))[0]?.ok).toBe(false);
+        expect(winners[0]?.status).toBe(200);
+        const loser = results.find((r) => !r.headers.get('mcp-session-id'));
+        // 409 when the pre-check sees the winner's row, 400 when the in-callback re-check does.
+        expect([400, 409]).toContain(loser?.status);
         expect(bus.db.listAgents()).toHaveLength(1);
         expect(bus.db.listEvents().filter((e) => e.kind === 'agent.registered')).toHaveLength(1);
+      });
+
+      it('re-checks inside the session callback when a registration lands after the pre-check', async () => {
+        const realGetAgent = bus.db.getAgent.bind(bus.db);
+        // The pre-check sees no row; a concurrent reviewer registration lands right after it.
+        vi.spyOn(bus.db, 'getAgent').mockImplementationOnce((id) => {
+          const seen = realGetAgent(id);
+          bus.db.insertAgent({ id: 'racer', role: 'reviewer', cli: 'claude' });
+          return seen;
+        });
+        const res = await init({ 'x-agent-id': 'racer' });
+        expect(res.status).toBe(400);
+        expect(res.headers.get('mcp-session-id')).toBeNull();
+        expect(await res.json()).toMatchObject({
+          jsonrpc: '2.0',
+          error: { code: -32700, data: 'Error: agent racer is registered as reviewer' },
+        });
+        expect(bus.db.getAgent('racer')?.role).toBe('reviewer');
+        expect(bus.db.listEvents().filter((e) => e.kind === 'agent.registered')).toEqual([]);
+      });
+
+      it('rolls back the agent row and logs when registration fails after the insert', async () => {
+        vi.spyOn(bus.db, 'insertEvent').mockImplementationOnce(() => {
+          throw new Error('disk full');
+        });
+        const res = await init({ 'x-agent-id': 'impl-fail' });
+        expect(res.status).toBe(400);
+        expect(res.headers.get('mcp-session-id')).toBeNull();
+        expect(await res.json()).toMatchObject({
+          error: { code: -32700, data: 'Error: agent registration failed' },
+        });
+        expect(bus.db.getAgent('impl-fail')).toBeUndefined();
+        expect(bus.db.listEvents()).toEqual([]);
+        expect(bus.readLog()).toContain('register impl-fail: Error: disk full');
+        // The failed session is gone: the id can register cleanly afterwards.
+        expect((await init({ 'x-agent-id': 'impl-fail' })).status).toBe(200);
+        expect(bus.db.getAgent('impl-fail')?.state).toBe('idle');
       });
 
       it('rejects a malformed X-Agent-Id with 400', async () => {

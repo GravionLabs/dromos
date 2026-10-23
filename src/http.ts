@@ -44,7 +44,7 @@ const MODEL_VALUE = /^[\x21-\x7e]{1,128}$/;
  * Known limit: within the current trust model (no authentication, loopback only) a local caller can
  * still fill the cap and lock out new agents. Exited rows are not reclaimed; a real fix needs auth.
  */
-const MAX_AGENTS = 1000;
+export const MAX_AGENTS = 1000;
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -130,6 +130,7 @@ export async function startHttp({
           return;
         }
         res.setHeader('x-agent-id', agentId);
+        let registered = false;
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (id) => {
@@ -140,16 +141,23 @@ export async function startHttp({
             try {
               failure = checkRegistration(agentId, role);
               if (!failure) {
-                registerOrWake(agentId, role, cliHeader ?? DEFAULT_CLI, modelHeader ?? null);
+                // One transaction: a failure after the insert rolls the row and its event back.
+                db.transaction(() =>
+                  registerOrWake(agentId, role, cliHeader ?? DEFAULT_CLI, modelHeader ?? null),
+                );
+                registered = true;
               }
             } catch (error) {
               failure = { status: 500, error: 'agent registration failed' };
               log.logLine('ERROR', `register ${agentId}: ${String(error)}`);
             }
             if (failure) {
-              // Throwing makes the SDK answer with a JSON-RPC error instead of a session.
               sessions.delete(id);
-              transport.onclose = undefined;
+              // close() runs synchronously: it marks the transport closed and fires onclose,
+              // which skips the exited transition because nothing was registered.
+              void transport.close();
+              // The SDK turns a throw here into HTTP 400 with a JSON-RPC error (code -32700)
+              // whose data carries this message; it offers no hook to choose the status.
               throw new Error(failure.error);
             }
           },
@@ -158,12 +166,16 @@ export async function startHttp({
           if (transport.sessionId) {
             sessions.delete(transport.sessionId);
           }
+          if (!registered) {
+            return;
+          }
           const stillConnected = [...sessions.values()].some((s) => s.agentId === agentId);
           if (!stillConnected) {
             try {
               setAgentState(agentId, 'exited');
-            } catch {
-              // the database may already be closed during shutdown
+            } catch (error) {
+              // the database may already be closed during shutdown; logLine never throws
+              log.logLine('ERROR', `mark ${agentId} exited: ${String(error)}`);
             }
           }
         };
