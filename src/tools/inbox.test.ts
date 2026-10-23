@@ -119,4 +119,43 @@ describe('inbox tool', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(bus.events.listenerCountFor('implementer')).toBe(0);
   });
+
+  describe('agent addressing', () => {
+    const post = (client: Awaited<ReturnType<TestBus['connect']>>, to: string, payload: unknown) =>
+      client.callTool({ name: 'post', arguments: { to, type: 'chat', payload } });
+
+    it('shows each implementer its own messages plus role messages, never the other agent’s', async () => {
+      const a = await bus.connect('implementer', 'impl-a');
+      const b = await bus.connect('implementer', 'impl-b');
+      const orchestrator = await bus.connect('orchestrator');
+      await post(orchestrator, 'impl-a', 'for-a');
+      await post(orchestrator, 'impl-b', 'for-b');
+      await post(orchestrator, 'implementer', 'for-role');
+      const read = async (c: typeof a) =>
+        (
+          JSON.parse(
+            textOf(await c.callTool({ name: 'inbox', arguments: { waitSeconds: 0 } })),
+          ) as InboxResult
+        ).messages.map((m) => m.payload);
+      expect(await read(a)).toEqual(['for-a', 'for-role']);
+      expect(await read(b)).toEqual(['for-b', 'for-role']);
+    });
+
+    it('wakes a waiting agent for a message addressed to its id, and not for another agent', async () => {
+      const a = await bus.connect('implementer', 'impl-a');
+      await bus.connect('implementer', 'impl-b');
+      const orchestrator = await bus.connect('orchestrator');
+      const waiting = a.callTool({ name: 'inbox', arguments: { waitSeconds: 10 } });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(bus.events.listenerCountForAgent('impl-a')).toBe(1);
+      await post(orchestrator, 'impl-b', 'not-for-a');
+      await post(orchestrator, 'impl-a', 'for-a');
+      const result = JSON.parse(textOf(await waiting)) as InboxResult;
+      expect(result.messages).toMatchObject([
+        { payload: 'for-a', to: 'implementer', toAgent: 'impl-a' },
+      ]);
+      expect(bus.events.listenerCountForAgent('impl-a')).toBe(0);
+      expect(bus.events.listenerCountFor('implementer')).toBe(0);
+    });
+  });
 });

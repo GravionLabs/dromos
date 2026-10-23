@@ -29,8 +29,8 @@ export function registerInboxTool(server: McpServer, ctx: ToolContext): void {
       },
     },
     async ({ waitSeconds }, extra) => {
-      const { role, db, events, config } = ctx;
-      const pending = () => db.listUnacked(role, INBOX_BATCH_SIZE);
+      const { role, agentId, db, events, config } = ctx;
+      const pending = () => db.listUnacked(role, INBOX_BATCH_SIZE, agentId);
 
       const immediate = pending();
       const wait = resolveWaitSeconds(waitSeconds, config.inboxMaxWaitSeconds);
@@ -47,7 +47,12 @@ export function registerInboxTool(server: McpServer, ctx: ToolContext): void {
           resolve();
         };
         const timer = setTimeout(finish, wait * 1000);
-        const unsubscribe = events.onMessageFor(role, finish);
+        const unsubRole = events.onMessageFor(role, finish);
+        const unsubAgent = events.onMessageForAgent(agentId, finish);
+        const unsubscribe = () => {
+          unsubRole();
+          unsubAgent();
+        };
         extra.signal.addEventListener('abort', finish, { once: true });
         if (extra.signal.aborted) {
           finish();

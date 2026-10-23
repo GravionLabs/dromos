@@ -113,6 +113,22 @@ describe('schemas', () => {
       expect(MessageSchema.parse(message)).toEqual(message);
     });
 
+    it('accepts a message with agent ids', () => {
+      const message = {
+        id: 2,
+        from: 'orchestrator',
+        to: 'implementer',
+        fromAgent: 'orch-1',
+        toAgent: 'impl-a',
+        type: 'chat',
+        runId: null,
+        payload: null,
+        createdAt: '2026-09-24T05:00:00.000Z',
+        ackedAt: null,
+      };
+      expect(MessageSchema.parse(message)).toEqual(message);
+    });
+
     it('rejects a non-ISO timestamp', () => {
       expect(
         MessageSchema.safeParse({

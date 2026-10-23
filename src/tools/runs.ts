@@ -105,6 +105,8 @@ export function registerRunTools(server: McpServer, ctx: ToolContext): void {
                 'Implement the issue in worktreePath. Commit your work. When done call submit_implementation.',
             },
           });
+          // First run tool call of this agent pins its run_id; later calls keep it.
+          ctx.db.setAgentRun(ctx.agentId, id);
           return id;
         });
         started = { runId, branch, worktreePath };

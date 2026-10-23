@@ -3,6 +3,22 @@ import { z } from 'zod';
 export const RoleSchema = z.enum(['orchestrator', 'implementer', 'reviewer']);
 export type Role = z.infer<typeof RoleSchema>;
 
+export const AgentStateSchema = z.enum(['busy', 'idle', 'exited']);
+export type AgentState = z.infer<typeof AgentStateSchema>;
+
+export const AgentSchema = z.object({
+  id: z.string().min(1),
+  role: RoleSchema,
+  runId: z.string().nullable(),
+  cli: z.string().min(1),
+  model: z.string().nullable(),
+  paneId: z.string().nullable(),
+  state: AgentStateSchema,
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type Agent = z.infer<typeof AgentSchema>;
+
 export const MessageTypeSchema = z.enum([
   'task',
   'gate_result',
@@ -17,6 +33,10 @@ export const MessageSchema = z.object({
   id: z.number().int().positive(),
   from: RoleSchema,
   to: RoleSchema,
+  /** Agent instance that sent the message, when known. */
+  fromAgent: z.string().nullable().optional(),
+  /** Agent instance the message is addressed to; null means addressed to the whole role. */
+  toAgent: z.string().nullable().optional(),
   type: MessageTypeSchema,
   runId: z.string().nullable(),
   payload: z.unknown(),

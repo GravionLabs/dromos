@@ -613,7 +613,9 @@ mod event_wrapper {
                 "progress",
                 "attention",
                 "usage",
-                "queue.item"
+                "queue.item",
+                "agent.registered",
+                "agent.state"
             ]
         );
     }

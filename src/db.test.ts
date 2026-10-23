@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Db, MIGRATIONS, type NewRun, openDb } from './db.js';
 
@@ -25,6 +26,107 @@ describe('db', () => {
 
   afterEach(() => {
     db.close();
+  });
+
+  describe('migration 2', () => {
+    it('keeps version-1 rows and adds agents plus nullable message agent columns', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'agent-bus-db-'));
+      try {
+        const file = join(dir, 'bus.db');
+        const raw = new Database(file);
+        raw.exec(MIGRATIONS[0] as string);
+        raw.pragma('user_version = 1');
+        raw
+          .prepare(
+            `INSERT INTO messages (from_role, to_role, type, payload_json, created_at)
+             VALUES ('orchestrator', 'implementer', 'task', '{"a":1}', '2026-01-01T00:00:00Z')`,
+          )
+          .run();
+        raw
+          .prepare(
+            `INSERT INTO events (role, kind, data_json, created_at)
+             VALUES ('implementer', 'hook:idle', 'null', '2026-01-01T00:00:00Z')`,
+          )
+          .run();
+        raw.close();
+
+        const migrated = openDb(file);
+        expect(migrated.schemaVersion()).toBe(MIGRATIONS.length);
+        expect(MIGRATIONS.length).toBeGreaterThanOrEqual(2);
+        const inbox = migrated.listUnacked('implementer');
+        expect(inbox).toHaveLength(1);
+        expect(inbox[0]?.payload).toEqual({ a: 1 });
+        expect(migrated.listEvents()).toHaveLength(1);
+        migrated.close();
+
+        const check = new Database(file, { readonly: true });
+        const columns = check.prepare('PRAGMA table_info(messages)').all() as {
+          name: string;
+          notnull: number;
+        }[];
+        check.close();
+        for (const name of ['from_agent', 'to_agent']) {
+          expect(columns.find((c) => c.name === name)?.notnull).toBe(0);
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('agents', () => {
+    it('inserts with defaults and reads back', () => {
+      const agent = db.insertAgent({ id: 'a-1', role: 'implementer', cli: 'claude' });
+      expect(agent).toMatchObject({
+        id: 'a-1',
+        role: 'implementer',
+        runId: null,
+        cli: 'claude',
+        model: null,
+        paneId: null,
+        state: 'idle',
+      });
+      expect(agent.createdAt).toBe(agent.updatedAt);
+      expect(db.getAgent('a-1')).toEqual(agent);
+    });
+
+    it('returns undefined for an unknown agent', () => {
+      expect(db.getAgent('nope')).toBeUndefined();
+      expect(db.updateAgentState('nope', 'busy')).toBeUndefined();
+    });
+
+    it('rejects a duplicate id', () => {
+      db.insertAgent({ id: 'a-1', role: 'reviewer', cli: 'claude' });
+      expect(() => db.insertAgent({ id: 'a-1', role: 'reviewer', cli: 'claude' })).toThrow();
+    });
+
+    it('updates the state', () => {
+      db.insertAgent({ id: 'a-1', role: 'reviewer', cli: 'claude' });
+      expect(db.updateAgentState('a-1', 'exited')?.state).toBe('exited');
+      expect(db.getAgent('a-1')?.state).toBe('exited');
+    });
+
+    it('sets the run id once and keeps the first', () => {
+      db.insertRun(newRun());
+      db.insertAgent({ id: 'a-1', role: 'orchestrator', cli: 'claude' });
+      expect(db.setAgentRun('a-1', 'run-1-1')?.runId).toBe('run-1-1');
+      db.insertRun({ ...newRun(), id: 'run-2-1' });
+      expect(db.setAgentRun('a-1', 'run-2-1')?.runId).toBe('run-1-1');
+      expect(db.setAgentRun('nope', 'run-1-1')).toBeUndefined();
+    });
+
+    it('lists with filters in creation order', () => {
+      db.insertRun(newRun());
+      db.insertAgent({ id: 'a-1', role: 'implementer', cli: 'claude', runId: 'run-1-1' });
+      db.insertAgent({ id: 'a-2', role: 'reviewer', cli: 'codex', model: 'm', paneId: '%3' });
+      db.insertAgent({ id: 'a-3', role: 'implementer', cli: 'claude', state: 'busy' });
+      expect(db.listAgents().map((a) => a.id)).toEqual(['a-1', 'a-2', 'a-3']);
+      expect(db.listAgents({ role: 'implementer' }).map((a) => a.id)).toEqual(['a-1', 'a-3']);
+      expect(db.listAgents({ runId: 'run-1-1' }).map((a) => a.id)).toEqual(['a-1']);
+      expect(db.listAgents({ state: 'busy' }).map((a) => a.id)).toEqual(['a-3']);
+      expect(db.listAgents({ role: 'reviewer', state: 'busy' })).toEqual([]);
+      expect(db.getAgent('a-2')).toMatchObject({ model: 'm', paneId: '%3' });
+    });
   });
 
   describe('migrations', () => {
