@@ -9,7 +9,7 @@ import { type BusLog, createBusLog } from './bus-log.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
 import { recordEvent } from './event-store.js';
-import { createEventStream } from './event-stream.js';
+import { createEventStream, createHostGuard } from './event-stream.js';
 import { type BusEvent, BusEventSchema, INGEST_TYPES, isIngestType } from './events/schema.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
@@ -59,9 +59,25 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
+/** Request body over the cap given to `readJson`. */
+class PayloadTooLargeError extends Error {}
+
+/** Largest `POST /ingest` body in bytes; bigger bodies get 413. */
+export const MAX_INGEST_BODY_BYTES = 1024 * 1024;
+/** Most events in one `POST /ingest` array; longer arrays get 413. */
+export const MAX_INGEST_BATCH = 100;
+
+async function readJson(
+  req: IncomingMessage,
+  maxBytes = Number.POSITIVE_INFINITY,
+): Promise<unknown> {
   const chunks: Buffer[] = [];
+  let size = 0;
   for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > maxBytes) {
+      throw new PayloadTooLargeError();
+    }
     chunks.push(chunk as Buffer);
   }
   const raw = Buffer.concat(chunks).toString('utf8');
@@ -87,6 +103,7 @@ export async function startHttp({
     maxBufferedBytes: maxStreamBufferedBytes,
     allowedHosts: [host],
   });
+  const hostAllowed = createHostGuard([host]);
   const sessions = new Map<string, Session>();
 
   async function handleMcp(req: IncomingMessage, res: ServerResponse, role: Role): Promise<void> {
@@ -321,17 +338,47 @@ export async function startHttp({
     res.writeHead(204).end();
   }
 
-  /** `POST /ingest`: one event or a non-empty array from an external producer, all-or-nothing. */
+  /** First schema issue as a short message; never echoes the whole error or the input. */
+  function briefIssue(error: z.ZodError): string {
+    const issue = error.issues[0];
+    const where = issue?.path.join('.') || '(root)';
+    return `${where}: ${issue?.message ?? 'invalid'}`.slice(0, 200);
+  }
+
+  /**
+   * `POST /ingest`: one event or a non-empty array from an external producer, all-or-nothing.
+   * Rows are committed first; subscribers are told afterwards from a later tick. A stream
+   * deduplicates by event id, so a replay and a live publish never deliver the same event twice.
+   */
   async function handleIngest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method !== 'POST') {
       sendJson(res, 405, { error: 'method not allowed' });
       return;
     }
+    if (!hostAllowed(req)) {
+      sendJson(res, 403, { error: 'forbidden host or origin' });
+      return;
+    }
+    // Only application/json: a browser cannot send it cross-origin without a CORS preflight.
+    const contentType = (req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase();
+    if (contentType !== 'application/json') {
+      sendJson(res, 415, { error: 'content-type must be application/json' });
+      return;
+    }
+    const declared = Number(req.headers['content-length']);
+    if (declared > MAX_INGEST_BODY_BYTES) {
+      sendJson(res, 413, { error: `body over ${MAX_INGEST_BODY_BYTES} bytes` });
+      return;
+    }
     let body: unknown;
     try {
-      body = await readJson(req);
-    } catch {
-      sendJson(res, 400, { error: 'invalid JSON body' });
+      body = await readJson(req, MAX_INGEST_BODY_BYTES);
+    } catch (error) {
+      if (error instanceof PayloadTooLargeError) {
+        sendJson(res, 413, { error: `body over ${MAX_INGEST_BODY_BYTES} bytes` });
+      } else {
+        sendJson(res, 400, { error: 'invalid JSON body' });
+      }
       return;
     }
     const items: unknown[] = Array.isArray(body) ? body : [body];
@@ -339,9 +386,14 @@ export async function startHttp({
       sendJson(res, 400, { error: 'empty batch' });
       return;
     }
+    if (items.length > MAX_INGEST_BATCH) {
+      sendJson(res, 413, { error: `batch over ${MAX_INGEST_BATCH} events` });
+      return;
+    }
     const isObject = (v: unknown): v is Record<string, unknown> =>
       typeof v === 'object' && v !== null && !Array.isArray(v);
-    // Type allowlist first, so a well-formed but disallowed type is 403 rather than 400.
+    // Type allowlist over the whole batch first, so a well-formed but disallowed type is 403
+    // rather than 400, whatever the position of the items.
     const denied = items.find(
       (item) => isObject(item) && 'type' in item && !isIngestType(item.type),
     );
@@ -361,7 +413,7 @@ export async function startHttp({
       }
       const checked = BusEventSchema.safeParse({ ...item, id: 0, at });
       if (!checked.success) {
-        sendJson(res, 400, { error: `item ${i}: ${z.prettifyError(checked.error)}` });
+        sendJson(res, 400, { error: `item ${i}: ${briefIssue(checked.error)}` });
         return;
       }
       accepted.push(checked.data);
@@ -370,14 +422,19 @@ export async function startHttp({
     const rows = db.transaction(() =>
       accepted.map((e) => db.insertEvent(e.source, e.type, e.data)),
     );
+    const shown = accepted.slice(0, 5).map((e) => `${e.source} ${e.type}`);
     log.logLine(
       'INGEST',
-      `${accepted.length} event(s): ${accepted.map((e) => `${e.source} ${e.type}`).join(', ')}`,
+      `${accepted.length} event(s): ${shown.join(', ')}${accepted.length > shown.length ? ', ...' : ''}`,
     );
     sendJson(res, 202, { ids: rows.map((r) => r.id) });
     setImmediate(() => {
       for (const row of rows) {
-        events.publishEvent(row);
+        try {
+          events.publishEvent(row);
+        } catch (error) {
+          log.logLine('ERROR', `ingest broadcast of event ${row.id} failed: ${String(error)}`);
+        }
       }
     });
   }

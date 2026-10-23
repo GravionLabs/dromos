@@ -47,15 +47,18 @@ curl -i -X POST http://127.0.0.1:4777/ingest \
   -H 'content-type: application/json' \
   -d '{"type":"progress","source":"apm-hub/hook","agentId":null,"issue":43,"runId":null,"data":{"line":"built","agent":"orchestrator"}}'
 # HTTP/1.1 202 Accepted
-# {"ids":[42]}
+# {"ids":[1]}
 ```
 
-The event then appears on `GET /events/stream` with `id: 42`.
+The event then appears on `GET /events/stream` as `id: 1` with `data: {"id":1,"role":"apm-hub/hook","kind":"progress",...}` (`role` is the `source`, `kind` is the `type`).
 
 - Allowed `type` values: `progress`, `attention`, `usage`, `queue.item`, `agent.state`, `agent.run`. Any other type answers `403 { error }`.
 - `agent.run` reports one subagent run of a client session (parent, tool call, depth). It is a client-side subagent, not a bus agent: bus agent instances use `agent.registered` / `agent.state`.
 - `202 { ids }`: stored (in order) and broadcast to stream subscribers after the commit. The reply never waits on subscribers.
-- `400 { error }`: invalid JSON, an empty array, or an item that fails the event schema.
+- `400 { error }`: invalid JSON, an empty array, or an item that fails the event schema (the message names only the first failing field).
+- `413 { error }`: the body is over 1 MiB (`MAX_INGEST_BODY_BYTES`) or the array has more than 100 events (`MAX_INGEST_BATCH`).
+- `415 { error }`: the `Content-Type` is not `application/json`.
+- `403 { error }` also answers a `Host` or `Origin` that is not loopback or the configured bind host (same guard as the stream), so a web page cannot post events.
 - A batch is all-or-nothing: if any item is disallowed (403) or invalid (400), the whole batch is rejected and nothing is stored or broadcast.
 - Binds to 127.0.0.1 like the rest of the bus; no authentication. Other methods answer 405.
 

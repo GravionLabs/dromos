@@ -1,5 +1,7 @@
+import { request } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { INGEST_TYPES } from './events/schema.js';
+import { MAX_INGEST_BATCH, MAX_INGEST_BODY_BYTES } from './http.js';
 import { startTestBus, type TestBus } from './test-helpers.js';
 
 let bus: TestBus;
@@ -64,10 +66,14 @@ describe('POST /ingest', () => {
     const res = await post([
       progress(),
       { ...progress(), type: 'agent.state', data: { state: 'busy' } },
-      progress({ issue: 44 }),
+      { ...progress(), type: 'progress', data: { line: 'last', agent: 'orchestrator' } },
     ]);
     expect(res.status).toBe(202);
-    expect(bus.db.listEvents().map((r) => r.kind)).toEqual(['progress', 'agent.state', 'progress']);
+    const { ids } = (await res.json()) as { ids: number[] };
+    const rows = bus.db.listEvents().reverse();
+    expect(rows.map((r) => r.id)).toEqual(ids);
+    expect(rows.map((r) => r.kind)).toEqual(['progress', 'agent.state', 'progress']);
+    expect(rows[2]?.data).toEqual({ line: 'last', agent: 'orchestrator' });
   });
 
   it('accepts agent.run and rejects depth 0 with 400', async () => {
@@ -155,5 +161,193 @@ describe('POST /ingest', () => {
       'agent.state',
       'agent.run',
     ]);
+  });
+});
+
+/** Raw request, so tests can set Host, Origin and Content-Type freely. */
+function raw(
+  headers: Record<string, string>,
+  body: string,
+): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      `${bus.http.url}/ingest`,
+      {
+        method: 'POST',
+        headers: { 'content-length': String(Buffer.byteLength(body)), ...headers },
+      },
+      (res) => {
+        let text = '';
+        res.on('data', (c: Buffer) => {
+          text += c.toString('utf8');
+        });
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, text }));
+      },
+    );
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
+const tick = () => new Promise((r) => setImmediate(r));
+
+describe('POST /ingest guards', () => {
+  const json = { 'content-type': 'application/json' };
+
+  it('rejects a foreign Origin with 403 and stores nothing', async () => {
+    const res = await raw({ ...json, origin: 'http://evil.example' }, JSON.stringify(progress()));
+    expect(res.status).toBe(403);
+    expect(bus.db.listEvents()).toHaveLength(0);
+  });
+
+  it('rejects a foreign Host with 403', async () => {
+    const res = await raw({ ...json, host: 'evil.example' }, JSON.stringify(progress()));
+    expect(res.status).toBe(403);
+    expect(bus.db.listEvents()).toHaveLength(0);
+  });
+
+  it('accepts a loopback Origin', async () => {
+    const res = await raw({ ...json, origin: 'http://localhost:3000' }, JSON.stringify(progress()));
+    expect(res.status).toBe(202);
+  });
+
+  it('answers 415 for text/plain and for a missing content type', async () => {
+    const body = JSON.stringify(progress());
+    expect((await raw({ 'content-type': 'text/plain' }, body)).status).toBe(415);
+    expect((await raw({}, body)).status).toBe(415);
+    expect(bus.db.listEvents()).toHaveLength(0);
+  });
+
+  it('accepts application/json with a charset parameter', async () => {
+    const res = await raw(
+      { 'content-type': 'application/json; charset=utf-8' },
+      JSON.stringify(progress()),
+    );
+    expect(res.status).toBe(202);
+  });
+
+  it('answers 413 for a body over the cap', async () => {
+    const res = await raw(json, ' '.repeat(MAX_INGEST_BODY_BYTES + 1));
+    expect(res.status).toBe(413);
+    expect(bus.db.listEvents()).toHaveLength(0);
+  });
+
+  it('answers 413 for a body over the cap without content-length', async () => {
+    const res = await new Promise<number>((resolve, reject) => {
+      const req = request(`${bus.http.url}/ingest`, { method: 'POST', headers: json }, (r) => {
+        r.resume();
+        resolve(r.statusCode ?? 0);
+      });
+      req.on('error', reject);
+      req.write(' '.repeat(MAX_INGEST_BODY_BYTES + 1));
+      req.end();
+    });
+    expect(res).toBe(413);
+  });
+
+  it('answers 413 for a batch over the cap and accepts exactly the cap', async () => {
+    const over = await post(Array.from({ length: MAX_INGEST_BATCH + 1 }, () => progress()));
+    expect(over.status).toBe(413);
+    expect(bus.db.listEvents()).toHaveLength(0);
+    const exact = await post(Array.from({ length: MAX_INGEST_BATCH }, () => progress()));
+    expect(exact.status).toBe(202);
+    expect(bus.db.listEvents(undefined, 500)).toHaveLength(MAX_INGEST_BATCH);
+  });
+});
+
+describe('POST /ingest validation', () => {
+  const attention = {
+    type: 'attention',
+    source: 'apm-hub/queue',
+    agentId: null,
+    issue: 43,
+    runId: null,
+    data: { kind: 'GATE', summary: 'needs a human', pr: null },
+  };
+  const usage = {
+    ...attention,
+    type: 'usage',
+    data: { contextTokens: 1200, costUsd: 0.5, model: null },
+  };
+  const queueItem = {
+    ...attention,
+    type: 'queue.item',
+    data: { state: 'started', exitCode: null, durationMs: null, mode: null },
+  };
+
+  it('accepts attention, usage and queue.item', async () => {
+    const res = await post([attention, usage, queueItem]);
+    expect(res.status).toBe(202);
+    expect(
+      bus.db
+        .listEvents()
+        .reverse()
+        .map((r) => r.kind),
+    ).toEqual(['attention', 'usage', 'queue.item']);
+  });
+
+  it('answers 403 for a disallowed type wherever it sits in the batch', async () => {
+    const bad = { ...progress(), type: 'hook:idle' };
+    const invalid = { type: 'progress', source: 'apm-hub/hook' };
+    for (const batch of [
+      [bad, invalid],
+      [invalid, bad],
+      [progress(), invalid, bad],
+    ]) {
+      expect((await post(batch)).status).toBe(403);
+    }
+    expect(bus.db.listEvents()).toHaveLength(0);
+  });
+
+  it('answers 400 for an allowed type with a bad payload', async () => {
+    const res = await post({ ...progress(), data: { line: '' } });
+    expect(res.status).toBe(400);
+  });
+
+  it('keeps the 400 message short however large the batch', async () => {
+    const bad = { ...progress(), data: { nope: 1 } };
+    const res = await post(Array.from({ length: MAX_INGEST_BATCH }, () => bad));
+    const { error } = (await res.json()) as { error: string };
+    expect(res.status).toBe(400);
+    expect(error.startsWith('item 0: ')).toBe(true);
+    expect(error.length).toBeLessThanOrEqual(220);
+  });
+
+  it('assigns id and at itself, whatever the client sends', async () => {
+    const before = Date.now();
+    const res = await post([
+      progress({ id: 999999, at: '2000-01-01T00:00:00.000Z' }),
+      progress({ id: -5, at: 'garbage' }),
+    ]);
+    expect(res.status).toBe(202);
+    const rows = bus.db.listEvents().reverse();
+    const { ids } = (await res.json()) as { ids: number[] };
+    expect(rows.map((r) => r.id)).toEqual(ids);
+    expect(ids.every((id) => id !== 999999 && id > 0)).toBe(true);
+    for (const row of rows) {
+      expect(new Date(row.createdAt).getTime()).toBeGreaterThanOrEqual(before - 1000);
+    }
+  });
+});
+
+describe('POST /ingest broadcast', () => {
+  it('stays 202 and logs when a subscriber throws', async () => {
+    bus.events.onEvent(() => {
+      throw new Error('subscriber boom');
+    });
+    const res = await post(progress());
+    expect(res.status).toBe(202);
+    await tick();
+    expect(bus.db.listEvents()).toHaveLength(1);
+    expect(bus.readLog()).toContain('subscriber boom');
+  });
+
+  it('publishes rows in id order after the commit', async () => {
+    const seen: number[] = [];
+    bus.events.onEvent((e) => seen.push(e.id));
+    const res = await post([progress(), progress(), progress()]);
+    const { ids } = (await res.json()) as { ids: number[] };
+    await tick();
+    expect(seen).toEqual(ids);
   });
 });
