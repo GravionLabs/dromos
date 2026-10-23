@@ -1,18 +1,27 @@
 import { z } from 'zod';
 import { HookEventSchema } from '../schemas.js';
 
+// Free text from external producers must not carry characters that break or spoof rendering:
+// control characters (`Cc`, incl. ESC, DEL, C1), bidi controls, zero-width characters, line and
+// paragraph separators and the BOM. The set is explicit (not `\p{Cf}`) so it cannot drift with the
+// Unicode version and equals `is_forbidden_char` in the Rust crate; `schema/parity.json` checks
+// both. The check is a refinement, so it is not part of the exported JSON Schema.
+// Zod 4 `min`/`max` count code points, like the JSON Schema `maxLength` and the Rust types.
+const FORBIDDEN_CHARS = /[\p{Cc}\u061C\u200B-\u200F\u2028-\u202E\u2060-\u2064\u2066-\u206F\uFEFF]/u;
+const noForbiddenChars = (s: string) => !FORBIDDEN_CHARS.test(s);
+const FORBIDDEN_MSG = 'control or invisible formatting characters are not allowed';
+const text = (min: number, max: number) =>
+  z.string().min(min).max(max).refine(noForbiddenChars, FORBIDDEN_MSG);
+
 // Strict objects: unknown keys are rejected, matching `additionalProperties: false` in the exported
 // JSON Schema and `deny_unknown_fields` in the generated Rust types.
-const hookData = z.strictObject(HookEventSchema.shape).meta({ id: 'HookEvent' });
-
-// Free text from external producers must not carry control characters (terminal escape sequences,
-// ANSI colour codes, newlines): consumers render these values. The check is a refinement, so it is
-// not part of the exported JSON Schema; the Rust `Event` deserialiser repeats it.
-// `max` counts UTF-16 units here but code points in JSON Schema and Rust, so Zod is the stricter
-// of the three for astral characters.
-const noControlChars = (s: string) => !/\p{Cc}/u.test(s);
-const text = (min: number, max: number) =>
-  z.string().min(min).max(max).refine(noControlChars, 'control characters are not allowed');
+const hookData = z
+  .strictObject({
+    ...HookEventSchema.shape,
+    model: z.string().min(1).refine(noForbiddenChars, FORBIDDEN_MSG).optional(),
+    sessionId: z.string().refine(noForbiddenChars, FORBIDDEN_MSG).optional(),
+  })
+  .meta({ id: 'HookEvent' });
 
 /**
  * Fields shared by every bus event. `source` names the emitter: a role name for bus events, a free

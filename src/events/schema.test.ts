@@ -141,13 +141,29 @@ describe('external event types', () => {
     expect(withData('attention.json', { summary: 'two\nlines' })).toBe(false);
     expect(withData('usage.json', { model: 'm\u0007' })).toBe(false);
     expect(withData('queue-item.json', { mode: 'a\tb' })).toBe(false);
-    expect(accepts('progress.json', (e) => (e.runId = 'run\u0000'))).toBe(false);
+    expect(
+      accepts('progress.json', (e) => {
+        e.runId = 'run\u0000';
+      }),
+    ).toBe(false);
   });
 
   it('caps agentId and runId at 128 characters and rejects empty ones', () => {
-    expect(accepts('progress.json', (e) => (e.agentId = 'x'.repeat(128)))).toBe(true);
-    expect(accepts('progress.json', (e) => (e.agentId = 'x'.repeat(129)))).toBe(false);
-    expect(accepts('progress.json', (e) => (e.runId = ''))).toBe(false);
+    expect(
+      accepts('progress.json', (e) => {
+        e.agentId = 'x'.repeat(128);
+      }),
+    ).toBe(true);
+    expect(
+      accepts('progress.json', (e) => {
+        e.agentId = 'x'.repeat(129);
+      }),
+    ).toBe(false);
+    expect(
+      accepts('progress.json', (e) => {
+        e.runId = '';
+      }),
+    ).toBe(false);
   });
 
   it('accepts every attention kind and rejects others', () => {
@@ -192,6 +208,44 @@ describe('external event types', () => {
     expect(withData('queue-item.json', { ...started, durationMs: 5 })).toBe(false);
     expect(withData('queue-item.json', { exitCode: null })).toBe(false);
     expect(withData('queue-item.json', { durationMs: null })).toBe(true);
+  });
+});
+
+describe('Rust parity cases (schema/parity.json)', () => {
+  type Case = { name: string; fixture: string; valid: boolean; set?: Record<string, unknown> };
+  const cases: Case[] = JSON.parse(
+    readFileSync(fileURLToPath(new URL('../../schema/parity.json', import.meta.url)), 'utf8'),
+  ).cases;
+  const expand = (v: unknown) => {
+    const r = (v as { repeat?: unknown } | null)?.repeat;
+    return Array.isArray(r) ? (r[0] as string).repeat(r[1] as number) : v;
+  };
+  const setPath = (obj: Record<string, unknown>, path: string, value: unknown) => {
+    const parts = path.split('.');
+    const last = parts.pop() as string;
+    let node = obj;
+    for (const p of parts) node = node[p] as Record<string, unknown>;
+    node[last] = value;
+  };
+
+  it('has the cases', () => {
+    expect(cases.length).toBeGreaterThan(100);
+  });
+
+  it.each(cases.map((c) => [c.name, c] as const))('%s', (_name, c) => {
+    const event = readFixture(c.fixture);
+    for (const [path, value] of Object.entries(c.set ?? {})) setPath(event, path, expand(value));
+    expect(BusEventSchema.safeParse(event).success).toBe(c.valid);
+  });
+
+  it('counts length in code points like Rust, not UTF-16 units', () => {
+    const line = (n: number) => {
+      const e = readFixture('progress.json');
+      e.data = { ...(e.data as object), line: '\u{1F600}'.repeat(n) };
+      return BusEventSchema.safeParse(e).success;
+    };
+    expect(line(1000)).toBe(true);
+    expect(line(1001)).toBe(false);
   });
 });
 

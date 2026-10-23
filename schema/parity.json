@@ -1,0 +1,1262 @@
+{
+  "cases": [
+    {
+      "name": "progress.json data.line rejects newline",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.line": "a\n"
+      }
+    },
+    {
+      "name": "progress.json data.line rejects esc",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.line": "a\u001b[31m"
+      }
+    },
+    {
+      "name": "progress.json data.line rejects del",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.line": "a\u007f"
+      }
+    },
+    {
+      "name": "progress.json data.line rejects c1",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.line": "a\u0085"
+      }
+    },
+    {
+      "name": "progress.json data.line rejects line-separator",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.line": "a\u2028"
+      }
+    },
+    {
+      "name": "progress.json data.line rejects paragraph-separator",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.line": "a\u2029"
+      }
+    },
+    {
+      "name": "progress.json data.line rejects rlo",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.line": "a\u202e"
+      }
+    },
+    {
+      "name": "progress.json data.line rejects zero-width-space",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.line": "a\u200b"
+      }
+    },
+    {
+      "name": "progress.json data.line rejects bom",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.line": "a\ufeff"
+      }
+    },
+    {
+      "name": "progress.json data.line rejects word-joiner",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.line": "a\u2060"
+      }
+    },
+    {
+      "name": "progress.json data.line rejects arabic-letter-mark",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.line": "a\u061c"
+      }
+    },
+    {
+      "name": "progress.json data.line rejects isolate",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.line": "a\u2066"
+      }
+    },
+    {
+      "name": "progress.json data.line accepts plain unicode",
+      "fixture": "progress.json",
+      "valid": true,
+      "set": {
+        "data.line": "h\u00e9llo \u2713 \u65e5\u672c"
+      }
+    },
+    {
+      "name": "progress.json data.agent rejects newline",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.agent": "a\n"
+      }
+    },
+    {
+      "name": "progress.json data.agent rejects esc",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.agent": "a\u001b[31m"
+      }
+    },
+    {
+      "name": "progress.json data.agent rejects del",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.agent": "a\u007f"
+      }
+    },
+    {
+      "name": "progress.json data.agent rejects c1",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.agent": "a\u0085"
+      }
+    },
+    {
+      "name": "progress.json data.agent rejects line-separator",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.agent": "a\u2028"
+      }
+    },
+    {
+      "name": "progress.json data.agent rejects paragraph-separator",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.agent": "a\u2029"
+      }
+    },
+    {
+      "name": "progress.json data.agent rejects rlo",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.agent": "a\u202e"
+      }
+    },
+    {
+      "name": "progress.json data.agent rejects zero-width-space",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.agent": "a\u200b"
+      }
+    },
+    {
+      "name": "progress.json data.agent rejects bom",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.agent": "a\ufeff"
+      }
+    },
+    {
+      "name": "progress.json data.agent rejects word-joiner",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.agent": "a\u2060"
+      }
+    },
+    {
+      "name": "progress.json data.agent rejects arabic-letter-mark",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.agent": "a\u061c"
+      }
+    },
+    {
+      "name": "progress.json data.agent rejects isolate",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.agent": "a\u2066"
+      }
+    },
+    {
+      "name": "progress.json data.agent accepts plain unicode",
+      "fixture": "progress.json",
+      "valid": true,
+      "set": {
+        "data.agent": "h\u00e9llo \u2713 \u65e5\u672c"
+      }
+    },
+    {
+      "name": "progress.json agentId rejects newline",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "agentId": "a\n"
+      }
+    },
+    {
+      "name": "progress.json agentId rejects esc",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "agentId": "a\u001b[31m"
+      }
+    },
+    {
+      "name": "progress.json agentId rejects del",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "agentId": "a\u007f"
+      }
+    },
+    {
+      "name": "progress.json agentId rejects c1",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "agentId": "a\u0085"
+      }
+    },
+    {
+      "name": "progress.json agentId rejects line-separator",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "agentId": "a\u2028"
+      }
+    },
+    {
+      "name": "progress.json agentId rejects paragraph-separator",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "agentId": "a\u2029"
+      }
+    },
+    {
+      "name": "progress.json agentId rejects rlo",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "agentId": "a\u202e"
+      }
+    },
+    {
+      "name": "progress.json agentId rejects zero-width-space",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "agentId": "a\u200b"
+      }
+    },
+    {
+      "name": "progress.json agentId rejects bom",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "agentId": "a\ufeff"
+      }
+    },
+    {
+      "name": "progress.json agentId rejects word-joiner",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "agentId": "a\u2060"
+      }
+    },
+    {
+      "name": "progress.json agentId rejects arabic-letter-mark",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "agentId": "a\u061c"
+      }
+    },
+    {
+      "name": "progress.json agentId rejects isolate",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "agentId": "a\u2066"
+      }
+    },
+    {
+      "name": "progress.json agentId accepts plain unicode",
+      "fixture": "progress.json",
+      "valid": true,
+      "set": {
+        "agentId": "h\u00e9llo \u2713 \u65e5\u672c"
+      }
+    },
+    {
+      "name": "progress.json runId rejects newline",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "runId": "a\n"
+      }
+    },
+    {
+      "name": "progress.json runId rejects esc",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "runId": "a\u001b[31m"
+      }
+    },
+    {
+      "name": "progress.json runId rejects del",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "runId": "a\u007f"
+      }
+    },
+    {
+      "name": "progress.json runId rejects c1",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "runId": "a\u0085"
+      }
+    },
+    {
+      "name": "progress.json runId rejects line-separator",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "runId": "a\u2028"
+      }
+    },
+    {
+      "name": "progress.json runId rejects paragraph-separator",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "runId": "a\u2029"
+      }
+    },
+    {
+      "name": "progress.json runId rejects rlo",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "runId": "a\u202e"
+      }
+    },
+    {
+      "name": "progress.json runId rejects zero-width-space",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "runId": "a\u200b"
+      }
+    },
+    {
+      "name": "progress.json runId rejects bom",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "runId": "a\ufeff"
+      }
+    },
+    {
+      "name": "progress.json runId rejects word-joiner",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "runId": "a\u2060"
+      }
+    },
+    {
+      "name": "progress.json runId rejects arabic-letter-mark",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "runId": "a\u061c"
+      }
+    },
+    {
+      "name": "progress.json runId rejects isolate",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "runId": "a\u2066"
+      }
+    },
+    {
+      "name": "progress.json runId accepts plain unicode",
+      "fixture": "progress.json",
+      "valid": true,
+      "set": {
+        "runId": "h\u00e9llo \u2713 \u65e5\u672c"
+      }
+    },
+    {
+      "name": "attention.json data.summary rejects newline",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.summary": "a\n"
+      }
+    },
+    {
+      "name": "attention.json data.summary rejects esc",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.summary": "a\u001b[31m"
+      }
+    },
+    {
+      "name": "attention.json data.summary rejects del",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.summary": "a\u007f"
+      }
+    },
+    {
+      "name": "attention.json data.summary rejects c1",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.summary": "a\u0085"
+      }
+    },
+    {
+      "name": "attention.json data.summary rejects line-separator",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.summary": "a\u2028"
+      }
+    },
+    {
+      "name": "attention.json data.summary rejects paragraph-separator",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.summary": "a\u2029"
+      }
+    },
+    {
+      "name": "attention.json data.summary rejects rlo",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.summary": "a\u202e"
+      }
+    },
+    {
+      "name": "attention.json data.summary rejects zero-width-space",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.summary": "a\u200b"
+      }
+    },
+    {
+      "name": "attention.json data.summary rejects bom",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.summary": "a\ufeff"
+      }
+    },
+    {
+      "name": "attention.json data.summary rejects word-joiner",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.summary": "a\u2060"
+      }
+    },
+    {
+      "name": "attention.json data.summary rejects arabic-letter-mark",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.summary": "a\u061c"
+      }
+    },
+    {
+      "name": "attention.json data.summary rejects isolate",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.summary": "a\u2066"
+      }
+    },
+    {
+      "name": "attention.json data.summary accepts plain unicode",
+      "fixture": "attention.json",
+      "valid": true,
+      "set": {
+        "data.summary": "h\u00e9llo \u2713 \u65e5\u672c"
+      }
+    },
+    {
+      "name": "usage.json data.model rejects newline",
+      "fixture": "usage.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\n"
+      }
+    },
+    {
+      "name": "usage.json data.model rejects esc",
+      "fixture": "usage.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u001b[31m"
+      }
+    },
+    {
+      "name": "usage.json data.model rejects del",
+      "fixture": "usage.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u007f"
+      }
+    },
+    {
+      "name": "usage.json data.model rejects c1",
+      "fixture": "usage.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u0085"
+      }
+    },
+    {
+      "name": "usage.json data.model rejects line-separator",
+      "fixture": "usage.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u2028"
+      }
+    },
+    {
+      "name": "usage.json data.model rejects paragraph-separator",
+      "fixture": "usage.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u2029"
+      }
+    },
+    {
+      "name": "usage.json data.model rejects rlo",
+      "fixture": "usage.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u202e"
+      }
+    },
+    {
+      "name": "usage.json data.model rejects zero-width-space",
+      "fixture": "usage.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u200b"
+      }
+    },
+    {
+      "name": "usage.json data.model rejects bom",
+      "fixture": "usage.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\ufeff"
+      }
+    },
+    {
+      "name": "usage.json data.model rejects word-joiner",
+      "fixture": "usage.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u2060"
+      }
+    },
+    {
+      "name": "usage.json data.model rejects arabic-letter-mark",
+      "fixture": "usage.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u061c"
+      }
+    },
+    {
+      "name": "usage.json data.model rejects isolate",
+      "fixture": "usage.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u2066"
+      }
+    },
+    {
+      "name": "usage.json data.model accepts plain unicode",
+      "fixture": "usage.json",
+      "valid": true,
+      "set": {
+        "data.model": "h\u00e9llo \u2713 \u65e5\u672c"
+      }
+    },
+    {
+      "name": "queue-item.json data.mode rejects newline",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.mode": "a\n"
+      }
+    },
+    {
+      "name": "queue-item.json data.mode rejects esc",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.mode": "a\u001b[31m"
+      }
+    },
+    {
+      "name": "queue-item.json data.mode rejects del",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.mode": "a\u007f"
+      }
+    },
+    {
+      "name": "queue-item.json data.mode rejects c1",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.mode": "a\u0085"
+      }
+    },
+    {
+      "name": "queue-item.json data.mode rejects line-separator",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.mode": "a\u2028"
+      }
+    },
+    {
+      "name": "queue-item.json data.mode rejects paragraph-separator",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.mode": "a\u2029"
+      }
+    },
+    {
+      "name": "queue-item.json data.mode rejects rlo",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.mode": "a\u202e"
+      }
+    },
+    {
+      "name": "queue-item.json data.mode rejects zero-width-space",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.mode": "a\u200b"
+      }
+    },
+    {
+      "name": "queue-item.json data.mode rejects bom",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.mode": "a\ufeff"
+      }
+    },
+    {
+      "name": "queue-item.json data.mode rejects word-joiner",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.mode": "a\u2060"
+      }
+    },
+    {
+      "name": "queue-item.json data.mode rejects arabic-letter-mark",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.mode": "a\u061c"
+      }
+    },
+    {
+      "name": "queue-item.json data.mode rejects isolate",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.mode": "a\u2066"
+      }
+    },
+    {
+      "name": "queue-item.json data.mode accepts plain unicode",
+      "fixture": "queue-item.json",
+      "valid": true,
+      "set": {
+        "data.mode": "h\u00e9llo \u2713 \u65e5\u672c"
+      }
+    },
+    {
+      "name": "hook-idle.json data.model rejects newline",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\n"
+      }
+    },
+    {
+      "name": "hook-idle.json data.model rejects esc",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u001b[31m"
+      }
+    },
+    {
+      "name": "hook-idle.json data.model rejects del",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u007f"
+      }
+    },
+    {
+      "name": "hook-idle.json data.model rejects c1",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u0085"
+      }
+    },
+    {
+      "name": "hook-idle.json data.model rejects line-separator",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u2028"
+      }
+    },
+    {
+      "name": "hook-idle.json data.model rejects paragraph-separator",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u2029"
+      }
+    },
+    {
+      "name": "hook-idle.json data.model rejects rlo",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u202e"
+      }
+    },
+    {
+      "name": "hook-idle.json data.model rejects zero-width-space",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u200b"
+      }
+    },
+    {
+      "name": "hook-idle.json data.model rejects bom",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\ufeff"
+      }
+    },
+    {
+      "name": "hook-idle.json data.model rejects word-joiner",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u2060"
+      }
+    },
+    {
+      "name": "hook-idle.json data.model rejects arabic-letter-mark",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u061c"
+      }
+    },
+    {
+      "name": "hook-idle.json data.model rejects isolate",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.model": "a\u2066"
+      }
+    },
+    {
+      "name": "hook-idle.json data.model accepts plain unicode",
+      "fixture": "hook-idle.json",
+      "valid": true,
+      "set": {
+        "data.model": "h\u00e9llo \u2713 \u65e5\u672c"
+      }
+    },
+    {
+      "name": "hook-idle.json data.sessionId rejects newline",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.sessionId": "a\n"
+      }
+    },
+    {
+      "name": "hook-idle.json data.sessionId rejects esc",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.sessionId": "a\u001b[31m"
+      }
+    },
+    {
+      "name": "hook-idle.json data.sessionId rejects del",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.sessionId": "a\u007f"
+      }
+    },
+    {
+      "name": "hook-idle.json data.sessionId rejects c1",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.sessionId": "a\u0085"
+      }
+    },
+    {
+      "name": "hook-idle.json data.sessionId rejects line-separator",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.sessionId": "a\u2028"
+      }
+    },
+    {
+      "name": "hook-idle.json data.sessionId rejects paragraph-separator",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.sessionId": "a\u2029"
+      }
+    },
+    {
+      "name": "hook-idle.json data.sessionId rejects rlo",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.sessionId": "a\u202e"
+      }
+    },
+    {
+      "name": "hook-idle.json data.sessionId rejects zero-width-space",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.sessionId": "a\u200b"
+      }
+    },
+    {
+      "name": "hook-idle.json data.sessionId rejects bom",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.sessionId": "a\ufeff"
+      }
+    },
+    {
+      "name": "hook-idle.json data.sessionId rejects word-joiner",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.sessionId": "a\u2060"
+      }
+    },
+    {
+      "name": "hook-idle.json data.sessionId rejects arabic-letter-mark",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.sessionId": "a\u061c"
+      }
+    },
+    {
+      "name": "hook-idle.json data.sessionId rejects isolate",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.sessionId": "a\u2066"
+      }
+    },
+    {
+      "name": "hook-idle.json data.sessionId accepts plain unicode",
+      "fixture": "hook-idle.json",
+      "valid": true,
+      "set": {
+        "data.sessionId": "h\u00e9llo \u2713 \u65e5\u672c"
+      }
+    },
+    {
+      "name": "data.line accepts 1000 chars",
+      "fixture": "progress.json",
+      "valid": true,
+      "set": {
+        "data.line": {
+          "repeat": ["x", 1000]
+        }
+      }
+    },
+    {
+      "name": "data.line rejects 1001 chars",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.line": {
+          "repeat": ["x", 1001]
+        }
+      }
+    },
+    {
+      "name": "data.line rejects empty",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.line": ""
+      }
+    },
+    {
+      "name": "data.agent accepts 64 chars",
+      "fixture": "progress.json",
+      "valid": true,
+      "set": {
+        "data.agent": {
+          "repeat": ["x", 64]
+        }
+      }
+    },
+    {
+      "name": "data.agent rejects 65 chars",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.agent": {
+          "repeat": ["x", 65]
+        }
+      }
+    },
+    {
+      "name": "data.agent rejects empty",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.agent": ""
+      }
+    },
+    {
+      "name": "agentId accepts 128 chars",
+      "fixture": "progress.json",
+      "valid": true,
+      "set": {
+        "agentId": {
+          "repeat": ["x", 128]
+        }
+      }
+    },
+    {
+      "name": "agentId rejects 129 chars",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "agentId": {
+          "repeat": ["x", 129]
+        }
+      }
+    },
+    {
+      "name": "agentId rejects empty",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "agentId": ""
+      }
+    },
+    {
+      "name": "runId accepts 128 chars",
+      "fixture": "progress.json",
+      "valid": true,
+      "set": {
+        "runId": {
+          "repeat": ["x", 128]
+        }
+      }
+    },
+    {
+      "name": "runId rejects 129 chars",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "runId": {
+          "repeat": ["x", 129]
+        }
+      }
+    },
+    {
+      "name": "runId rejects empty",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "runId": ""
+      }
+    },
+    {
+      "name": "data.summary accepts 2000 chars",
+      "fixture": "attention.json",
+      "valid": true,
+      "set": {
+        "data.summary": {
+          "repeat": ["x", 2000]
+        }
+      }
+    },
+    {
+      "name": "data.summary rejects 2001 chars",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.summary": {
+          "repeat": ["x", 2001]
+        }
+      }
+    },
+    {
+      "name": "data.summary rejects empty",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.summary": ""
+      }
+    },
+    {
+      "name": "data.model accepts 128 chars",
+      "fixture": "usage.json",
+      "valid": true,
+      "set": {
+        "data.model": {
+          "repeat": ["x", 128]
+        }
+      }
+    },
+    {
+      "name": "data.model rejects 129 chars",
+      "fixture": "usage.json",
+      "valid": false,
+      "set": {
+        "data.model": {
+          "repeat": ["x", 129]
+        }
+      }
+    },
+    {
+      "name": "data.model rejects empty",
+      "fixture": "usage.json",
+      "valid": false,
+      "set": {
+        "data.model": ""
+      }
+    },
+    {
+      "name": "data.mode accepts 64 chars",
+      "fixture": "queue-item.json",
+      "valid": true,
+      "set": {
+        "data.mode": {
+          "repeat": ["x", 64]
+        }
+      }
+    },
+    {
+      "name": "data.mode rejects 65 chars",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.mode": {
+          "repeat": ["x", 65]
+        }
+      }
+    },
+    {
+      "name": "data.mode rejects empty",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.mode": ""
+      }
+    },
+    {
+      "name": "source accepts 128",
+      "fixture": "hook-idle.json",
+      "valid": true,
+      "set": {
+        "source": {
+          "repeat": ["a", 128]
+        }
+      }
+    },
+    {
+      "name": "source rejects 129",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "source": {
+          "repeat": ["a", 129]
+        }
+      }
+    },
+    {
+      "name": "exited with exitCode and durationMs",
+      "fixture": "queue-item.json",
+      "valid": true
+    },
+    {
+      "name": "exited with null durationMs",
+      "fixture": "queue-item.json",
+      "valid": true,
+      "set": {
+        "data.durationMs": null
+      }
+    },
+    {
+      "name": "exited without exitCode",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.exitCode": null
+      }
+    },
+    {
+      "name": "started with nothing",
+      "fixture": "queue-item.json",
+      "valid": true,
+      "set": {
+        "data.state": "started",
+        "data.exitCode": null,
+        "data.durationMs": null
+      }
+    },
+    {
+      "name": "started with exitCode only",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.state": "started",
+        "data.durationMs": null
+      }
+    },
+    {
+      "name": "started with durationMs only",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.state": "started",
+        "data.exitCode": null
+      }
+    },
+    {
+      "name": "exitCode 3",
+      "fixture": "queue-item.json",
+      "valid": true,
+      "set": {
+        "data.exitCode": 3
+      }
+    },
+    {
+      "name": "exitCode 4",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.exitCode": 4
+      }
+    },
+    {
+      "name": "exitCode -1",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.exitCode": -1
+      }
+    },
+    {
+      "name": "negative durationMs",
+      "fixture": "queue-item.json",
+      "valid": false,
+      "set": {
+        "data.durationMs": -1
+      }
+    },
+    {
+      "name": "usage zero",
+      "fixture": "usage.json",
+      "valid": true,
+      "set": {
+        "data.contextTokens": 0,
+        "data.costUsd": 0
+      }
+    },
+    {
+      "name": "usage negative tokens",
+      "fixture": "usage.json",
+      "valid": false,
+      "set": {
+        "data.contextTokens": -1
+      }
+    },
+    {
+      "name": "usage negative cost",
+      "fixture": "usage.json",
+      "valid": false,
+      "set": {
+        "data.costUsd": -0.5
+      }
+    }
+  ]
+}
