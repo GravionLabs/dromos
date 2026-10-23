@@ -1,7 +1,16 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
-import type { GateResult, Message, MessageType, Review, Role, RunState } from './schemas.js';
+import type {
+  Agent,
+  AgentState,
+  GateResult,
+  Message,
+  MessageType,
+  Review,
+  Role,
+  RunState,
+} from './schemas.js';
 
 /** Applied in order; the index + 1 is the schema version stored in `PRAGMA user_version`. */
 export const MIGRATIONS: readonly string[] = [
@@ -41,6 +50,22 @@ export const MIGRATIONS: readonly string[] = [
     data_json TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
+  `,
+  `
+  CREATE TABLE agents (
+    id TEXT PRIMARY KEY,
+    role TEXT NOT NULL,
+    run_id TEXT REFERENCES runs(id),
+    cli TEXT NOT NULL,
+    model TEXT,
+    pane_id TEXT,
+    state TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX idx_agents_role ON agents(role, state);
+  ALTER TABLE messages ADD COLUMN from_agent TEXT;
+  ALTER TABLE messages ADD COLUMN to_agent TEXT;
   `,
 ];
 
@@ -165,7 +190,55 @@ function toMessage(row: MessageRow): Message {
   };
 }
 
+export interface NewAgent {
+  id: string;
+  role: Role;
+  runId?: string | null;
+  cli: string;
+  model?: string | null;
+  paneId?: string | null;
+  state?: AgentState;
+}
+
+export interface AgentFilter {
+  role?: Role;
+  runId?: string;
+  state?: AgentState;
+}
+
+interface AgentRow {
+  id: string;
+  role: Role;
+  run_id: string | null;
+  cli: string;
+  model: string | null;
+  pane_id: string | null;
+  state: AgentState;
+  created_at: string;
+  updated_at: string;
+}
+
+function toAgent(row: AgentRow): Agent {
+  return {
+    id: row.id,
+    role: row.role,
+    runId: row.run_id,
+    cli: row.cli,
+    model: row.model,
+    paneId: row.pane_id,
+    state: row.state,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 export interface Db {
+  /** Throws when the id already exists. State defaults to `idle`. */
+  insertAgent(agent: NewAgent): Agent;
+  getAgent(id: string): Agent | undefined;
+  /** Returns undefined when the agent does not exist. */
+  updateAgentState(id: string, state: AgentState): Agent | undefined;
+  listAgents(filter?: AgentFilter): Agent[];
   insertMessage(message: NewMessage): Message;
   listUnacked(role: Role, limit?: number): Message[];
   /** Returns false when the message does not exist, is already acked, or belongs to another role. */
@@ -225,6 +298,20 @@ export function openDb(file: string): Db {
   const getRun = db.prepare<[string], RunRow>('SELECT * FROM runs WHERE id = ?');
   const listRuns = db.prepare<[], RunRow>(
     'SELECT * FROM runs ORDER BY created_at DESC, rowid DESC',
+  );
+  const insertAgent = db.prepare(
+    `INSERT INTO agents (id, role, run_id, cli, model, pane_id, state, created_at, updated_at)
+     VALUES (@id, @role, @runId, @cli, @model, @paneId, @state, @createdAt, @createdAt)`,
+  );
+  const getAgent = db.prepare<[string], AgentRow>('SELECT * FROM agents WHERE id = ?');
+  const updateAgentState = db.prepare('UPDATE agents SET state = ?, updated_at = ? WHERE id = ?');
+  const listAgents = db.prepare<
+    [string | null, string | null, string | null, string | null, string | null, string | null],
+    AgentRow
+  >(
+    `SELECT * FROM agents
+     WHERE (? IS NULL OR role = ?) AND (? IS NULL OR run_id = ?) AND (? IS NULL OR state = ?)
+     ORDER BY created_at, rowid`,
   );
   const insertEvent = db.prepare(
     'INSERT INTO events (role, kind, data_json, created_at) VALUES (?, ?, ?, ?)',
@@ -305,6 +392,33 @@ export function openDb(file: string): Db {
         return undefined;
       }
       return toRun(getRun.get(id) as RunRow);
+    },
+    insertAgent(agent) {
+      insertAgent.run({
+        id: agent.id,
+        role: agent.role,
+        runId: agent.runId ?? null,
+        cli: agent.cli,
+        model: agent.model ?? null,
+        paneId: agent.paneId ?? null,
+        state: agent.state ?? 'idle',
+        createdAt: now(),
+      });
+      return toAgent(getAgent.get(agent.id) as AgentRow);
+    },
+    getAgent(id) {
+      const row = getAgent.get(id);
+      return row ? toAgent(row) : undefined;
+    },
+    updateAgentState(id, state) {
+      if (updateAgentState.run(state, now(), id).changes === 0) {
+        return undefined;
+      }
+      return toAgent(getAgent.get(id) as AgentRow);
+    },
+    listAgents(filter = {}) {
+      const { role = null, runId = null, state = null } = filter;
+      return listAgents.all(role, role, runId, runId, state, state).map(toAgent);
     },
     insertEvent(role, kind, data) {
       const info = insertEvent.run(role, kind, JSON.stringify(data ?? null), now());
