@@ -1,14 +1,26 @@
 import { type IncomingMessage, request } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BusEvent } from './db.js';
+import type { EventRecord } from './db.js';
 import { recordEvent } from './event-store.js';
 import { startTestBus, type TestBus } from './test-helpers.js';
+
+/** A valid hook BusEvent; `id` is ignored by recordEvent. */
+const hookEvent = (state: 'idle' | 'busy', extra: Record<string, unknown> = {}) => ({
+  id: 0,
+  type: `hook:${state}`,
+  at: '2026-01-01T00:00:00.000Z',
+  source: 'hook/claude',
+  agentId: 'implementer',
+  issue: null,
+  runId: null,
+  data: { role: 'implementer', cli: 'claude', state, ...extra },
+});
 
 interface Stream {
   status: number;
   headers: Headers;
   /** Parsed `data:` payloads in arrival order. */
-  events: BusEvent[];
+  events: EventRecord[];
   /** `id:` field of each event frame, in arrival order. */
   ids: string[];
   comments: string[];
@@ -54,7 +66,7 @@ async function openStream(url: string, headers: Record<string, string> = {}): Pr
             for (const line of block.split('\n')) {
               if (line.startsWith('id: ')) stream.ids.push(line.slice(4));
               if (line.startsWith('data: ')) {
-                stream.events.push(JSON.parse(line.slice(6)) as BusEvent);
+                stream.events.push(JSON.parse(line.slice(6)) as EventRecord);
               }
             }
           }
@@ -181,12 +193,10 @@ describe('GET /events/stream', () => {
   /** Writes one event from inside the first replay query, before or after it reads. */
   const writeDuringReplay = (when: 'before' | 'after') => {
     const original = bus.db.listEventsSince.bind(bus.db);
-    const late: BusEvent[] = [];
+    const late: EventRecord[] = [];
     const write = () => {
       if (late.length === 0) {
-        late.push(
-          recordEvent(bus.db, bus.events, 'implementer', 'hook:busy', { during: 'replay' }),
-        );
+        late.push(recordEvent(bus.db, bus.events, 'implementer', hookEvent('busy')));
       }
     };
     vi.spyOn(bus.db, 'listEventsSince').mockImplementation((afterId, limit) => {
@@ -219,7 +229,7 @@ describe('GET /events/stream', () => {
   it.each([1203, 500, 1000])('replays %i stored events in order across pages', async (count) => {
     const stored: number[] = [];
     for (let i = 0; i < count; i++) {
-      stored.push(recordEvent(bus.db, bus.events, 'implementer', 'hook:idle', { i }).id);
+      stored.push(recordEvent(bus.db, bus.events, 'implementer', hookEvent('idle')).id);
     }
     const s = await open('?since=0');
     await vi.waitFor(() => expect(ids(s)).toEqual(stored));
@@ -228,11 +238,11 @@ describe('GET /events/stream', () => {
   it('delivers events written while a multi-page replay yields exactly once, in order', async () => {
     const stored: number[] = [];
     for (let i = 0; i < 1500; i++) {
-      stored.push(recordEvent(bus.db, bus.events, 'implementer', 'hook:idle', { i }).id);
+      stored.push(recordEvent(bus.db, bus.events, 'implementer', hookEvent('idle')).id);
     }
     const s = await open('?since=0');
     for (let i = 0; i < 20; i++) {
-      stored.push(recordEvent(bus.db, bus.events, 'implementer', 'hook:busy', { i }).id);
+      stored.push(recordEvent(bus.db, bus.events, 'implementer', hookEvent('busy')).id);
     }
     await vi.waitFor(() => expect(ids(s)).toEqual(stored));
   });
@@ -394,7 +404,7 @@ describe('GET /events/stream host, limits and backpressure', () => {
     expect(bus.events.eventListenerCount()).toBe(1);
     const big = 'x'.repeat(64 * 1024);
     for (let i = 0; i < 200 && bus.events.eventListenerCount() > 0; i++) {
-      recordEvent(bus.db, bus.events, 'implementer', 'hook:idle', { big });
+      recordEvent(bus.db, bus.events, 'implementer', hookEvent('idle', { sessionId: big }));
     }
     const local = bus;
     await vi.waitFor(() => expect(local.events.eventListenerCount()).toBe(0));
@@ -421,7 +431,7 @@ describe('GET /events/stream heartbeat and shutdown', () => {
     const bus = await startTestBus({}, { heartbeatMs: 60_000 });
     try {
       const s = await openStream(`${bus.http.url}/events/stream`);
-      const id = recordEvent(bus.db, bus.events, 'implementer', 'hook:idle', {}).id;
+      const id = recordEvent(bus.db, bus.events, 'implementer', hookEvent('idle')).id;
       await vi.waitFor(() => expect(ids(s)).toEqual([id]));
       expect(s.comments).toEqual([]);
       s.abort();
