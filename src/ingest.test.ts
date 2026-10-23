@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { INGEST_TYPES } from './events/schema.js';
 import { startTestBus, type TestBus } from './test-helpers.js';
 
@@ -29,6 +29,26 @@ function post(body: unknown, raw = false): Promise<Response> {
 }
 
 describe('POST /ingest', () => {
+  it('broadcasts nothing when a batch fails mid-transaction', async () => {
+    const seen: string[] = [];
+    bus.events.onEvent((e) => seen.push(e.kind));
+    const real = bus.db.insertEvent.bind(bus.db);
+    let calls = 0;
+    const spy = vi.spyOn(bus.db, 'insertEvent').mockImplementation((...args) => {
+      calls += 1;
+      if (calls === 2) {
+        throw new Error('disk full');
+      }
+      return real(...args);
+    });
+    const res = await post([progress(), progress()]);
+    spy.mockRestore();
+    await new Promise((r) => setImmediate(r));
+    expect(res.status).toBe(500);
+    expect(bus.db.listEvents()).toHaveLength(0);
+    expect(seen).toEqual([]);
+  });
+
   it('accepts one event with 202 and stores it', async () => {
     const res = await post(progress());
     expect(res.status).toBe(202);
@@ -54,6 +74,7 @@ describe('POST /ingest', () => {
     const seen: string[] = [];
     bus.events.onEvent((e) => seen.push(e.kind));
     await post(progress());
+    await new Promise((r) => setImmediate(r));
     expect(seen).toEqual(['progress']);
   });
 
@@ -97,6 +118,7 @@ describe('POST /ingest', () => {
     bus.events.onEvent((e) => stream.push(e.id));
     const res = await post(progress({ id: 999999, at: '2000-01-01T00:00:00.000Z' }));
     expect(res.status).toBe(202);
+    await new Promise((r) => setImmediate(r));
     const row = bus.db.listEvents()[0];
     expect(row?.id).not.toBe(999999);
     expect(row?.createdAt).not.toContain('2000-01-01');

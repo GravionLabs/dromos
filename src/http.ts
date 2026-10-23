@@ -366,14 +366,20 @@ export async function startHttp({
       }
       accepted.push(checked.data);
     }
-    const ids = db.transaction(() =>
-      accepted.map((e) => recordEvent(db, events, e.source, e.type, e.data).id),
+    // Persist first; subscribers are notified only after the commit and outside the request path.
+    const rows = db.transaction(() =>
+      accepted.map((e) => db.insertEvent(e.source, e.type, e.data)),
     );
     log.logLine(
       'INGEST',
       `${accepted.length} event(s): ${accepted.map((e) => `${e.source} ${e.type}`).join(', ')}`,
     );
-    sendJson(res, 202, { ids });
+    sendJson(res, 202, { ids: rows.map((r) => r.id) });
+    setImmediate(() => {
+      for (const row of rows) {
+        events.publishEvent(row);
+      }
+    });
   }
 
   const server = createServer((req, res) => {
