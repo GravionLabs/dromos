@@ -107,4 +107,20 @@ describe('agent.state events', () => {
     await hook('busy');
     expect(bus.db.getAgent('impl-1')?.state).toBe('exited');
   });
+
+  it('resets an exited agent to idle when it reconnects with the same id', async () => {
+    await openAndClose('impl-1');
+    await expect.poll(() => bus.db.getAgent('impl-1')?.state).toBe('exited');
+    await bus.connect('implementer', 'impl-1');
+    expect(bus.db.getAgent('impl-1')?.state).toBe('idle');
+    expect(stateEvents()).toEqual([{ state: 'idle' }, { state: 'exited' }]); // newest first
+  });
+
+  it('ignores a role-only hook when two live agents share the role', async () => {
+    await bus.connect('implementer', 'impl-1');
+    await bus.connect('implementer', 'impl-2');
+    await hook('busy');
+    expect(bus.db.getAgent('impl-1')?.state).toBe('idle');
+    expect(bus.db.getAgent('impl-2')?.state).toBe('idle');
+  });
 });

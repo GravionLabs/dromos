@@ -8,6 +8,7 @@ import { BusEvents } from './bus-events.js';
 import { type BusLog, createBusLog } from './bus-log.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
+import { BusEventSchema } from './events/schema.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
 
@@ -35,6 +36,11 @@ export interface RunningHttp {
 const MCP_PATH = /^\/mcp\/([^/]+)\/?$/;
 const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const DEFAULT_CLI = 'unknown';
+/** Printable ASCII token for X-Agent-Cli / X-Agent-Model. */
+const CLI_VALUE = /^[\x21-\x7e]{1,64}$/;
+const MODEL_VALUE = /^[\x21-\x7e]{1,128}$/;
+/** Upper bound on registered agents; stops unauthenticated initialize calls from growing the table. */
+const MAX_AGENTS = 1000;
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -81,6 +87,10 @@ export async function startHttp({
     if (session) {
       res.setHeader('x-agent-id', session.agentId);
     }
+    const single = (name: string): string | undefined => {
+      const value = req.headers[name];
+      return Array.isArray(value) ? value[0] : value;
+    };
 
     if (req.method === 'POST') {
       let body: unknown;
@@ -95,22 +105,46 @@ export async function startHttp({
         return;
       }
       if (sessionId === undefined && isInitializeRequest(body)) {
+        // Ids never equal a role name, so a message recipient resolves unambiguously.
+        if (requested !== undefined && RoleSchema.safeParse(requested).success) {
+          sendJson(res, 400, { error: 'X-Agent-Id must not be a role name' });
+          return;
+        }
+        const cliHeader = single('x-agent-cli');
+        const modelHeader = single('x-agent-model');
+        if (
+          (cliHeader !== undefined && !CLI_VALUE.test(cliHeader)) ||
+          (modelHeader !== undefined && !MODEL_VALUE.test(modelHeader))
+        ) {
+          sendJson(res, 400, { error: 'invalid X-Agent-Cli or X-Agent-Model' });
+          return;
+        }
         const agentId = requested ?? `${role}-${randomUUID().slice(0, 8)}`;
         const known = db.getAgent(agentId);
         if (known && known.role !== role) {
           sendJson(res, 409, { error: `agent ${agentId} is registered as ${known.role}` });
           return;
         }
-        if (!known) {
-          db.insertAgent({ id: agentId, role, cli: DEFAULT_CLI });
-          db.insertEvent(role, 'agent.registered', { role, cli: DEFAULT_CLI, model: null });
-          log.logLine('STATE', `${agentId} registered as ${role}`);
+        if (!known && db.listAgents().length >= MAX_AGENTS) {
+          sendJson(res, 503, { error: 'agent limit reached' });
+          return;
         }
         res.setHeader('x-agent-id', agentId);
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (id) => {
             sessions.set(id, { transport, role, agentId });
+            // Register only once the session exists, so a failed connect leaves no orphan row.
+            const current = db.getAgent(agentId);
+            if (!current) {
+              const cli = cliHeader ?? DEFAULT_CLI;
+              const model = modelHeader ?? null;
+              const agent = db.insertAgent({ id: agentId, role, cli, model });
+              emitAgentEvent(agent, 'agent.registered', { role, cli, model });
+              log.logLine('STATE', `${agentId} registered as ${role}`);
+            } else if (current.state === 'exited') {
+              setAgentState(agentId, 'idle');
+            }
           },
         });
         transport.onclose = () => {
@@ -119,7 +153,11 @@ export async function startHttp({
           }
           const stillConnected = [...sessions.values()].some((s) => s.agentId === agentId);
           if (!stillConnected) {
-            setAgentState(agentId, 'exited');
+            try {
+              setAgentState(agentId, 'exited');
+            } catch {
+              // the database may already be closed during shutdown
+            }
           }
         };
         await createBusServer({ role, agentId, db, config, events, log }).connect(transport);
@@ -142,27 +180,52 @@ export async function startHttp({
     sendJson(res, 405, { error: 'method not allowed' });
   }
 
+  /** Validates an agent event against the bus envelope, then stores its payload. */
+  function emitAgentEvent(
+    agent: { id: string; role: Role; runId: string | null },
+    type: 'agent.registered' | 'agent.state',
+    data: Record<string, unknown>,
+  ): void {
+    const envelope = {
+      id: 0,
+      type,
+      at: new Date().toISOString(),
+      source: agent.role,
+      agentId: agent.id,
+      issue: null,
+      runId: agent.runId,
+      data,
+    };
+    const checked = BusEventSchema.safeParse(envelope);
+    if (!checked.success) {
+      log.logLine(
+        'ERROR',
+        `invalid ${type} event for ${agent.id}: ${z.prettifyError(checked.error)}`,
+      );
+      return;
+    }
+    db.insertEvent(agent.role, type, checked.data.data);
+  }
+
   /** Update agents.state and emit agent.state, but only when the state actually changes. */
   function setAgentState(agentId: string, state: AgentState): void {
     const agent = db.getAgent(agentId);
     if (!agent || agent.state === state) {
       return;
     }
-    db.updateAgentState(agentId, state);
-    db.insertEvent(agent.role, 'agent.state', { state });
+    const updated = db.updateAgentState(agentId, state) ?? agent;
+    emitAgentEvent(updated, 'agent.state', { state });
     log.logLine('STATE', `${agentId} ${state}`);
   }
 
-  /** The agent a hook belongs to: the X-Agent-Id header, else the newest live agent of the role. */
+  /** The agent a hook belongs to: the X-Agent-Id header, else the role's only live agent. */
   function hookAgentId(req: IncomingMessage, role: Role): string | undefined {
     const header = req.headers['x-agent-id'];
     if (typeof header === 'string' && header !== '') {
       return db.getAgent(header)?.role === role ? header : undefined;
     }
-    return db
-      .listAgents({ role })
-      .filter((a) => a.state !== 'exited')
-      .at(-1)?.id;
+    const live = db.listAgents({ role }).filter((a) => a.state !== 'exited');
+    return live.length === 1 ? live[0]?.id : undefined;
   }
 
   async function handleEvent(req: IncomingMessage, res: ServerResponse): Promise<void> {

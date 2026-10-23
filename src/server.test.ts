@@ -176,6 +176,23 @@ describe('agent-bus server', () => {
         expect(res.status).toBe(409);
       });
 
+      it('rejects an agent id equal to a role name with 400', async () => {
+        expect((await init({ 'x-agent-id': 'reviewer' })).status).toBe(400);
+      });
+
+      it('persists X-Agent-Cli and X-Agent-Model and reports them in agent.registered', async () => {
+        await init({ 'x-agent-id': 'impl-c', 'x-agent-cli': 'claude', 'x-agent-model': 'opus' });
+        const agent = bus.db.getAgent('impl-c');
+        expect([agent?.cli, agent?.model]).toEqual(['claude', 'opus']);
+        const ev = bus.db.listEvents('implementer').find((e) => e.kind === 'agent.registered');
+        expect(ev?.data).toEqual({ role: 'implementer', cli: 'claude', model: 'opus' });
+      });
+
+      it('rejects an invalid X-Agent-Cli without registering anything', async () => {
+        expect((await init({ 'x-agent-id': 'impl-d', 'x-agent-cli': 'a b' })).status).toBe(400);
+        expect(bus.db.getAgent('impl-d')).toBeUndefined();
+      });
+
       it('rejects a malformed X-Agent-Id with 400', async () => {
         expect((await init({ 'x-agent-id': 'bad id!' })).status).toBe(400);
       });
