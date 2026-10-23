@@ -106,6 +106,15 @@ describe('db', () => {
       expect(db.getAgent('a-1')?.state).toBe('exited');
     });
 
+    it('sets the run id once and keeps the first', () => {
+      db.insertRun(newRun());
+      db.insertAgent({ id: 'a-1', role: 'orchestrator', cli: 'claude' });
+      expect(db.setAgentRun('a-1', 'run-1-1')?.runId).toBe('run-1-1');
+      db.insertRun({ ...newRun(), id: 'run-2-1' });
+      expect(db.setAgentRun('a-1', 'run-2-1')?.runId).toBe('run-1-1');
+      expect(db.setAgentRun('nope', 'run-1-1')).toBeUndefined();
+    });
+
     it('lists with filters in creation order', () => {
       db.insertRun(newRun());
       db.insertAgent({ id: 'a-1', role: 'implementer', cli: 'claude', runId: 'run-1-1' });

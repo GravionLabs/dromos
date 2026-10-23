@@ -246,6 +246,8 @@ export interface Db {
   getAgent(id: string): Agent | undefined;
   /** Returns undefined when the agent does not exist. */
   updateAgentState(id: string, state: AgentState): Agent | undefined;
+  /** Sets the agent's run_id only when it has none yet (first run wins). Returns the agent, or undefined when unknown. */
+  setAgentRun(id: string, runId: string): Agent | undefined;
   listAgents(filter?: AgentFilter): Agent[];
   insertMessage(message: NewMessage): Message;
   /** Role-addressed messages for `role` plus, when given, messages addressed to `agentId`. */
@@ -317,6 +319,9 @@ export function openDb(file: string): Db {
   );
   const getAgent = db.prepare<[string], AgentRow>('SELECT * FROM agents WHERE id = ?');
   const updateAgentState = db.prepare('UPDATE agents SET state = ?, updated_at = ? WHERE id = ?');
+  const setAgentRun = db.prepare(
+    'UPDATE agents SET run_id = ?, updated_at = ? WHERE id = ? AND run_id IS NULL',
+  );
   const listAgents = db.prepare<
     [string | null, string | null, string | null, string | null, string | null, string | null],
     AgentRow
@@ -429,6 +434,11 @@ export function openDb(file: string): Db {
         return undefined;
       }
       return toAgent(getAgent.get(id) as AgentRow);
+    },
+    setAgentRun(id, runId) {
+      setAgentRun.run(runId, now(), id);
+      const row = getAgent.get(id);
+      return row ? toAgent(row) : undefined;
     },
     listAgents(filter = {}) {
       const { role = null, runId = null, state = null } = filter;

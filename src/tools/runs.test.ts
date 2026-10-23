@@ -52,6 +52,26 @@ describe('start_run', () => {
       );
     });
 
+  it('sets the agent run_id on the first start_run and keeps it on later ones', async () => {
+    const orchestrator = await bus.connect('orchestrator', 'orch-1');
+    expect(bus.db.getAgent('orch-1')?.runId).toBeNull();
+    await orchestrator.callTool({ name: 'start_run', arguments: args() });
+    expect(bus.db.getAgent('orch-1')?.runId).toBe('run-14-1');
+    await orchestrator.callTool({ name: 'start_run', arguments: { repoPath, issue: 15 } });
+    expect(bus.db.getRun('run-15-1')).toBeDefined();
+    expect(bus.db.getAgent('orch-1')?.runId).toBe('run-14-1');
+  });
+
+  it('leaves the agent run_id unset when start_run fails', async () => {
+    mockExeca.mockImplementation(async () => {
+      throw new Error('boom');
+    });
+    const orchestrator = await bus.connect('orchestrator', 'orch-2');
+    const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+    expect(result.isError).toBe(true);
+    expect(bus.db.getAgent('orch-2')?.runId).toBeNull();
+  });
+
   it('creates the worktree, stores the run and delivers the task', async () => {
     const orchestrator = await bus.connect('orchestrator');
     const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
