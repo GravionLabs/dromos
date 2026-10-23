@@ -8,7 +8,7 @@ import { BusEvents } from './bus-events.js';
 import { type BusLog, createBusLog } from './bus-log.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
-import { recordEvent } from './event-store.js';
+import { EventValidationError, recordEvent } from './event-store.js';
 import { createEventStream, createHostGuard } from './event-stream.js';
 import { type BusEvent, BusEventSchema, INGEST_TYPES, isIngestType } from './events/schema.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
@@ -332,15 +332,17 @@ export async function startHttp({
       runId: agent.runId,
       data,
     };
-    const checked = BusEventSchema.safeParse(envelope);
-    if (!checked.success) {
+    try {
+      recordEvent(db, events, agent.role, envelope);
+    } catch (error) {
+      if (!(error instanceof EventValidationError)) {
+        throw error;
+      }
       log.logLine(
         'ERROR',
-        `dropped invalid ${type} event for agent ${agent.id} (${agent.role}): ${z.prettifyError(checked.error)}`,
+        `dropped invalid ${type} event for agent ${agent.id} (${agent.role}): ${error.detail}`,
       );
-      return;
     }
-    recordEvent(db, events, agent.role, type, checked.data.data);
   }
 
   /** Update agents.state and emit agent.state, but only when the state actually changes. */
@@ -382,7 +384,24 @@ export async function startHttp({
       return;
     }
     const { role, cli, state, model } = parsed.data;
-    recordEvent(db, events, role, `hook:${state}`, parsed.data);
+    try {
+      recordEvent(db, events, role, {
+        id: 0,
+        type: `hook:${state}`,
+        at: new Date().toISOString(),
+        source: `hook/${cli}`,
+        agentId: role,
+        issue: null,
+        runId: null,
+        data: parsed.data,
+      });
+    } catch (error) {
+      if (error instanceof EventValidationError) {
+        sendJson(res, 400, { error: error.detail });
+        return;
+      }
+      throw error;
+    }
     log.logLine('HOOK', `${role} ${state} (${cli}${model ? `, ${model}` : ''})`);
     const agentId = hookAgentId(req, role);
     if (agentId) {

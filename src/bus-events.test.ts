@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { BusEvents } from './bus-events.js';
-import type { BusEvent } from './db.js';
+import type { EventRecord } from './db.js';
 
-const event = (id: number): BusEvent => ({
+const event = (id: number): EventRecord => ({
   id,
   role: 'implementer',
   kind: 'hook:idle',
@@ -16,8 +16,8 @@ const event = (id: number): BusEvent => ({
 describe('BusEvents event channel', () => {
   it('delivers a published event to every subscriber', () => {
     const bus = new BusEvents();
-    const a: BusEvent[] = [];
-    const b: BusEvent[] = [];
+    const a: EventRecord[] = [];
+    const b: EventRecord[] = [];
     bus.onEvent((e) => a.push(e));
     bus.onEvent((e) => b.push(e));
     bus.publishEvent(event(1));

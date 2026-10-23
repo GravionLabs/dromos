@@ -2,7 +2,7 @@ import { once } from 'node:events';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { BusEvents } from './bus-events.js';
 import type { BusLog } from './bus-log.js';
-import type { BusEvent, Db } from './db.js';
+import type { Db, EventRecord } from './db.js';
 
 export const DEFAULT_HEARTBEAT_MS = 15_000;
 export const DEFAULT_MAX_STREAMS = 64;
@@ -53,7 +53,7 @@ function sendError(res: ServerResponse, status: number, error: string): void {
 }
 
 /** One SSE frame; no `event:` field, so clients read every kind via `onmessage`. */
-function frame(event: BusEvent): string {
+function frame(event: EventRecord): string {
   return `id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
@@ -144,7 +144,7 @@ export function createEventStream({
 
     let closed = false;
     let replaying = true;
-    let buffer: BusEvent[] = [];
+    let buffer: EventRecord[] = [];
     let overflowed = false;
 
     /** Writes unless the client lags too far behind live events; then drops it (it resumes). */
@@ -157,7 +157,7 @@ export function createEventStream({
       return ok;
     };
     // Ids at or below the cursor were already sent, so each event arrives exactly once.
-    const send = (event: BusEvent): boolean => {
+    const send = (event: EventRecord): boolean => {
       if (event.id <= cursor) {
         return true;
       }

@@ -45,6 +45,19 @@ describe('POST /events', () => {
     expect(bus.db.listEvents()).toEqual([]);
   });
 
+  it('rejects a hook event that fails BusEvent validation: 400, not stored, not broadcast', async () => {
+    const seen: number[] = [];
+    bus.events.onEvent((e) => seen.push(e.id));
+    const res = await post(
+      '{"role":"implementer","cli":"claude","state":"idle","model":"a\\u0007b"}',
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain('model');
+    expect(bus.db.listEventsSince(0)).toEqual([]);
+    expect(seen).toEqual([]);
+    expect(bus.readLog()).toBe('');
+  });
+
   it('includes the model in the log line when given', async () => {
     await post('{"role":"reviewer","cli":"copilot","state":"busy","model":"GPT-Luna"}');
     expect(bus.readLog()).toContain('reviewer busy (copilot, GPT-Luna)');
