@@ -2,9 +2,8 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { requireRole } from '../auth.js';
 import type { ToolContext } from '../context.js';
-import type { Finding, Review, Severity } from '../schemas.js';
-import { ReviewSchema } from '../schemas.js';
-import { InvalidTransitionError, isBlocking, transition } from '../state-machine.js';
+import { type Finding, type Review, ReviewSchema, type Severity } from '../schemas.js';
+import { isBlocking, transition } from '../state-machine.js';
 import { errorResult, jsonResult, logAndWake } from './util.js';
 
 const SEVERITIES: Severity[] = ['critical', 'important', 'suggestion'];
@@ -47,62 +46,58 @@ export function registerReviewTools(server: McpServer, ctx: ToolContext): void {
         );
       }
       const blocking = isBlocking(review, ctx.config.blockingSeverities);
-      let out: { to: 'orchestrator' | 'implementer'; type: 'notice' | 'review_result' };
-      let next: { state: string; round: number };
-      try {
-        const result = ctx.db.transaction(() => {
-          const moved = transition(
-            run,
-            { type: blocking ? 'review_changes' : 'review_approved' },
-            ctx.config.maxRounds,
-          );
-          ctx.db.updateRun(runId, {
-            lastReview: review,
-            state: moved.state,
-            round: moved.round,
-          });
-          const findings = sortFindings(review.findings, ctx.config.blockingSeverities);
-          if (moved.state === 'implementing') {
-            ctx.db.insertMessage({
-              from: 'reviewer',
-              to: 'implementer',
-              type: 'review_result',
-              runId,
-              payload: { runId, round: moved.round, findings, summary: review.summary },
-            });
-            return { moved, out: { to: 'implementer', type: 'review_result' } as const };
-          }
+      // The state was checked above and nothing awaits in between, so the transition is valid.
+      const { moved: next, out } = ctx.db.transaction(() => {
+        const moved = transition(
+          run,
+          { type: blocking ? 'review_changes' : 'review_approved' },
+          ctx.config.maxRounds,
+        );
+        ctx.db.updateRun(runId, {
+          lastReview: review,
+          state: moved.state,
+          round: moved.round,
+        });
+        const findings = sortFindings(review.findings, ctx.config.blockingSeverities);
+        if (moved.state === 'implementing') {
           ctx.db.insertMessage({
             from: 'reviewer',
-            to: 'orchestrator',
-            type: 'notice',
+            to: 'implementer',
+            type: 'review_result',
             runId,
-            payload:
-              moved.state === 'approved'
-                ? { runId, event: 'approved', summary: review.summary }
-                : {
-                    runId,
-                    event: 'blocked',
-                    reason: 'round limit reached',
-                    summary: review.summary,
-                    findings,
-                  },
+            payload: { runId, round: moved.round, findings, summary: review.summary },
           });
-          return { moved, out: { to: 'orchestrator', type: 'notice' } as const };
+          return { moved, out: { to: 'implementer', type: 'review_result' } as const };
+        }
+        ctx.db.insertMessage({
+          from: 'reviewer',
+          to: 'orchestrator',
+          type: 'notice',
+          runId,
+          payload:
+            moved.state === 'approved'
+              ? { runId, event: 'approved', summary: review.summary }
+              : {
+                  runId,
+                  event: 'blocked',
+                  reason: 'round limit reached',
+                  summary: review.summary,
+                  findings,
+                },
         });
-        next = result.moved;
-        out = result.out;
-      } catch (err) {
-        if (err instanceof InvalidTransitionError) return errorResult(err.message);
-        throw err;
-      }
+        return { moved, out: { to: 'orchestrator', type: 'notice' } as const };
+      });
       try {
         ctx.log.logLine('REVIEW', countLine(runId, review));
         ctx.log.logLine('STATE', `${runId} ${next.state} (round ${next.round})`);
       } catch {
         // The outcome is committed; logging is best effort.
       }
-      logAndWake(ctx, 'reviewer', out.to, out.type, runId);
+      try {
+        logAndWake(ctx, 'reviewer', out.to, out.type, runId);
+      } catch {
+        // Best effort: the review is committed, a failed wake must not turn it into an error.
+      }
       return jsonResult({ status: next.state, round: next.round });
     },
   );
