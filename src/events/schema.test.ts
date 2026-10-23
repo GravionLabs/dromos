@@ -16,7 +16,7 @@ describe('BusEventSchema fixtures', () => {
 
   it('has exactly one fixture per event type', () => {
     expect([...fixtureFiles].sort()).toEqual(
-      BUS_EVENT_TYPES.map((t) => `${t.replace(':', '-')}.json`).sort(),
+      BUS_EVENT_TYPES.map((t) => `${t.replace(/[:.]/, '-')}.json`).sort(),
     );
     const types = fixtureFiles.map((f) => readFixture(f).type);
     expect([...types].sort()).toEqual([...BUS_EVENT_TYPES].sort());
@@ -38,8 +38,18 @@ describe('BusEventSchema validation', () => {
     expect(BusEventSchema.safeParse({ ...valid(), id: 1.5 }).success).toBe(false);
   });
 
-  it('rejects an unknown source role', () => {
-    expect(BusEventSchema.safeParse({ ...valid(), source: 'robot' }).success).toBe(false);
+  it('accepts a free-form source identifier', () => {
+    const ok = (source: string) => BusEventSchema.safeParse({ ...valid(), source }).success;
+    expect(ok('apm-hub/subagent-stop')).toBe(true);
+    expect(ok('implementer')).toBe(true);
+  });
+
+  it('rejects an empty, malformed or oversized source', () => {
+    const ok = (source: string) => BusEventSchema.safeParse({ ...valid(), source }).success;
+    expect(ok('')).toBe(false);
+    expect(ok('Apm Hub')).toBe(false);
+    expect(ok('1abc')).toBe(false);
+    expect(ok('a'.repeat(129))).toBe(false);
   });
 
   it('rejects a missing nullable envelope field', () => {
@@ -87,6 +97,63 @@ describe('BusEventSchema validation', () => {
   });
 });
 
+describe('external event types', () => {
+  const bad = (f: string, patch: (e: Record<string, unknown>) => void) => {
+    const e = readFixture(f);
+    patch(e);
+    return BusEventSchema.safeParse(e).success;
+  };
+  const withData = (f: string, extra: Record<string, unknown>) =>
+    bad(f, (e) => {
+      e.data = { ...(e.data as object), ...extra };
+    });
+
+  it('progress fixture uses a non-role source and a null agentId', () => {
+    const e = readFixture('progress.json');
+    expect(e.source).toBe('apm-hub/subagent-stop');
+    expect(e.agentId).toBeNull();
+  });
+
+  it('rejects an extra progress data key', () => {
+    expect(withData('progress.json', { extra: 1 })).toBe(false);
+  });
+
+  it('rejects an empty or oversized progress line', () => {
+    expect(withData('progress.json', { line: '' })).toBe(false);
+    expect(withData('progress.json', { line: 'x'.repeat(1001) })).toBe(false);
+  });
+
+  it('accepts every attention kind and rejects others', () => {
+    for (const kind of ['GATE', 'BLOCKED', 'FAILED', 'QUESTION']) {
+      expect(withData('attention.json', { kind })).toBe(true);
+    }
+    expect(withData('attention.json', { kind: 'DONE' })).toBe(false);
+  });
+
+  it('accepts a null attention pr and rejects a fractional one', () => {
+    expect(withData('attention.json', { pr: null })).toBe(true);
+    expect(withData('attention.json', { pr: 1.5 })).toBe(false);
+  });
+
+  it('validates usage bounds', () => {
+    expect(withData('usage.json', { costUsd: null, model: null })).toBe(true);
+    expect(withData('usage.json', { contextTokens: 0 })).toBe(true);
+    expect(withData('usage.json', { contextTokens: -1 })).toBe(false);
+    expect(withData('usage.json', { costUsd: -0.01 })).toBe(false);
+  });
+
+  it('validates queue.item state and exit code range', () => {
+    expect(
+      withData('queue-item.json', { state: 'started', exitCode: null, durationMs: null }),
+    ).toBe(true);
+    expect(withData('queue-item.json', { exitCode: 3 })).toBe(true);
+    expect(withData('queue-item.json', { exitCode: 4 })).toBe(false);
+    expect(withData('queue-item.json', { exitCode: -1 })).toBe(false);
+    expect(withData('queue-item.json', { state: 'running' })).toBe(false);
+    expect(withData('queue-item.json', { durationMs: -1 })).toBe(false);
+  });
+});
+
 describe('events JSON Schema', () => {
   it('exposes BusEvent as a oneOf of the named variants', () => {
     const schema = buildEventsSchema() as {
@@ -95,6 +162,10 @@ describe('events JSON Schema', () => {
     expect(schema.definitions.BusEvent.oneOf.map((v) => v.$ref)).toEqual([
       '#/definitions/HookIdleEvent',
       '#/definitions/HookBusyEvent',
+      '#/definitions/ProgressEvent',
+      '#/definitions/AttentionEvent',
+      '#/definitions/UsageEvent',
+      '#/definitions/QueueItemEvent',
     ]);
   });
 

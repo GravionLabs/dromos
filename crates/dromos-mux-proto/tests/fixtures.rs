@@ -78,6 +78,51 @@ fn hook_busy_fixture_maps_to_hook_busy_variant() {
     assert!(matches!(event, BusEvent::HookBusy { id: 42, .. }));
 }
 
+#[test]
+fn external_fixtures_map_to_their_variants() {
+    let load = |name: &str| {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../schema/fixtures")
+            .join(name);
+        serde_json::from_value::<BusEvent>(read_json(&path)).unwrap()
+    };
+    assert!(matches!(load("progress.json"), BusEvent::Progress { .. }));
+    assert!(matches!(load("attention.json"), BusEvent::Attention { .. }));
+    assert!(matches!(load("usage.json"), BusEvent::Usage { .. }));
+    assert!(matches!(
+        load("queue-item.json"),
+        BusEvent::QueueItem { .. }
+    ));
+}
+
+#[test]
+fn accepts_free_form_source_and_rejects_malformed() {
+    let mut event = valid_event();
+    event["source"] = json!("apm-hub/subagent-stop");
+    assert!(parse(event.clone()).is_ok());
+    for bad in ["", "Apm Hub", "1abc"] {
+        event["source"] = json!(bad);
+        assert!(parse(event.clone()).is_err(), "{bad:?}");
+    }
+}
+
+#[test]
+fn rejects_invalid_external_data() {
+    let load = |name: &str| {
+        read_json(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../schema/fixtures")
+                .join(name),
+        )
+    };
+    let mut attention = load("attention.json");
+    attention["data"]["kind"] = json!("DONE");
+    assert!(parse(attention).is_err());
+    let mut progress = load("progress.json");
+    progress["data"]["extra"] = json!(1);
+    assert!(parse(progress).is_err());
+}
+
 fn valid_event() -> Value {
     json!({
         "id": 1,
@@ -333,7 +378,17 @@ mod event_wrapper {
 
     #[test]
     fn known_types_are_the_generated_tags() {
-        assert_eq!(KNOWN_TYPES, ["hook:idle", "hook:busy"]);
+        assert_eq!(
+            KNOWN_TYPES,
+            [
+                "hook:idle",
+                "hook:busy",
+                "progress",
+                "attention",
+                "usage",
+                "queue.item"
+            ]
+        );
     }
 
     #[test]
