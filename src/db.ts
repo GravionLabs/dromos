@@ -105,6 +105,10 @@ export type RunPatch = Partial<Pick<Run, 'state' | 'round' | 'lastGate' | 'lastR
 export interface NewMessage {
   from: Role;
   to: Role;
+  /** Sending agent instance, when known. */
+  fromAgent?: string | null;
+  /** Set when the message targets one agent; `to` is then that agent's role. */
+  toAgent?: string | null;
   type: MessageType;
   runId?: string | null;
   payload: unknown;
@@ -140,6 +144,8 @@ interface MessageRow {
   id: number;
   from_role: Role;
   to_role: Role;
+  from_agent: string | null;
+  to_agent: string | null;
   type: MessageType;
   run_id: string | null;
   payload_json: string;
@@ -182,6 +188,8 @@ function toMessage(row: MessageRow): Message {
     id: row.id,
     from: row.from_role,
     to: row.to_role,
+    fromAgent: row.from_agent,
+    toAgent: row.to_agent,
     type: row.type,
     runId: row.run_id,
     payload: JSON.parse(row.payload_json) as unknown,
@@ -240,9 +248,10 @@ export interface Db {
   updateAgentState(id: string, state: AgentState): Agent | undefined;
   listAgents(filter?: AgentFilter): Agent[];
   insertMessage(message: NewMessage): Message;
-  listUnacked(role: Role, limit?: number): Message[];
-  /** Returns false when the message does not exist, is already acked, or belongs to another role. */
-  ackMessage(id: number, role: Role): boolean;
+  /** Role-addressed messages for `role` plus, when given, messages addressed to `agentId`. */
+  listUnacked(role: Role, limit?: number, agentId?: string): Message[];
+  /** Returns false when the message does not exist, is already acked, or is addressed to someone else. */
+  ackMessage(id: number, role: Role, agentId?: string): boolean;
   insertRun(run: NewRun): Run;
   getRun(id: string): Run | undefined;
   listRuns(): Run[];
@@ -277,17 +286,20 @@ export function openDb(file: string): Db {
   migrate(db);
 
   const insertMessage = db.prepare(
-    `INSERT INTO messages (from_role, to_role, type, run_id, payload_json, created_at)
-     VALUES (@from, @to, @type, @runId, @payload, @createdAt)`,
+    `INSERT INTO messages (from_role, to_role, from_agent, to_agent, type, run_id, payload_json, created_at)
+     VALUES (@from, @to, @fromAgent, @toAgent, @type, @runId, @payload, @createdAt)`,
   );
   const getMessage = db.prepare<[number | bigint], MessageRow>(
     'SELECT * FROM messages WHERE id = ?',
   );
-  const listUnacked = db.prepare<[Role, number], MessageRow>(
-    `SELECT * FROM messages WHERE to_role = ? AND acked_at IS NULL ORDER BY id LIMIT ?`,
+  const listUnacked = db.prepare<[Role, string | null, number], MessageRow>(
+    `SELECT * FROM messages
+     WHERE acked_at IS NULL AND ((to_role = ? AND to_agent IS NULL) OR to_agent = ?)
+     ORDER BY id LIMIT ?`,
   );
   const ackMessage = db.prepare(
-    `UPDATE messages SET acked_at = ? WHERE id = ? AND to_role = ? AND acked_at IS NULL`,
+    `UPDATE messages SET acked_at = ? WHERE id = ? AND acked_at IS NULL
+       AND ((to_role = ? AND to_agent IS NULL) OR to_agent = ?)`,
   );
   const insertRun = db.prepare(
     `INSERT INTO runs (id, repo, repo_path, issue_number, issue_title, base_branch, branch,
@@ -334,6 +346,8 @@ export function openDb(file: string): Db {
       const info = insertMessage.run({
         from: message.from,
         to: message.to,
+        fromAgent: message.fromAgent ?? null,
+        toAgent: message.toAgent ?? null,
         type: message.type,
         runId: message.runId ?? null,
         payload: JSON.stringify(message.payload ?? null),
@@ -341,11 +355,11 @@ export function openDb(file: string): Db {
       });
       return toMessage(getMessage.get(info.lastInsertRowid) as MessageRow);
     },
-    listUnacked(role, limit = 20) {
-      return listUnacked.all(role, limit).map(toMessage);
+    listUnacked(role, limit = 20, agentId) {
+      return listUnacked.all(role, agentId ?? null, limit).map(toMessage);
     },
-    ackMessage(id, role) {
-      return ackMessage.run(now(), id, role).changes > 0;
+    ackMessage(id, role, agentId) {
+      return ackMessage.run(now(), id, role, agentId ?? null).changes > 0;
     },
     insertRun(run) {
       insertRun.run({

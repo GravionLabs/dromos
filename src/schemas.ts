@@ -33,6 +33,10 @@ export const MessageSchema = z.object({
   id: z.number().int().positive(),
   from: RoleSchema,
   to: RoleSchema,
+  /** Agent instance that sent the message, when known. */
+  fromAgent: z.string().nullable(),
+  /** Agent instance the message is addressed to; null means addressed to the whole role. */
+  toAgent: z.string().nullable(),
   type: MessageTypeSchema,
   runId: z.string().nullable(),
   payload: z.unknown(),

@@ -23,6 +23,24 @@ export class BusEvents extends EventEmitter {
     return () => this.off(channel, listener);
   }
 
+  static agentChannel(agentId: string): string {
+    return `message:agent:${agentId}`;
+  }
+
+  messageForAgent(agentId: string): void {
+    this.emit(BusEvents.agentChannel(agentId));
+  }
+
+  onMessageForAgent(agentId: string, listener: () => void): () => void {
+    const channel = BusEvents.agentChannel(agentId);
+    this.on(channel, listener);
+    return () => this.off(channel, listener);
+  }
+
+  listenerCountForAgent(agentId: string): number {
+    return this.listenerCount(BusEvents.agentChannel(agentId));
+  }
+
   listenerCountFor(role: Role): number {
     return this.listenerCount(BusEvents.channel(role));
   }
