@@ -1,4 +1,6 @@
-import { request } from 'node:http';
+import { once } from 'node:events';
+import { Agent, type IncomingMessage, request, type ServerResponse } from 'node:http';
+import { connect } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { INGEST_TYPES } from './events/schema.js';
 import { MAX_INGEST_BATCH, MAX_INGEST_BODY_BYTES } from './http.js';
@@ -97,11 +99,10 @@ describe('POST /ingest', () => {
     expect(bus.db.listEvents()).toHaveLength(1);
   });
 
-  it('broadcasts to subscribers', async () => {
+  it('broadcasts to subscribers before the 202 reaches the client', async () => {
     const seen: string[] = [];
     bus.events.onEvent((e) => seen.push(e.kind));
     await post(progress());
-    await new Promise((r) => setImmediate(r));
     expect(seen).toEqual(['progress']);
   });
 
@@ -141,15 +142,23 @@ describe('POST /ingest', () => {
   });
 
   it('overrides client-supplied id and at', async () => {
-    const stream: number[] = [];
-    bus.events.onEvent((e) => stream.push(e.id));
-    const res = await post(progress({ id: 999999, at: '2000-01-01T00:00:00.000Z' }));
+    const published: unknown[] = [];
+    bus.events.onEvent((e) => published.push(e));
+    const before = Date.now();
+    const res = await post(progress({ id: 999999, at: '2999-12-31T23:59:59.000Z' }));
+    const after = Date.now();
     expect(res.status).toBe(202);
-    await new Promise((r) => setImmediate(r));
+    const { ids } = (await res.json()) as { ids: number[] };
     const row = bus.db.listEvents()[0];
-    expect(row?.id).not.toBe(999999);
-    expect(row?.createdAt).not.toContain('2000-01-01');
-    expect(stream).toEqual([row?.id]);
+    expect(row?.id).toBe(ids[0]);
+    expect(ids[0]).not.toBe(999999);
+    // A future `at` would win any "latest" comparison; the server clock must be used instead.
+    const stored = new Date(row?.createdAt ?? '').getTime();
+    expect(stored).toBeGreaterThanOrEqual(before);
+    expect(stored).toBeLessThanOrEqual(after);
+    expect(published).toEqual([row]);
+    expect(JSON.stringify(published)).not.toContain('2999');
+    expect(JSON.stringify(published)).not.toContain('999999');
   });
 
   it('exposes the allowlist', () => {
@@ -211,10 +220,36 @@ describe('POST /ingest guards', () => {
     expect(res.status).toBe(202);
   });
 
-  it('answers 415 for text/plain and for a missing content type', async () => {
+  it('parses the body as JSON without an Origin, whatever the content type (curl -d)', async () => {
     const body = JSON.stringify(progress());
-    expect((await raw({ 'content-type': 'text/plain' }, body)).status).toBe(415);
-    expect((await raw({}, body)).status).toBe(415);
+    expect((await raw({}, body)).status).toBe(202);
+    expect((await raw({ 'content-type': 'application/x-www-form-urlencoded' }, body)).status).toBe(
+      202,
+    );
+    expect((await raw({ 'content-type': 'text/plain' }, body)).status).toBe(202);
+    expect(bus.db.listEvents()).toHaveLength(3);
+  });
+
+  it('still answers 400 for a non-JSON body without a content type', async () => {
+    const res = await raw({}, 'line=built');
+    expect(res.status).toBe(400);
+    expect(bus.db.listEvents()).toHaveLength(0);
+  });
+
+  it('answers 415 for a loopback Origin without application/json', async () => {
+    const body = JSON.stringify(progress());
+    const origin = 'http://localhost:3000';
+    expect((await raw({ origin, 'content-type': 'text/plain' }, body)).status).toBe(415);
+    expect((await raw({ origin }, body)).status).toBe(415);
+    expect(bus.db.listEvents()).toHaveLength(0);
+  });
+
+  it('rejects a foreign Origin with 403 before looking at the body', async () => {
+    const origin = 'http://evil.example';
+    expect((await raw({ origin, 'content-type': 'text/plain' }, '{nope')).status).toBe(403);
+    expect((await raw({ origin }, JSON.stringify(progress()))).status).toBe(403);
+    const huge = await raw({ origin, ...json }, ' '.repeat(MAX_INGEST_BODY_BYTES + 1));
+    expect(huge.status).toBe(403);
     expect(bus.db.listEvents()).toHaveLength(0);
   });
 
@@ -229,20 +264,96 @@ describe('POST /ingest guards', () => {
   it('answers 413 for a body over the cap', async () => {
     const res = await raw(json, ' '.repeat(MAX_INGEST_BODY_BYTES + 1));
     expect(res.status).toBe(413);
+    expect(JSON.parse(res.text)).toEqual({ error: `body over ${MAX_INGEST_BODY_BYTES} bytes` });
+    expect(bus.db.listEvents()).toHaveLength(0);
+  });
+
+  it('drains an over-cap body, answers 413 and reuses the keep-alive connection', async () => {
+    const agent = new Agent({ keepAlive: true, maxSockets: 1 });
+    try {
+      const send = (body: string) =>
+        new Promise<{ status: number; connection: string | undefined; reused: boolean }>(
+          (resolve, reject) => {
+            const req = request(
+              `${bus.http.url}/ingest`,
+              {
+                agent,
+                method: 'POST',
+                headers: { ...json, 'content-length': String(Buffer.byteLength(body)) },
+              },
+              (res) => {
+                res.resume();
+                res.on('end', () =>
+                  resolve({
+                    status: res.statusCode ?? 0,
+                    connection: res.headers.connection,
+                    reused: req.reusedSocket,
+                  }),
+                );
+              },
+            );
+            req.on('error', reject);
+            req.end(body);
+          },
+        );
+      const tooLarge = await send(' '.repeat(MAX_INGEST_BODY_BYTES + 1));
+      expect(tooLarge.status).toBe(413);
+      expect(tooLarge.connection).toBe('keep-alive');
+      const next = await send(JSON.stringify(progress()));
+      expect(next.status).toBe(202);
+      expect(next.reused).toBe(true);
+      expect(bus.db.listEvents()).toHaveLength(1);
+    } finally {
+      agent.destroy();
+    }
+  });
+
+  it('closes the connection when an over-cap body keeps going past the drain limit', async () => {
+    const socket = connect(Number(new URL(bus.http.url).port), '127.0.0.1');
+    await once(socket, 'connect');
+    let received = '';
+    socket.on('data', (c: Buffer) => {
+      received += c.toString('latin1');
+    });
+    socket.on('error', () => {
+      // The server stops reading; the client's pending writes may fail with EPIPE/ECONNRESET.
+    });
+    // Not `once`: it would reject on the expected socket error.
+    const closed = new Promise((resolve) => socket.on('close', resolve));
+    socket.write(
+      'POST /ingest HTTP/1.1\r\nHost: 127.0.0.1\r\ncontent-type: application/json\r\ntransfer-encoding: chunked\r\n\r\n',
+    );
+    // Never terminated: without the drain limit the server would wait for the end forever.
+    const chunk = ' '.repeat(MAX_INGEST_BODY_BYTES);
+    for (let i = 0; i < 12 && !socket.destroyed; i++) {
+      socket.write(`${chunk.length.toString(16)}\r\n${chunk}\r\n`);
+    }
+    await closed;
+    // The 413 may be lost to the reset when the client is still writing; if it arrived, it is a 413.
+    if (received !== '') {
+      expect(received.startsWith('HTTP/1.1 413')).toBe(true);
+    }
     expect(bus.db.listEvents()).toHaveLength(0);
   });
 
   it('answers 413 for a body over the cap without content-length', async () => {
-    const res = await new Promise<number>((resolve, reject) => {
+    const res = await new Promise<{ status: number; text: string }>((resolve, reject) => {
       const req = request(`${bus.http.url}/ingest`, { method: 'POST', headers: json }, (r) => {
-        r.resume();
-        resolve(r.statusCode ?? 0);
+        let text = '';
+        r.on('data', (c: Buffer) => {
+          text += c.toString('utf8');
+        });
+        r.on('end', () => resolve({ status: r.statusCode ?? 0, text }));
       });
       req.on('error', reject);
-      req.write(' '.repeat(MAX_INGEST_BODY_BYTES + 1));
+      // Chunked: the cap is only hit while reading, after the first megabyte.
+      req.write(' '.repeat(MAX_INGEST_BODY_BYTES));
+      req.write(' '.repeat(MAX_INGEST_BODY_BYTES));
       req.end();
     });
-    expect(res).toBe(413);
+    expect(res.status).toBe(413);
+    expect(JSON.parse(res.text)).toEqual({ error: `body over ${MAX_INGEST_BODY_BYTES} bytes` });
+    expect(bus.db.listEvents()).toHaveLength(0);
   });
 
   it('answers 413 for a batch over the cap and accepts exactly the cap', async () => {
@@ -342,12 +453,21 @@ describe('POST /ingest broadcast', () => {
     expect(bus.readLog()).toContain('subscriber boom');
   });
 
-  it('publishes rows in id order after the commit', async () => {
-    const seen: number[] = [];
-    bus.events.onEvent((e) => seen.push(e.id));
+  it('publishes rows in id order after the commit, before replying', async () => {
+    const order: string[] = [];
+    bus.events.onEvent((e) => {
+      const stored = bus.db.listEvents(undefined, 500).some((r) => r.id === e.id);
+      order.push(`publish ${e.id}${stored ? '' : ' (not stored)'}`);
+    });
+    bus.http.server.prependListener('request', (_req: IncomingMessage, res: ServerResponse) => {
+      const writeHead = res.writeHead.bind(res) as (...args: unknown[]) => ServerResponse;
+      res.writeHead = ((...args: unknown[]) => {
+        order.push(`reply ${String(args[0])}`);
+        return writeHead(...args);
+      }) as ServerResponse['writeHead'];
+    });
     const res = await post([progress(), progress(), progress()]);
     const { ids } = (await res.json()) as { ids: number[] };
-    await tick();
-    expect(seen).toEqual(ids);
+    expect(order).toEqual([...ids.map((id) => `publish ${id}`), 'reply 202']);
   });
 });
