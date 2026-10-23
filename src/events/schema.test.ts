@@ -262,6 +262,7 @@ describe('events JSON Schema', () => {
       '#/definitions/UsageEvent',
       '#/definitions/QueueItemEvent',
       '#/definitions/AgentRegisteredEvent',
+      '#/definitions/AgentStateEvent',
     ]);
   });
 

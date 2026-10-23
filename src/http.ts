@@ -8,7 +8,7 @@ import { BusEvents } from './bus-events.js';
 import { type BusLog, createBusLog } from './bus-log.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
-import { HookEventSchema, type Role, RoleSchema } from './schemas.js';
+import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
 
 export interface HttpOptions {
@@ -117,6 +117,10 @@ export async function startHttp({
           if (transport.sessionId) {
             sessions.delete(transport.sessionId);
           }
+          const stillConnected = [...sessions.values()].some((s) => s.agentId === agentId);
+          if (!stillConnected) {
+            setAgentState(agentId, 'exited');
+          }
         };
         await createBusServer({ role, agentId, db, config, events, log }).connect(transport);
         await transport.handleRequest(req, res, body);
@@ -136,6 +140,29 @@ export async function startHttp({
     }
 
     sendJson(res, 405, { error: 'method not allowed' });
+  }
+
+  /** Update agents.state and emit agent.state, but only when the state actually changes. */
+  function setAgentState(agentId: string, state: AgentState): void {
+    const agent = db.getAgent(agentId);
+    if (!agent || agent.state === state) {
+      return;
+    }
+    db.updateAgentState(agentId, state);
+    db.insertEvent(agent.role, 'agent.state', { state });
+    log.logLine('STATE', `${agentId} ${state}`);
+  }
+
+  /** The agent a hook belongs to: the X-Agent-Id header, else the newest live agent of the role. */
+  function hookAgentId(req: IncomingMessage, role: Role): string | undefined {
+    const header = req.headers['x-agent-id'];
+    if (typeof header === 'string' && header !== '') {
+      return db.getAgent(header)?.role === role ? header : undefined;
+    }
+    return db
+      .listAgents({ role })
+      .filter((a) => a.state !== 'exited')
+      .at(-1)?.id;
   }
 
   async function handleEvent(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -158,6 +185,10 @@ export async function startHttp({
     const { role, cli, state, model } = parsed.data;
     db.insertEvent(role, `hook:${state}`, parsed.data);
     log.logLine('HOOK', `${role} ${state} (${cli}${model ? `, ${model}` : ''})`);
+    const agentId = hookAgentId(req, role);
+    if (agentId) {
+      setAgentState(agentId, state);
+    }
     res.writeHead(204).end();
   }
 

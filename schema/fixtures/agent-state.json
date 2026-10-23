@@ -1,0 +1,12 @@
+{
+  "id": 48,
+  "type": "agent.state",
+  "at": "2026-10-22T09:36:00.000Z",
+  "source": "implementer",
+  "agentId": "implementer-1",
+  "issue": null,
+  "runId": null,
+  "data": {
+    "state": "busy"
+  }
+}

@@ -180,6 +180,71 @@ impl<'de> ::serde::Deserialize<'de> for AgentRegisteredDataRole {
             })
     }
 }
+///`AgentStateData`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AgentStateData {
+    pub state: AgentStateDataState,
+}
+///`AgentStateDataState`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum AgentStateDataState {
+    #[serde(rename = "busy")]
+    Busy,
+    #[serde(rename = "idle")]
+    Idle,
+    #[serde(rename = "exited")]
+    Exited,
+}
+impl ::std::fmt::Display for AgentStateDataState {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Busy => f.write_str("busy"),
+            Self::Idle => f.write_str("idle"),
+            Self::Exited => f.write_str("exited"),
+        }
+    }
+}
+impl ::std::str::FromStr for AgentStateDataState {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "busy" => Ok(Self::Busy),
+            "idle" => Ok(Self::Idle),
+            "exited" => Ok(Self::Exited),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentStateDataState {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AgentStateDataState {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 ///`AttentionData`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -436,6 +501,25 @@ pub enum BusEvent {
         agent_id: ::std::option::Option<BusEventAgentId>,
         at: BusEventAt,
         data: AgentRegisteredData,
+        id: i64,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        issue: ::std::option::Option<i64>,
+        #[serde(
+            rename = "runId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        run_id: ::std::option::Option<BusEventRunId>,
+        source: BusEventSource,
+    },
+    #[serde(rename = "agent.state")]
+    AgentState {
+        #[serde(
+            rename = "agentId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        agent_id: ::std::option::Option<BusEventAgentId>,
+        at: BusEventAt,
+        data: AgentStateData,
         id: i64,
         #[serde(deserialize_with = "::std::option::Option::deserialize")]
         issue: ::std::option::Option<i64>,
@@ -1285,4 +1369,5 @@ pub const BUS_EVENT_TYPES: &[&str] = &[
     "usage",
     "queue.item",
     "agent.registered",
+    "agent.state",
 ];

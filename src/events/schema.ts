@@ -133,6 +133,19 @@ export const AgentRegisteredEventSchema = z
   })
   .meta({ id: 'AgentRegisteredEvent' });
 
+/** An agent instance changed its lifecycle state. */
+export const AgentStateEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('agent.state'),
+    data: z
+      .strictObject({
+        state: z.enum(['busy', 'idle', 'exited']),
+      })
+      .meta({ id: 'AgentStateData' }),
+  })
+  .meta({ id: 'AgentStateEvent' });
+
 export const BusEventSchema = z
   .discriminatedUnion('type', [
     HookIdleEventSchema,
@@ -142,6 +155,7 @@ export const BusEventSchema = z
     UsageEventSchema,
     QueueItemEventSchema,
     AgentRegisteredEventSchema,
+    AgentStateEventSchema,
   ])
   .meta({ id: 'BusEvent' });
 export type BusEvent = z.infer<typeof BusEventSchema>;
@@ -154,4 +168,5 @@ export const BUS_EVENT_TYPES = [
   'usage',
   'queue.item',
   'agent.registered',
+  'agent.state',
 ] as const satisfies readonly BusEvent['type'][];
