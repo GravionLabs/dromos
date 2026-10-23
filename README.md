@@ -38,6 +38,34 @@ data: {"id":42,"role":"implementer","kind":"hook:idle","data":{...},"createdAt":
 - Limits: at most 64 concurrent streams (further requests get 503); a live client whose unsent backlog exceeds 1 MiB is disconnected and can resume with `Last-Event-ID`.
 - Security: `Host` (and `Origin`, when sent) must name `127.0.0.1`, `localhost`, `[::1]` or the configured bind host, else 403 (DNS-rebinding guard). There is no authentication, like `POST /events`. Other methods answer 405.
 
+## POST /ingest
+
+`POST /ingest` lets non-MCP producers (Claude hooks, scripts, the apm-hub queue runner) report events to the bus. The body is one event or a non-empty JSON array of events. `id` and `at` are assigned by the server (client values are ignored); `source` is required.
+
+```sh
+curl -i -X POST http://127.0.0.1:4777/ingest \
+  -H 'content-type: application/json' \
+  -d '{"type":"progress","source":"apm-hub/hook","agentId":null,"issue":43,"runId":null,"data":{"line":"built","agent":"orchestrator"}}'
+# HTTP/1.1 202 Accepted
+# {"ids":[42]}
+```
+
+The event then appears on `GET /events/stream` with `id: 42`.
+
+- Allowed `type` values: `progress`, `attention`, `usage`, `queue.item`, `agent.state`. Any other type answers `403 { error }`.
+- `202 { ids }`: stored (in order) and broadcast to stream subscribers after the commit. The reply never waits on subscribers.
+- `400 { error }`: invalid JSON, an empty array, or an item that fails the event schema.
+- A batch is all-or-nothing: if any item is disallowed (403) or invalid (400), the whole batch is rejected and nothing is stored or broadcast.
+- Binds to 127.0.0.1 like the rest of the bus; no authentication. Other methods answer 405.
+
+### Latency check
+
+The p99 latency test (1000 sequential posts after a warm-up, must stay under 50 ms) is opt-in because wall-clock assertions are flaky on shared CI:
+
+```sh
+DROMOS_PERF=1 pnpm vitest run src/ingest.perf.test.ts
+```
+
 ## Repository layout
 
 - `src/`: TypeScript MCP bus
