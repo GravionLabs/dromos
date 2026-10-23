@@ -21,12 +21,15 @@ export interface TestBus {
 }
 
 /** Starts a bus on a random port with an in-memory database. */
-export async function startTestBus(overrides: Record<string, unknown> = {}): Promise<TestBus> {
+export async function startTestBus(
+  overrides: Record<string, unknown> = {},
+  { heartbeatMs }: { heartbeatMs?: number } = {},
+): Promise<TestBus> {
   const dataDir = mkdtempSync(join(tmpdir(), 'agent-bus-test-'));
   const config = ConfigSchema.parse({ port: 0, dataDir, ...overrides });
   const db = openDb(':memory:');
   const events = new BusEvents();
-  const http = await startHttp({ config, db, events });
+  const http = await startHttp({ config, db, events, heartbeatMs });
   const clients: Client[] = [];
   return {
     http,

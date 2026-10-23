@@ -21,7 +21,20 @@ The bus is terminal-agnostic: plain windows, tabs, tmux, VS Code terminals and S
 
 ## Status
 
-Early development. Implemented: project foundation and messaging (`post`, `ack`, `inbox`, `/events`, bus log) over streamable HTTP at `/mcp/<role>`. Everything else below is **planned**, including the `dromos` CLI (`package.json` has no `bin` yet). Order of work: [ROADMAP.md](ROADMAP.md).
+Early development. Implemented: project foundation and messaging (`post`, `ack`, `inbox`, `/events`, `/events/stream`, bus log) over streamable HTTP at `/mcp/<role>`. Everything else below is **planned**, including the `dromos` CLI (`package.json` has no `bin` yet). Order of work: [ROADMAP.md](ROADMAP.md).
+
+## Event stream
+
+`GET /events/stream` is a server-sent-events stream of every stored event (hook events from `POST /events`, agent events). Each event is sent after its row is written, as one frame without an `event:` field, so `EventSource.onmessage` receives every kind:
+
+```text
+id: 42
+data: {"id":42,"role":"implementer","kind":"hook:idle","data":{...},"createdAt":"..."}
+```
+
+- Resume: the `Last-Event-ID` header (sent by `EventSource` on reconnect) or `?since=<id>` replays every event with a larger id in id order, then switches to live events, without gaps or duplicates. The header wins over `?since`. Without either, only live events are sent. A value that is not a non-negative integer answers `400 { error }`; `?since=0` replays everything.
+- Heartbeat: a `: heartbeat` comment every 15 seconds keeps idle connections open.
+- Other methods answer 405. Like `POST /events` the stream has no authentication and relies on the loopback binding.
 
 ## Repository layout
 
