@@ -96,6 +96,35 @@ fn external_fixtures_map_to_their_variants() {
         load("queue-item.json"),
         BusEvent::QueueItem { .. }
     ));
+    assert!(matches!(load("agent-run.json"), BusEvent::AgentRun { .. }));
+}
+
+#[test]
+fn rejects_invalid_agent_run_data() {
+    let a = "agent-run.json";
+    assert_field_rejected(a, "depth 0", "data.depth", Edit::Set(json!(0)));
+    assert_field_rejected(a, "depth 9", "data.depth", Edit::Set(json!(9)));
+    assert_field_rejected(a, "state done", "data.state", Edit::Set(json!("done")));
+    assert_field_rejected(a, "extra key", "data.extra", Edit::Set(json!(1)));
+    assert_field_rejected(
+        a,
+        "negative duration",
+        "data.durationMs",
+        Edit::Set(json!(-1)),
+    );
+    assert_field_rejected(
+        a,
+        "newline in summary",
+        "data.summary",
+        Edit::Set(json!("a\nb")),
+    );
+    assert_accepted(a, "empty description", |e| {
+        e["data"]["description"] = json!("")
+    });
+    assert_accepted(a, "root run", |e| {
+        e["data"]["parentAgentId"] = Value::Null;
+        e["data"]["depth"] = json!(1);
+    });
 }
 
 #[test]
@@ -111,10 +140,6 @@ fn accepts_free_form_source_and_rejects_malformed() {
     }
 }
 
-fn remove_data(event: &mut Value, key: &str) {
-    event["data"].as_object_mut().unwrap().remove(key);
-}
-
 fn event_from(name: &str, mutate: impl Fn(&mut Value)) -> Result<dromos_mux_proto::Event, String> {
     let mut event = fixture(name);
     mutate(&mut event);
@@ -128,8 +153,8 @@ fn assert_accepted(name: &str, label: &str, mutate: impl Fn(&mut Value)) {
     }
 }
 
-/// `Event` must reject the mutated fixture with an error containing `expected`. `Event` also
-/// enforces what the generated types cannot (bounds, forbidden characters, queue.item coupling).
+/// `Event` must reject the mutated fixture with an error containing `expected`. Only for messages
+/// this crate writes itself (the `queue.item` state coupling); library wording is never asserted.
 fn assert_rejected(name: &str, label: &str, expected: &str, mutate: impl Fn(&mut Value)) {
     match event_from(name, mutate) {
         Ok(_) => panic!("{name}: {label} was accepted"),
@@ -140,115 +165,160 @@ fn assert_rejected(name: &str, label: &str, expected: &str, mutate: impl Fn(&mut
     }
 }
 
+/// What a single-field rejection case does to the field at its path.
+enum Edit {
+    Set(Value),
+    Remove,
+}
+
+/// `Event` must reject the fixture once only the field at `path` (`data.line`, `agentId`) is
+/// edited. The fixture itself parses, so the rejection is caused by that field. The message is
+/// not matched against serde or typify wording (it changes across upgrades); it must be non-empty
+/// and, when it names a field (`data.<key>` or ``field `<key>` ``), it must name this one.
+fn assert_field_rejected(name: &str, label: &str, path: &str, edit: Edit) {
+    if let Err(e) = event_from(name, |_| {}) {
+        panic!("{name}: the unedited fixture must parse, got `{e}`");
+    }
+    let mut parents: Vec<&str> = path.split('.').collect();
+    let key = parents.pop().expect("path has a key");
+    let result = event_from(name, |event| {
+        let parent = parents.iter().fold(event, |node, p| &mut node[*p]);
+        let object = parent
+            .as_object_mut()
+            .unwrap_or_else(|| panic!("{name}: parent of {path} is not an object"));
+        match &edit {
+            Edit::Set(value) => {
+                object.insert(key.to_owned(), value.clone());
+            }
+            Edit::Remove => {
+                assert!(
+                    object.remove(key).is_some(),
+                    "{name}: {path} not in fixture"
+                );
+            }
+        }
+    });
+    let e = match result {
+        Ok(_) => panic!("{name}: {label} ({path}) was accepted"),
+        Err(e) => e,
+    };
+    assert!(
+        !e.trim().is_empty(),
+        "{name}: {label} failed with an empty message"
+    );
+    if e.contains("data.") || e.contains("field `") {
+        assert!(
+            e.contains(&format!("`{key}`")) || e.contains(path),
+            "{name}: {label} blamed another field than {path}: `{e}`"
+        );
+    }
+}
+
 #[test]
 fn rejects_invalid_progress_data() {
     let p = "progress.json";
-    assert_rejected(p, "extra key", "unknown field `extra`", |e| {
-        e["data"]["extra"] = json!(1);
-    });
-    assert_rejected(p, "empty line", "shorter than 1", |e| {
-        e["data"]["line"] = json!("");
-    });
-    assert_rejected(p, "long line", "longer than 1000", |e| {
-        e["data"]["line"] = json!("x".repeat(1001));
-    });
-    assert_rejected(p, "ANSI escape", "data.line", |e| {
-        e["data"]["line"] = json!("a\u{1b}[31mred");
-    });
-    assert_rejected(p, "long agent", "longer than 64", |e| {
-        e["data"]["agent"] = json!("x".repeat(65));
-    });
-    assert_rejected(p, "missing agent", "missing field `agent`", |e| {
-        remove_data(e, "agent");
-    });
-    assert_rejected(p, "null agent", "invalid type: null", |e| {
-        e["data"]["agent"] = Value::Null;
-    });
-    assert_rejected(p, "long agentId", "longer than 128", |e| {
-        e["agentId"] = json!("x".repeat(129));
-    });
-    assert_rejected(p, "empty runId", "shorter than 1", |e| {
-        e["runId"] = json!("");
-    });
+    assert_field_rejected(p, "extra key", "data.extra", Edit::Set(json!(1)));
+    assert_field_rejected(p, "empty line", "data.line", Edit::Set(json!("")));
+    assert_field_rejected(
+        p,
+        "long line",
+        "data.line",
+        Edit::Set(json!("x".repeat(1001))),
+    );
+    assert_field_rejected(
+        p,
+        "ANSI escape",
+        "data.line",
+        Edit::Set(json!("a\u{1b}[31mred")),
+    );
+    assert_field_rejected(
+        p,
+        "long agent",
+        "data.agent",
+        Edit::Set(json!("x".repeat(65))),
+    );
+    assert_field_rejected(p, "missing agent", "data.agent", Edit::Remove);
+    assert_field_rejected(p, "null agent", "data.agent", Edit::Set(Value::Null));
+    assert_field_rejected(
+        p,
+        "long agentId",
+        "agentId",
+        Edit::Set(json!("x".repeat(129))),
+    );
+    assert_field_rejected(p, "empty runId", "runId", Edit::Set(json!("")));
 }
 
 #[test]
 fn rejects_invalid_attention_data() {
     let a = "attention.json";
-    assert_rejected(a, "unknown kind", "unknown variant `DONE`", |e| {
-        e["data"]["kind"] = json!("DONE");
-    });
-    assert_rejected(a, "empty summary", "shorter than 1", |e| {
-        e["data"]["summary"] = json!("");
-    });
-    assert_rejected(a, "long summary", "longer than 2000", |e| {
-        e["data"]["summary"] = json!("x".repeat(2001));
-    });
-    assert_rejected(a, "newline", "data.summary", |e| {
-        e["data"]["summary"] = json!("line\nbreak");
-    });
-    assert_rejected(a, "fractional pr", "invalid type", |e| {
-        e["data"]["pr"] = json!(1.5);
-    });
-    assert_rejected(a, "missing pr", "missing field `pr`", |e| {
-        remove_data(e, "pr");
-    });
+    assert_field_rejected(a, "unknown kind", "data.kind", Edit::Set(json!("DONE")));
+    assert_field_rejected(a, "empty summary", "data.summary", Edit::Set(json!("")));
+    assert_field_rejected(
+        a,
+        "long summary",
+        "data.summary",
+        Edit::Set(json!("x".repeat(2001))),
+    );
+    assert_field_rejected(
+        a,
+        "newline",
+        "data.summary",
+        Edit::Set(json!("line\nbreak")),
+    );
+    assert_field_rejected(a, "fractional pr", "data.pr", Edit::Set(json!(1.5)));
+    assert_field_rejected(a, "missing pr", "data.pr", Edit::Remove);
 }
 
 #[test]
 fn rejects_invalid_usage_data() {
     let u = "usage.json";
-    assert_rejected(
+    assert_field_rejected(
         u,
         "negative tokens",
-        "data.contextTokens must be >= 0",
-        |e| {
-            e["data"]["contextTokens"] = json!(-1);
-        },
+        "data.contextTokens",
+        Edit::Set(json!(-1)),
     );
-    assert_rejected(u, "negative cost", "data.costUsd must be >= 0", |e| {
-        e["data"]["costUsd"] = json!(-0.01);
-    });
-    assert_rejected(u, "empty model", "shorter than 1", |e| {
-        e["data"]["model"] = json!("");
-    });
-    assert_rejected(u, "long model", "longer than 128", |e| {
-        e["data"]["model"] = json!("x".repeat(129));
-    });
-    assert_rejected(u, "missing cost", "missing field `costUsd`", |e| {
-        remove_data(e, "costUsd");
-    });
-    assert_rejected(u, "null tokens", "invalid type: null", |e| {
-        e["data"]["contextTokens"] = Value::Null;
-    });
+    assert_field_rejected(u, "negative cost", "data.costUsd", Edit::Set(json!(-0.01)));
+    assert_field_rejected(u, "empty model", "data.model", Edit::Set(json!("")));
+    assert_field_rejected(
+        u,
+        "long model",
+        "data.model",
+        Edit::Set(json!("x".repeat(129))),
+    );
+    assert_field_rejected(u, "missing cost", "data.costUsd", Edit::Remove);
+    assert_field_rejected(
+        u,
+        "null tokens",
+        "data.contextTokens",
+        Edit::Set(Value::Null),
+    );
 }
 
 #[test]
 fn rejects_invalid_queue_item_data() {
     let q = "queue-item.json";
-    assert_rejected(q, "exit code 4", "data.exitCode must be 0..=3", |e| {
-        e["data"]["exitCode"] = json!(4);
-    });
-    assert_rejected(q, "exit code -1", "data.exitCode must be 0..=3", |e| {
-        e["data"]["exitCode"] = json!(-1);
-    });
-    assert_rejected(
+    assert_field_rejected(q, "exit code 4", "data.exitCode", Edit::Set(json!(4)));
+    assert_field_rejected(q, "exit code -1", "data.exitCode", Edit::Set(json!(-1)));
+    assert_field_rejected(
         q,
         "negative duration",
-        "data.durationMs must be >= 0",
-        |e| {
-            e["data"]["durationMs"] = json!(-1);
-        },
+        "data.durationMs",
+        Edit::Set(json!(-1)),
     );
-    assert_rejected(q, "unknown state", "unknown variant `running`", |e| {
-        e["data"]["state"] = json!("running");
-    });
-    assert_rejected(q, "long mode", "longer than 64", |e| {
-        e["data"]["mode"] = json!("x".repeat(65));
-    });
-    assert_rejected(q, "missing mode", "missing field `mode`", |e| {
-        remove_data(e, "mode");
-    });
+    assert_field_rejected(
+        q,
+        "unknown state",
+        "data.state",
+        Edit::Set(json!("running")),
+    );
+    assert_field_rejected(
+        q,
+        "long mode",
+        "data.mode",
+        Edit::Set(json!("x".repeat(65))),
+    );
+    assert_field_rejected(q, "missing mode", "data.mode", Edit::Remove);
 }
 
 #[test]
@@ -615,7 +685,8 @@ mod event_wrapper {
                 "usage",
                 "queue.item",
                 "agent.registered",
-                "agent.state"
+                "agent.state",
+                "agent.run"
             ]
         );
     }

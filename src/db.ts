@@ -67,6 +67,11 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE messages ADD COLUMN from_agent TEXT;
   ALTER TABLE messages ADD COLUMN to_agent TEXT;
   `,
+  `
+  ALTER TABLE events ADD COLUMN agent_id TEXT;
+  ALTER TABLE events ADD COLUMN issue INTEGER;
+  ALTER TABLE events ADD COLUMN run_id TEXT;
+  `,
 ];
 
 export interface Run {
@@ -120,6 +125,19 @@ export interface BusEvent {
   kind: string;
   data: unknown;
   createdAt: string;
+  /** Bus identity of the reporting agent; null for events recorded without one. */
+  agentId: string | null;
+  /** Issue number the event belongs to; null when none. */
+  issue: number | null;
+  /** Orchestrator run the event belongs to; null when none. */
+  runId: string | null;
+}
+
+/** Optional envelope fields stored next to an event; omitted fields are stored as NULL. */
+export interface EventContext {
+  agentId?: string | null;
+  issue?: number | null;
+  runId?: string | null;
 }
 
 interface RunRow {
@@ -159,6 +177,9 @@ interface EventRow {
   kind: string;
   data_json: string;
   created_at: string;
+  agent_id: string | null;
+  issue: number | null;
+  run_id: string | null;
 }
 
 const now = (): string => new Date().toISOString();
@@ -258,7 +279,7 @@ export interface Db {
   getRun(id: string): Run | undefined;
   listRuns(): Run[];
   updateRun(id: string, patch: RunPatch): Run | undefined;
-  insertEvent(role: string, kind: string, data: unknown): BusEvent;
+  insertEvent(role: string, kind: string, data: unknown, context?: EventContext): BusEvent;
   listEvents(role?: string, limit?: number): BusEvent[];
   /** Events with id strictly greater than `afterId`, ascending, for stream replay. */
   listEventsSince(afterId: number, limit?: number): BusEvent[];
@@ -333,7 +354,7 @@ export function openDb(file: string): Db {
      ORDER BY created_at, rowid`,
   );
   const insertEvent = db.prepare(
-    'INSERT INTO events (role, kind, data_json, created_at) VALUES (?, ?, ?, ?)',
+    'INSERT INTO events (role, kind, data_json, created_at, agent_id, issue, run_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
   );
   const getEvent = db.prepare<[number | bigint], EventRow>('SELECT * FROM events WHERE id = ?');
   const listEvents = db.prepare<[string | null, string | null, number], EventRow>(
@@ -349,6 +370,9 @@ export function openDb(file: string): Db {
     kind: row.kind,
     data: JSON.parse(row.data_json) as unknown,
     createdAt: row.created_at,
+    agentId: row.agent_id,
+    issue: row.issue,
+    runId: row.run_id,
   });
 
   return {
@@ -449,8 +473,16 @@ export function openDb(file: string): Db {
       const { role = null, runId = null, state = null } = filter;
       return listAgents.all(role, role, runId, runId, state, state).map(toAgent);
     },
-    insertEvent(role, kind, data) {
-      const info = insertEvent.run(role, kind, JSON.stringify(data ?? null), now());
+    insertEvent(role, kind, data, context) {
+      const info = insertEvent.run(
+        role,
+        kind,
+        JSON.stringify(data ?? null),
+        now(),
+        context?.agentId ?? null,
+        context?.issue ?? null,
+        context?.runId ?? null,
+      );
       return toEvent(getEvent.get(info.lastInsertRowid) as EventRow);
     },
     listEvents(role, limit = 50) {

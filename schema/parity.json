@@ -21,7 +21,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.line": "a\u007f"
+        "data.line": "a"
       }
     },
     {
@@ -29,7 +29,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.line": "a\u0085"
+        "data.line": "a"
       }
     },
     {
@@ -37,7 +37,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.line": "a\u2028"
+        "data.line": "a "
       }
     },
     {
@@ -45,7 +45,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.line": "a\u2029"
+        "data.line": "a "
       }
     },
     {
@@ -53,7 +53,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.line": "a\u202e"
+        "data.line": "a‮"
       }
     },
     {
@@ -61,7 +61,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.line": "a\u200b"
+        "data.line": "a​"
       }
     },
     {
@@ -69,7 +69,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.line": "a\ufeff"
+        "data.line": "a﻿"
       }
     },
     {
@@ -77,7 +77,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.line": "a\u2060"
+        "data.line": "a⁠"
       }
     },
     {
@@ -85,7 +85,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.line": "a\u061c"
+        "data.line": "a؜"
       }
     },
     {
@@ -93,7 +93,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.line": "a\u2066"
+        "data.line": "a⁦"
       }
     },
     {
@@ -101,7 +101,7 @@
       "fixture": "progress.json",
       "valid": true,
       "set": {
-        "data.line": "h\u00e9llo \u2713 \u65e5\u672c"
+        "data.line": "héllo ✓ 日本"
       }
     },
     {
@@ -125,7 +125,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.agent": "a\u007f"
+        "data.agent": "a"
       }
     },
     {
@@ -133,7 +133,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.agent": "a\u0085"
+        "data.agent": "a"
       }
     },
     {
@@ -141,7 +141,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.agent": "a\u2028"
+        "data.agent": "a "
       }
     },
     {
@@ -149,7 +149,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.agent": "a\u2029"
+        "data.agent": "a "
       }
     },
     {
@@ -157,7 +157,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.agent": "a\u202e"
+        "data.agent": "a‮"
       }
     },
     {
@@ -165,7 +165,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.agent": "a\u200b"
+        "data.agent": "a​"
       }
     },
     {
@@ -173,7 +173,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.agent": "a\ufeff"
+        "data.agent": "a﻿"
       }
     },
     {
@@ -181,7 +181,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.agent": "a\u2060"
+        "data.agent": "a⁠"
       }
     },
     {
@@ -189,7 +189,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.agent": "a\u061c"
+        "data.agent": "a؜"
       }
     },
     {
@@ -197,7 +197,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "data.agent": "a\u2066"
+        "data.agent": "a⁦"
       }
     },
     {
@@ -205,7 +205,7 @@
       "fixture": "progress.json",
       "valid": true,
       "set": {
-        "data.agent": "h\u00e9llo \u2713 \u65e5\u672c"
+        "data.agent": "héllo ✓ 日本"
       }
     },
     {
@@ -229,7 +229,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "agentId": "a\u007f"
+        "agentId": "a"
       }
     },
     {
@@ -237,7 +237,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "agentId": "a\u0085"
+        "agentId": "a"
       }
     },
     {
@@ -245,7 +245,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "agentId": "a\u2028"
+        "agentId": "a "
       }
     },
     {
@@ -253,7 +253,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "agentId": "a\u2029"
+        "agentId": "a "
       }
     },
     {
@@ -261,7 +261,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "agentId": "a\u202e"
+        "agentId": "a‮"
       }
     },
     {
@@ -269,7 +269,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "agentId": "a\u200b"
+        "agentId": "a​"
       }
     },
     {
@@ -277,7 +277,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "agentId": "a\ufeff"
+        "agentId": "a﻿"
       }
     },
     {
@@ -285,7 +285,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "agentId": "a\u2060"
+        "agentId": "a⁠"
       }
     },
     {
@@ -293,7 +293,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "agentId": "a\u061c"
+        "agentId": "a؜"
       }
     },
     {
@@ -301,7 +301,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "agentId": "a\u2066"
+        "agentId": "a⁦"
       }
     },
     {
@@ -309,7 +309,7 @@
       "fixture": "progress.json",
       "valid": true,
       "set": {
-        "agentId": "h\u00e9llo \u2713 \u65e5\u672c"
+        "agentId": "héllo ✓ 日本"
       }
     },
     {
@@ -333,7 +333,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "runId": "a\u007f"
+        "runId": "a"
       }
     },
     {
@@ -341,7 +341,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "runId": "a\u0085"
+        "runId": "a"
       }
     },
     {
@@ -349,7 +349,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "runId": "a\u2028"
+        "runId": "a "
       }
     },
     {
@@ -357,7 +357,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "runId": "a\u2029"
+        "runId": "a "
       }
     },
     {
@@ -365,7 +365,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "runId": "a\u202e"
+        "runId": "a‮"
       }
     },
     {
@@ -373,7 +373,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "runId": "a\u200b"
+        "runId": "a​"
       }
     },
     {
@@ -381,7 +381,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "runId": "a\ufeff"
+        "runId": "a﻿"
       }
     },
     {
@@ -389,7 +389,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "runId": "a\u2060"
+        "runId": "a⁠"
       }
     },
     {
@@ -397,7 +397,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "runId": "a\u061c"
+        "runId": "a؜"
       }
     },
     {
@@ -405,7 +405,7 @@
       "fixture": "progress.json",
       "valid": false,
       "set": {
-        "runId": "a\u2066"
+        "runId": "a⁦"
       }
     },
     {
@@ -413,7 +413,7 @@
       "fixture": "progress.json",
       "valid": true,
       "set": {
-        "runId": "h\u00e9llo \u2713 \u65e5\u672c"
+        "runId": "héllo ✓ 日本"
       }
     },
     {
@@ -437,7 +437,7 @@
       "fixture": "attention.json",
       "valid": false,
       "set": {
-        "data.summary": "a\u007f"
+        "data.summary": "a"
       }
     },
     {
@@ -445,7 +445,7 @@
       "fixture": "attention.json",
       "valid": false,
       "set": {
-        "data.summary": "a\u0085"
+        "data.summary": "a"
       }
     },
     {
@@ -453,7 +453,7 @@
       "fixture": "attention.json",
       "valid": false,
       "set": {
-        "data.summary": "a\u2028"
+        "data.summary": "a "
       }
     },
     {
@@ -461,7 +461,7 @@
       "fixture": "attention.json",
       "valid": false,
       "set": {
-        "data.summary": "a\u2029"
+        "data.summary": "a "
       }
     },
     {
@@ -469,7 +469,7 @@
       "fixture": "attention.json",
       "valid": false,
       "set": {
-        "data.summary": "a\u202e"
+        "data.summary": "a‮"
       }
     },
     {
@@ -477,7 +477,7 @@
       "fixture": "attention.json",
       "valid": false,
       "set": {
-        "data.summary": "a\u200b"
+        "data.summary": "a​"
       }
     },
     {
@@ -485,7 +485,7 @@
       "fixture": "attention.json",
       "valid": false,
       "set": {
-        "data.summary": "a\ufeff"
+        "data.summary": "a﻿"
       }
     },
     {
@@ -493,7 +493,7 @@
       "fixture": "attention.json",
       "valid": false,
       "set": {
-        "data.summary": "a\u2060"
+        "data.summary": "a⁠"
       }
     },
     {
@@ -501,7 +501,7 @@
       "fixture": "attention.json",
       "valid": false,
       "set": {
-        "data.summary": "a\u061c"
+        "data.summary": "a؜"
       }
     },
     {
@@ -509,7 +509,7 @@
       "fixture": "attention.json",
       "valid": false,
       "set": {
-        "data.summary": "a\u2066"
+        "data.summary": "a⁦"
       }
     },
     {
@@ -517,7 +517,7 @@
       "fixture": "attention.json",
       "valid": true,
       "set": {
-        "data.summary": "h\u00e9llo \u2713 \u65e5\u672c"
+        "data.summary": "héllo ✓ 日本"
       }
     },
     {
@@ -541,7 +541,7 @@
       "fixture": "usage.json",
       "valid": false,
       "set": {
-        "data.model": "a\u007f"
+        "data.model": "a"
       }
     },
     {
@@ -549,7 +549,7 @@
       "fixture": "usage.json",
       "valid": false,
       "set": {
-        "data.model": "a\u0085"
+        "data.model": "a"
       }
     },
     {
@@ -557,7 +557,7 @@
       "fixture": "usage.json",
       "valid": false,
       "set": {
-        "data.model": "a\u2028"
+        "data.model": "a "
       }
     },
     {
@@ -565,7 +565,7 @@
       "fixture": "usage.json",
       "valid": false,
       "set": {
-        "data.model": "a\u2029"
+        "data.model": "a "
       }
     },
     {
@@ -573,7 +573,7 @@
       "fixture": "usage.json",
       "valid": false,
       "set": {
-        "data.model": "a\u202e"
+        "data.model": "a‮"
       }
     },
     {
@@ -581,7 +581,7 @@
       "fixture": "usage.json",
       "valid": false,
       "set": {
-        "data.model": "a\u200b"
+        "data.model": "a​"
       }
     },
     {
@@ -589,7 +589,7 @@
       "fixture": "usage.json",
       "valid": false,
       "set": {
-        "data.model": "a\ufeff"
+        "data.model": "a﻿"
       }
     },
     {
@@ -597,7 +597,7 @@
       "fixture": "usage.json",
       "valid": false,
       "set": {
-        "data.model": "a\u2060"
+        "data.model": "a⁠"
       }
     },
     {
@@ -605,7 +605,7 @@
       "fixture": "usage.json",
       "valid": false,
       "set": {
-        "data.model": "a\u061c"
+        "data.model": "a؜"
       }
     },
     {
@@ -613,7 +613,7 @@
       "fixture": "usage.json",
       "valid": false,
       "set": {
-        "data.model": "a\u2066"
+        "data.model": "a⁦"
       }
     },
     {
@@ -621,7 +621,7 @@
       "fixture": "usage.json",
       "valid": true,
       "set": {
-        "data.model": "h\u00e9llo \u2713 \u65e5\u672c"
+        "data.model": "héllo ✓ 日本"
       }
     },
     {
@@ -645,7 +645,7 @@
       "fixture": "queue-item.json",
       "valid": false,
       "set": {
-        "data.mode": "a\u007f"
+        "data.mode": "a"
       }
     },
     {
@@ -653,7 +653,7 @@
       "fixture": "queue-item.json",
       "valid": false,
       "set": {
-        "data.mode": "a\u0085"
+        "data.mode": "a"
       }
     },
     {
@@ -661,7 +661,7 @@
       "fixture": "queue-item.json",
       "valid": false,
       "set": {
-        "data.mode": "a\u2028"
+        "data.mode": "a "
       }
     },
     {
@@ -669,7 +669,7 @@
       "fixture": "queue-item.json",
       "valid": false,
       "set": {
-        "data.mode": "a\u2029"
+        "data.mode": "a "
       }
     },
     {
@@ -677,7 +677,7 @@
       "fixture": "queue-item.json",
       "valid": false,
       "set": {
-        "data.mode": "a\u202e"
+        "data.mode": "a‮"
       }
     },
     {
@@ -685,7 +685,7 @@
       "fixture": "queue-item.json",
       "valid": false,
       "set": {
-        "data.mode": "a\u200b"
+        "data.mode": "a​"
       }
     },
     {
@@ -693,7 +693,7 @@
       "fixture": "queue-item.json",
       "valid": false,
       "set": {
-        "data.mode": "a\ufeff"
+        "data.mode": "a﻿"
       }
     },
     {
@@ -701,7 +701,7 @@
       "fixture": "queue-item.json",
       "valid": false,
       "set": {
-        "data.mode": "a\u2060"
+        "data.mode": "a⁠"
       }
     },
     {
@@ -709,7 +709,7 @@
       "fixture": "queue-item.json",
       "valid": false,
       "set": {
-        "data.mode": "a\u061c"
+        "data.mode": "a؜"
       }
     },
     {
@@ -717,7 +717,7 @@
       "fixture": "queue-item.json",
       "valid": false,
       "set": {
-        "data.mode": "a\u2066"
+        "data.mode": "a⁦"
       }
     },
     {
@@ -725,7 +725,7 @@
       "fixture": "queue-item.json",
       "valid": true,
       "set": {
-        "data.mode": "h\u00e9llo \u2713 \u65e5\u672c"
+        "data.mode": "héllo ✓ 日本"
       }
     },
     {
@@ -749,7 +749,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.model": "a\u007f"
+        "data.model": "a"
       }
     },
     {
@@ -757,7 +757,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.model": "a\u0085"
+        "data.model": "a"
       }
     },
     {
@@ -765,7 +765,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.model": "a\u2028"
+        "data.model": "a "
       }
     },
     {
@@ -773,7 +773,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.model": "a\u2029"
+        "data.model": "a "
       }
     },
     {
@@ -781,7 +781,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.model": "a\u202e"
+        "data.model": "a‮"
       }
     },
     {
@@ -789,7 +789,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.model": "a\u200b"
+        "data.model": "a​"
       }
     },
     {
@@ -797,7 +797,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.model": "a\ufeff"
+        "data.model": "a﻿"
       }
     },
     {
@@ -805,7 +805,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.model": "a\u2060"
+        "data.model": "a⁠"
       }
     },
     {
@@ -813,7 +813,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.model": "a\u061c"
+        "data.model": "a؜"
       }
     },
     {
@@ -821,7 +821,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.model": "a\u2066"
+        "data.model": "a⁦"
       }
     },
     {
@@ -829,7 +829,7 @@
       "fixture": "hook-idle.json",
       "valid": true,
       "set": {
-        "data.model": "h\u00e9llo \u2713 \u65e5\u672c"
+        "data.model": "héllo ✓ 日本"
       }
     },
     {
@@ -853,7 +853,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.sessionId": "a\u007f"
+        "data.sessionId": "a"
       }
     },
     {
@@ -861,7 +861,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.sessionId": "a\u0085"
+        "data.sessionId": "a"
       }
     },
     {
@@ -869,7 +869,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.sessionId": "a\u2028"
+        "data.sessionId": "a "
       }
     },
     {
@@ -877,7 +877,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.sessionId": "a\u2029"
+        "data.sessionId": "a "
       }
     },
     {
@@ -885,7 +885,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.sessionId": "a\u202e"
+        "data.sessionId": "a‮"
       }
     },
     {
@@ -893,7 +893,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.sessionId": "a\u200b"
+        "data.sessionId": "a​"
       }
     },
     {
@@ -901,7 +901,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.sessionId": "a\ufeff"
+        "data.sessionId": "a﻿"
       }
     },
     {
@@ -909,7 +909,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.sessionId": "a\u2060"
+        "data.sessionId": "a⁠"
       }
     },
     {
@@ -917,7 +917,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.sessionId": "a\u061c"
+        "data.sessionId": "a؜"
       }
     },
     {
@@ -925,7 +925,7 @@
       "fixture": "hook-idle.json",
       "valid": false,
       "set": {
-        "data.sessionId": "a\u2066"
+        "data.sessionId": "a⁦"
       }
     },
     {
@@ -933,7 +933,7 @@
       "fixture": "hook-idle.json",
       "valid": true,
       "set": {
-        "data.sessionId": "h\u00e9llo \u2713 \u65e5\u672c"
+        "data.sessionId": "héllo ✓ 日本"
       }
     },
     {
@@ -1256,6 +1256,204 @@
       "valid": false,
       "set": {
         "data.costUsd": -0.5
+      }
+    },
+    {
+      "name": "agent.run fixture as is",
+      "fixture": "agent-run.json",
+      "valid": true
+    },
+    {
+      "name": "agent.run depth 0",
+      "fixture": "agent-run.json",
+      "valid": false,
+      "set": {
+        "data.depth": 0
+      }
+    },
+    {
+      "name": "agent.run depth 1",
+      "fixture": "agent-run.json",
+      "valid": true,
+      "set": {
+        "data.depth": 1
+      }
+    },
+    {
+      "name": "agent.run depth 8",
+      "fixture": "agent-run.json",
+      "valid": true,
+      "set": {
+        "data.depth": 8
+      }
+    },
+    {
+      "name": "agent.run depth 9",
+      "fixture": "agent-run.json",
+      "valid": false,
+      "set": {
+        "data.depth": 9
+      }
+    },
+    {
+      "name": "agent.run depth fractional",
+      "fixture": "agent-run.json",
+      "valid": false,
+      "set": {
+        "data.depth": 1.5
+      }
+    },
+    {
+      "name": "agent.run state done",
+      "fixture": "agent-run.json",
+      "valid": false,
+      "set": {
+        "data.state": "done"
+      }
+    },
+    {
+      "name": "agent.run state started",
+      "fixture": "agent-run.json",
+      "valid": true,
+      "set": {
+        "data.state": "started"
+      }
+    },
+    {
+      "name": "agent.run extra data key",
+      "fixture": "agent-run.json",
+      "valid": false,
+      "set": {
+        "data.extra": 1
+      }
+    },
+    {
+      "name": "agent.run empty runAgentId",
+      "fixture": "agent-run.json",
+      "valid": false,
+      "set": {
+        "data.runAgentId": ""
+      }
+    },
+    {
+      "name": "agent.run long runAgentId",
+      "fixture": "agent-run.json",
+      "valid": false,
+      "set": {
+        "data.runAgentId": {
+          "repeat": ["x", 65]
+        }
+      }
+    },
+    {
+      "name": "agent.run null parent",
+      "fixture": "agent-run.json",
+      "valid": true,
+      "set": {
+        "data.parentAgentId": null,
+        "data.depth": 1
+      }
+    },
+    {
+      "name": "agent.run null toolUseId",
+      "fixture": "agent-run.json",
+      "valid": true,
+      "set": {
+        "data.toolUseId": null
+      }
+    },
+    {
+      "name": "agent.run empty agentType",
+      "fixture": "agent-run.json",
+      "valid": false,
+      "set": {
+        "data.agentType": ""
+      }
+    },
+    {
+      "name": "agent.run empty description",
+      "fixture": "agent-run.json",
+      "valid": true,
+      "set": {
+        "data.description": ""
+      }
+    },
+    {
+      "name": "agent.run null description",
+      "fixture": "agent-run.json",
+      "valid": true,
+      "set": {
+        "data.description": null
+      }
+    },
+    {
+      "name": "agent.run long description",
+      "fixture": "agent-run.json",
+      "valid": false,
+      "set": {
+        "data.description": {
+          "repeat": ["x", 201]
+        }
+      }
+    },
+    {
+      "name": "agent.run max description",
+      "fixture": "agent-run.json",
+      "valid": true,
+      "set": {
+        "data.description": {
+          "repeat": ["x", 200]
+        }
+      }
+    },
+    {
+      "name": "agent.run empty summary",
+      "fixture": "agent-run.json",
+      "valid": true,
+      "set": {
+        "data.summary": ""
+      }
+    },
+    {
+      "name": "agent.run long summary",
+      "fixture": "agent-run.json",
+      "valid": false,
+      "set": {
+        "data.summary": {
+          "repeat": ["x", 121]
+        }
+      }
+    },
+    {
+      "name": "agent.run negative durationMs",
+      "fixture": "agent-run.json",
+      "valid": false,
+      "set": {
+        "data.durationMs": -1
+      }
+    },
+    {
+      "name": "agent.run null durationMs",
+      "fixture": "agent-run.json",
+      "valid": true,
+      "set": {
+        "data.durationMs": null
+      }
+    },
+    {
+      "name": "agent.run newline in summary",
+      "fixture": "agent-run.json",
+      "valid": false,
+      "set": {
+        "data.summary": "a\nb"
+      }
+    },
+    {
+      "name": "agent.run empty model",
+      "fixture": "agent-run.json",
+      "valid": false,
+      "set": {
+        "data.model": ""
       }
     }
   ]

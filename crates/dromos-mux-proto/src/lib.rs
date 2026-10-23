@@ -20,8 +20,10 @@
 
 mod event;
 
-// No lint allowances: the generated code passes the workspace lints as is. If a typify upgrade
-// or a new event type trips a lint, add a targeted `#[expect(clippy::<lint>)]` here.
+// No broad lint allowances. The only expectations: typify emits `chars().count() < 0usize` for the
+// `agent.run` fields whose minimum length is 0 (`description`, `summary`). If a typify upgrade or a
+// new event type trips another lint, add a targeted `#[expect(...)]` here.
+#[expect(clippy::absurd_extreme_comparisons, unused_comparisons)]
 #[rustfmt::skip]
 mod generated;
 

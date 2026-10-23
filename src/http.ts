@@ -9,8 +9,8 @@ import { type BusLog, createBusLog } from './bus-log.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
 import { recordEvent } from './event-store.js';
-import { createEventStream } from './event-stream.js';
-import { BusEventSchema } from './events/schema.js';
+import { createEventStream, createHostGuard } from './event-stream.js';
+import { type BusEvent, BusEventSchema, INGEST_TYPES, isIngestType } from './events/schema.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
 
@@ -59,13 +59,82 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) {
-    chunks.push(chunk as Buffer);
+/** Request body over the cap given to `readJson`. */
+class PayloadTooLargeError extends Error {
+  constructor(maxBytes: number) {
+    super(`request body over ${maxBytes} bytes`);
+    this.name = 'PayloadTooLargeError';
   }
-  const raw = Buffer.concat(chunks).toString('utf8');
+}
+
+/** Largest `POST /ingest` body in bytes; bigger bodies get 413. */
+export const MAX_INGEST_BODY_BYTES = 1024 * 1024;
+/** Most events in one `POST /ingest` array; longer arrays get 413. */
+export const MAX_INGEST_BATCH = 100;
+
+async function readJson(
+  req: IncomingMessage,
+  maxBytes = Number.POSITIVE_INFINITY,
+): Promise<unknown> {
+  // Event listeners rather than `for await`: leaving an async iterator early destroys the request
+  // and with it the socket, so an over-cap client would never see its 413.
+  const raw = await new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    const onData = (chunk: Buffer): void => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        req.off('data', onData);
+        req.off('end', onEnd);
+        req.pause();
+        reject(new PayloadTooLargeError(maxBytes));
+        return;
+      }
+      chunks.push(chunk);
+    };
+    const onEnd = (): void => resolve(Buffer.concat(chunks).toString('utf8'));
+    req.on('data', onData);
+    req.once('end', onEnd);
+    req.once('error', reject);
+  });
   return raw.length === 0 ? undefined : (JSON.parse(raw) as unknown);
+}
+
+/** Body bytes discarded after a 413 before the connection is closed instead. */
+const MAX_DRAIN_BYTES = 8 * MAX_INGEST_BODY_BYTES;
+
+/**
+ * 413 for an oversized body. The rest of the body is drained unparsed and the reply written once
+ * it ends, so the client reads the 413 instead of a reset and a keep-alive connection stays
+ * usable. A body still going after `MAX_DRAIN_BYTES` gets the 413 with `Connection: close`.
+ */
+function sendTooLarge(req: IncomingMessage, res: ServerResponse): void {
+  const body = JSON.stringify({ error: `body over ${MAX_INGEST_BODY_BYTES} bytes` });
+  const reply = (close: boolean): void => {
+    if (res.headersSent) {
+      return;
+    }
+    res.writeHead(413, {
+      'content-type': 'application/json',
+      ...(close ? { connection: 'close' } : {}),
+    });
+    res.end(body);
+  };
+  if (req.complete) {
+    reply(false);
+    return;
+  }
+  let drained = 0;
+  const onData = (chunk: Buffer): void => {
+    drained += chunk.length;
+    if (drained > MAX_DRAIN_BYTES) {
+      req.off('data', onData);
+      reply(true);
+    }
+  };
+  req.on('data', onData);
+  req.once('end', () => reply(false));
+  req.resume();
 }
 
 export async function startHttp({
@@ -87,6 +156,7 @@ export async function startHttp({
     maxBufferedBytes: maxStreamBufferedBytes,
     allowedHosts: [host],
   });
+  const hostAllowed = createHostGuard([host]);
   const sessions = new Map<string, Session>();
 
   async function handleMcp(req: IncomingMessage, res: ServerResponse, role: Role): Promise<void> {
@@ -321,6 +391,120 @@ export async function startHttp({
     res.writeHead(204).end();
   }
 
+  /** First schema issue as a short message; never echoes the whole error or the input. */
+  function briefIssue(error: z.ZodError): string {
+    const issue = error.issues[0];
+    const where = issue?.path.join('.') || '(root)';
+    return `${where}: ${issue?.message ?? 'invalid'}`.slice(0, 200);
+  }
+
+  /**
+   * `POST /ingest`: one event or a non-empty array from an external producer, all-or-nothing.
+   * Rows are committed first and published synchronously right after the commit, in id order,
+   * before the 202 is written; publishing only queues frames, so a slow subscriber never blocks
+   * the reply. A stream deduplicates by event id, so a replay and a live publish never deliver
+   * the same event twice.
+   */
+  async function handleIngest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.method !== 'POST') {
+      sendJson(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    if (!hostAllowed(req)) {
+      sendJson(res, 403, { error: 'forbidden host or origin' });
+      return;
+    }
+    // The Host/Origin guard above is the cross-origin defence. Callers without an Origin (curl,
+    // hooks, scripts) may send any or no Content-Type; the body is parsed as JSON regardless.
+    // A browser request (it always sends Origin) must still be application/json, which a page
+    // cannot send cross-origin without a CORS preflight.
+    if (req.headers.origin !== undefined) {
+      const contentType = (req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase();
+      if (contentType !== 'application/json') {
+        sendJson(res, 415, { error: 'content-type must be application/json' });
+        return;
+      }
+    }
+    const declared = Number(req.headers['content-length']);
+    if (declared > MAX_INGEST_BODY_BYTES) {
+      sendTooLarge(req, res);
+      return;
+    }
+    let body: unknown;
+    try {
+      body = await readJson(req, MAX_INGEST_BODY_BYTES);
+    } catch (error) {
+      if (error instanceof PayloadTooLargeError) {
+        sendTooLarge(req, res);
+      } else {
+        sendJson(res, 400, { error: 'invalid JSON body' });
+      }
+      return;
+    }
+    const items: unknown[] = Array.isArray(body) ? body : [body];
+    if (items.length === 0) {
+      sendJson(res, 400, { error: 'empty batch' });
+      return;
+    }
+    if (items.length > MAX_INGEST_BATCH) {
+      sendJson(res, 413, { error: `batch over ${MAX_INGEST_BATCH} events` });
+      return;
+    }
+    const isObject = (v: unknown): v is Record<string, unknown> =>
+      typeof v === 'object' && v !== null && !Array.isArray(v);
+    // Type allowlist over the whole batch first, so a well-formed but disallowed type is 403
+    // rather than 400, whatever the position of the items.
+    const denied = items.find(
+      (item) => isObject(item) && 'type' in item && !isIngestType(item.type),
+    );
+    if (denied !== undefined) {
+      sendJson(res, 403, {
+        error: `type not allowed; allowed: ${INGEST_TYPES.join(', ')}`,
+      });
+      return;
+    }
+    // id and at are server-owned: client values are discarded and replaced before validation.
+    const at = new Date().toISOString();
+    const accepted: BusEvent[] = [];
+    for (const [i, item] of items.entries()) {
+      if (!isObject(item)) {
+        sendJson(res, 400, { error: `item ${i}: expected an object` });
+        return;
+      }
+      const checked = BusEventSchema.safeParse({ ...item, id: 0, at });
+      if (!checked.success) {
+        sendJson(res, 400, { error: `item ${i}: ${briefIssue(checked.error)}` });
+        return;
+      }
+      accepted.push(checked.data);
+    }
+    // Persist first; subscribers are notified only after the commit.
+    const rows = db.transaction(() =>
+      accepted.map((e) =>
+        db.insertEvent(e.source, e.type, e.data, {
+          agentId: e.agentId,
+          issue: e.issue,
+          runId: e.runId,
+        }),
+      ),
+    );
+    // Synchronously, in id order: a deferred publish could arrive after a higher id another
+    // write published meanwhile, and a stream (cursor already past it) would drop it.
+    for (const row of rows) {
+      try {
+        events.publishEvent(row);
+      } catch (error) {
+        log.logLine('ERROR', `ingest broadcast of event ${row.id} failed: ${String(error)}`);
+      }
+    }
+    const shown = accepted.slice(0, 5).map((e) => `${e.source} ${e.type}`);
+    log.logLine(
+      'INGEST',
+      `${accepted.length} event(s): ${shown.join(', ')}${accepted.length > shown.length ? ', ...' : ''}`,
+    );
+    sendJson(res, 202, { ids: rows.map((r) => r.id) });
+  }
+
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? '/', 'http://localhost').pathname;
     if (req.method === 'GET' && path === '/health') {
@@ -329,6 +513,14 @@ export async function startHttp({
     }
     if (path === '/events/stream') {
       eventStream.handle(req, res).catch((error: unknown) => {
+        if (!res.headersSent) {
+          sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
+        }
+      });
+      return;
+    }
+    if (path === '/ingest') {
+      handleIngest(req, res).catch((error: unknown) => {
         if (!res.headersSent) {
           sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
         }

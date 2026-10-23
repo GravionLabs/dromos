@@ -67,6 +67,24 @@ function hostnameOf(value: string, isOrigin: boolean): string | undefined {
 }
 
 /**
+ * Host/Origin guard (DNS-rebinding and cross-origin protection): `Host` must name a loopback host
+ * or one of `allowedHosts`, and `Origin`, when sent, must too.
+ */
+export function createHostGuard(
+  allowedHosts: readonly string[] = [],
+): (req: IncomingMessage) => boolean {
+  const hosts = new Set([...LOOPBACK_HOSTS, ...allowedHosts.map((h) => hostnameOf(h, false))]);
+  return (req) => {
+    const host = req.headers.host;
+    if (host === undefined || !hosts.has(hostnameOf(host, false))) {
+      return false;
+    }
+    const origin = req.headers.origin;
+    return origin === undefined || hosts.has(hostnameOf(origin, true));
+  };
+}
+
+/**
  * `GET /events/stream`: replays stored events after the resume point (`Last-Event-ID` header,
  * else `?since=<id>`) in id order, then streams live events. Without a resume point only live
  * events are sent. Host and Origin must name a loopback host (DNS-rebinding guard).
@@ -80,17 +98,8 @@ export function createEventStream({
   maxBufferedBytes = DEFAULT_MAX_BUFFERED_BYTES,
   allowedHosts = [],
 }: EventStreamOptions): EventStream {
-  const hosts = new Set([...LOOPBACK_HOSTS, ...allowedHosts.map((h) => hostnameOf(h, false))]);
+  const allowed = createHostGuard(allowedHosts);
   let open = 0;
-
-  function allowed(req: IncomingMessage): boolean {
-    const host = req.headers.host;
-    if (host === undefined || !hosts.has(hostnameOf(host, false))) {
-      return false;
-    }
-    const origin = req.headers.origin;
-    return origin === undefined || hosts.has(hostnameOf(origin, true));
-  }
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method !== 'GET') {

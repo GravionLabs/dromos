@@ -2,6 +2,7 @@ import { type IncomingMessage, request } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BusEvent } from './db.js';
 import { recordEvent } from './event-store.js';
+import { createHostGuard } from './event-stream.js';
 import { startTestBus, type TestBus } from './test-helpers.js';
 
 interface Stream {
@@ -439,5 +440,51 @@ describe('GET /events/stream heartbeat and shutdown', () => {
     await bus.close();
     await Promise.all(streams.map((s) => s.ended));
     expect(bus.events.eventListenerCount()).toBe(0);
+  });
+});
+
+describe('createHostGuard', () => {
+  const req = (headers: Record<string, string>) => ({ headers }) as unknown as IncomingMessage;
+
+  it('accepts the loopback hosts with or without a port', () => {
+    const allowed = createHostGuard();
+    for (const host of [
+      '127.0.0.1',
+      '127.0.0.1:4777',
+      'localhost',
+      'localhost:4777',
+      '[::1]:4777',
+    ]) {
+      expect(allowed(req({ host })), host).toBe(true);
+    }
+  });
+
+  it('rejects a missing, foreign or unparsable Host', () => {
+    const allowed = createHostGuard();
+    expect(allowed(req({}))).toBe(false);
+    expect(allowed(req({ host: 'evil.example' }))).toBe(false);
+    expect(allowed(req({ host: '127.0.0.1.evil.example' }))).toBe(false);
+    expect(allowed(req({ host: 'a b' }))).toBe(false);
+  });
+
+  it('accepts a loopback Origin and no Origin at all', () => {
+    const allowed = createHostGuard();
+    expect(allowed(req({ host: '127.0.0.1:4777' }))).toBe(true);
+    expect(allowed(req({ host: '127.0.0.1:4777', origin: 'http://localhost:3000' }))).toBe(true);
+  });
+
+  it('rejects a foreign, opaque or unparsable Origin even with a loopback Host', () => {
+    const allowed = createHostGuard();
+    for (const origin of ['http://evil.example', 'null', 'not a url', 'http://127.0.0.1.nip.io']) {
+      expect(allowed(req({ host: '127.0.0.1', origin })), origin).toBe(false);
+    }
+  });
+
+  it('adds allowedHosts, matched by host name whatever the port', () => {
+    const allowed = createHostGuard(['bus.internal:4777']);
+    expect(allowed(req({ host: 'bus.internal' }))).toBe(true);
+    expect(allowed(req({ host: 'bus.internal:9999', origin: 'http://bus.internal' }))).toBe(true);
+    expect(allowed(req({ host: 'other.internal' }))).toBe(false);
+    expect(createHostGuard()(req({ host: 'bus.internal' }))).toBe(false);
   });
 });
