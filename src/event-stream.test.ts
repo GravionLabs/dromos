@@ -132,6 +132,7 @@ describe('GET /events/stream', () => {
       data: { role: 'implementer', cli: 'claude', state: 'idle' },
     });
     expect(typeof s.events[0]?.createdAt).toBe('string');
+    expect(s.events[0]).toEqual(bus.db.listEventsSince(live - 1)[0]);
   });
 
   it('resumes with Last-Event-ID: exactly the missed events in order, then live ones', async () => {

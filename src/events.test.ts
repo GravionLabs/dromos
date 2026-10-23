@@ -45,17 +45,51 @@ describe('POST /events', () => {
     expect(bus.db.listEvents()).toEqual([]);
   });
 
-  it('rejects a hook event that fails BusEvent validation: 400, not stored, not broadcast', async () => {
-    const seen: number[] = [];
-    bus.events.onEvent((e) => seen.push(e.id));
-    const res = await post(
-      '{"role":"implementer","cli":"claude","state":"idle","model":"a\\u0007b"}',
-    );
-    expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: string }).error).toContain('model');
-    expect(bus.db.listEventsSince(0)).toEqual([]);
-    expect(seen).toEqual([]);
-    expect(bus.readLog()).toBe('');
+  it('stores the posted hook data unchanged', async () => {
+    const body = {
+      role: 'implementer',
+      cli: 'copilot',
+      state: 'busy',
+      model: 'GPT-Luna',
+      sessionId: 'sess-1',
+    };
+    expect((await post(JSON.stringify(body))).status).toBe(204);
+    expect(bus.db.listEvents('implementer')).toMatchObject([{ kind: 'hook:busy', data: body }]);
+  });
+
+  it.each([
+    ['model with a control character', { model: 'a\u0007b' }],
+    ['model with a bidi control', { model: 'a\u202eb' }],
+    ['sessionId with a zero-width character', { sessionId: 'a\u200bb' }],
+    ['sessionId with a newline', { sessionId: 'a\nb' }],
+  ])(
+    'rejects a hook event with a %s: 400, not stored, not broadcast, agent state unchanged',
+    async (_name, extra) => {
+      await bus.connect('implementer', 'impl-1');
+      const seen: number[] = [];
+      bus.events.onEvent((e) => seen.push(e.id));
+      const before = bus.db.listEvents().length;
+      const res = await post(
+        JSON.stringify({ role: 'implementer', cli: 'claude', state: 'busy', ...extra }),
+      );
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toMatch(/model|sessionId/);
+      expect(bus.db.listEvents().length).toBe(before);
+      expect(seen).toEqual([]);
+      expect(bus.db.getAgent('impl-1')?.state).toBe('idle');
+      expect(bus.readLog()).not.toContain('HOOK');
+    },
+  );
+
+  it('answers 500 and logs an ERROR when a subscriber throws after the row is stored', async () => {
+    bus.events.onEvent(() => {
+      throw new Error('boom');
+    });
+    const res = await post('{"role":"implementer","cli":"claude","state":"idle"}');
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'internal error' });
+    expect(bus.db.listEvents('implementer')).toHaveLength(1);
+    expect(bus.readLog()).toMatch(/ERROR +hook implementer idle: Error: boom/);
   });
 
   it('includes the model in the log line when given', async () => {
@@ -68,7 +102,7 @@ describe('POST /events', () => {
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toContain('state');
     expect(bus.db.listEvents()).toEqual([]);
-    expect(bus.readLog()).toBe('');
+    expect(bus.readLog()).not.toContain('HOOK');
   });
 
   it('rejects malformed JSON with 400', async () => {

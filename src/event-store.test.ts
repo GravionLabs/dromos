@@ -52,12 +52,27 @@ describe('recordEvent', () => {
     expect(seen).toEqual([]);
   });
 
+  it('ignores the envelope id: the stored and broadcast id is the row id', () => {
+    const row = recordEvent(bus.db, bus.events, 'orchestrator', { ...valid, id: 999 });
+    expect(row.id).not.toBe(999);
+    expect(bus.db.listEventsSince(0).map((e) => e.id)).toEqual([row.id]);
+    expect(seen).toEqual([row.id]);
+  });
+
+  it('stores the schema-parsed data of the event', () => {
+    const row = recordEvent(bus.db, bus.events, 'orchestrator', valid);
+    expect(bus.db.listEventsSince(0)[0]?.data).toEqual({ line: 'step done', agent: 'implementer' });
+    expect(row.data).toEqual({ line: 'step done', agent: 'implementer' });
+  });
+
   it('carries a readable validation message', () => {
-    try {
-      recordEvent(bus.db, bus.events, 'orchestrator', { ...valid, data: { line: '' } });
-      expect.unreachable();
-    } catch (error) {
-      expect((error as EventValidationError).detail).toContain('line');
-    }
+    expect(() =>
+      recordEvent(bus.db, bus.events, 'orchestrator', { ...valid, data: { line: '' } }),
+    ).toThrow(
+      expect.objectContaining({
+        name: 'EventValidationError',
+        detail: expect.stringContaining('line'),
+      }),
+    );
   });
 });
