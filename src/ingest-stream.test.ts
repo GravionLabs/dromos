@@ -78,6 +78,36 @@ describe('POST /ingest reaches GET /events/stream', () => {
     expect(frame?.event.role).toBe('apm-hub/hook');
   });
 
+  it('delivers a posted agent.run event with its data', async () => {
+    const stream = await open();
+    const agentRun = {
+      type: 'agent.run',
+      source: 'apm-hub/subagent-stop',
+      agentId: null,
+      issue: 43,
+      runId: null,
+      data: {
+        state: 'stopped',
+        runAgentId: 'a1',
+        parentAgentId: 'p1',
+        toolUseId: 'toolu_1',
+        agentType: 'implementer',
+        description: null,
+        depth: 2,
+        model: null,
+        durationMs: 10,
+        summary: null,
+      },
+    };
+    const res = await ingest(bus, agentRun);
+    expect(res.status).toBe(202);
+
+    const frame = await firstFrame(stream, 2000);
+
+    expect(frame?.event.kind).toBe('agent.run');
+    expect(frame?.event.data).toEqual(agentRun.data);
+  });
+
   it('answers 202 promptly while a subscriber never reads its stream', async () => {
     await open(); // body is never read
     const started = performance.now();

@@ -70,6 +70,27 @@ describe('POST /ingest', () => {
     expect(bus.db.listEvents().map((r) => r.kind)).toEqual(['progress', 'agent.state', 'progress']);
   });
 
+  it('accepts agent.run and rejects depth 0 with 400', async () => {
+    const data = {
+      state: 'started',
+      runAgentId: 'a1',
+      parentAgentId: null,
+      toolUseId: null,
+      agentType: 'implementer',
+      description: null,
+      depth: 1,
+      model: null,
+      durationMs: null,
+      summary: null,
+    };
+    const run = { ...progress(), type: 'agent.run', data };
+    expect((await post(run)).status).toBe(202);
+    expect(bus.db.listEvents().map((r) => r.kind)).toEqual(['agent.run']);
+    const bad = await post({ ...run, data: { ...data, depth: 0 } });
+    expect(bad.status).toBe(400);
+    expect(bus.db.listEvents()).toHaveLength(1);
+  });
+
   it('broadcasts to subscribers', async () => {
     const seen: string[] = [];
     bus.events.onEvent((e) => seen.push(e.kind));
@@ -132,6 +153,7 @@ describe('POST /ingest', () => {
       'usage',
       'queue.item',
       'agent.state',
+      'agent.run',
     ]);
   });
 });

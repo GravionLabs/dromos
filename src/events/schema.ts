@@ -146,6 +146,33 @@ export const AgentStateEventSchema = z
   })
   .meta({ id: 'AgentStateEvent' });
 
+/**
+ * One subagent run of a client session (Claude Code, Copilot CLI), reported by an external hook.
+ * Not to be confused with `agent.registered` / `agent.state`, which describe bus agent instances:
+ * `agent.run` is a client-side subagent, never a bus agent. The envelope `agentId` stays the bus
+ * identity of the reporting pane; `runAgentId` is the client's subagent id.
+ */
+export const AgentRunEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('agent.run'),
+    data: z
+      .strictObject({
+        state: z.enum(['started', 'stopped']),
+        runAgentId: text(1, 64),
+        parentAgentId: text(1, 64).nullable(),
+        toolUseId: text(1, 64).nullable(),
+        agentType: text(1, 64),
+        description: text(0, 200).nullable(),
+        depth: z.number().int().min(1).max(8),
+        model: text(1, 128).nullable(),
+        durationMs: z.number().int().min(0).nullable(),
+        summary: text(0, 120).nullable(),
+      })
+      .meta({ id: 'AgentRunData' }),
+  })
+  .meta({ id: 'AgentRunEvent' });
+
 export const BusEventSchema = z
   .discriminatedUnion('type', [
     HookIdleEventSchema,
@@ -156,6 +183,7 @@ export const BusEventSchema = z
     QueueItemEventSchema,
     AgentRegisteredEventSchema,
     AgentStateEventSchema,
+    AgentRunEventSchema,
   ])
   .meta({ id: 'BusEvent' });
 export type BusEvent = z.infer<typeof BusEventSchema>;
@@ -169,6 +197,7 @@ export const BUS_EVENT_TYPES = [
   'queue.item',
   'agent.registered',
   'agent.state',
+  'agent.run',
 ] as const satisfies readonly BusEvent['type'][];
 
 /**
@@ -181,6 +210,7 @@ export const INGEST_TYPES = [
   'usage',
   'queue.item',
   'agent.state',
+  'agent.run',
 ] as const satisfies readonly BusEvent['type'][];
 export type IngestType = (typeof INGEST_TYPES)[number];
 

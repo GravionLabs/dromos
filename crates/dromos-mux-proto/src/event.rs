@@ -18,6 +18,8 @@ pub const KNOWN_TYPES: &[&str] = crate::BUS_EVENT_TYPES;
 ///
 /// Event types added to the bus before the mux is updated land in [`Event::Unknown`] instead of
 /// failing, so the mux keeps working. A known `type` with a malformed payload is still an error.
+// `agent.run` carries many optional fields; events are short-lived values, so boxing buys nothing.
+#[expect(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
     /// An event whose `type` the generated schema knows, validated strictly.
@@ -120,7 +122,8 @@ impl std::error::Error for ConstraintError {}
 /// checked; call this on it, or deserialise through [`Event`] instead.
 pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
     use BusEvent::{
-        AgentRegistered, AgentState, Attention, HookBusy, HookIdle, Progress, QueueItem, Usage,
+        AgentRegistered, AgentRun, AgentState, Attention, HookBusy, HookIdle, Progress, QueueItem,
+        Usage,
     };
     let (agent_id, run_id) = match event {
         HookIdle {
@@ -145,6 +148,9 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
             agent_id, run_id, ..
         }
         | AgentState {
+            agent_id, run_id, ..
+        }
+        | AgentRun {
             agent_id, run_id, ..
         } => (
             agent_id.as_ref().map(|v| v.as_str()),
@@ -186,6 +192,39 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
         }
         // Closed enum, nothing free-form to check.
         AgentState { .. } => {}
+        AgentRun { data, .. } => {
+            if data.depth.get() > 8 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.depth",
+                    rule: "1..=8",
+                });
+            }
+            if data.duration_ms.is_some_and(|d| d < 0) {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.durationMs",
+                    rule: ">= 0",
+                });
+            }
+            texts.push(("data.runAgentId", data.run_agent_id.as_str()));
+            texts.extend(
+                data.parent_agent_id
+                    .as_ref()
+                    .map(|v| ("data.parentAgentId", v.as_str())),
+            );
+            texts.extend(
+                data.tool_use_id
+                    .as_ref()
+                    .map(|v| ("data.toolUseId", v.as_str())),
+            );
+            texts.push(("data.agentType", data.agent_type.as_str()));
+            texts.extend(
+                data.description
+                    .as_ref()
+                    .map(|v| ("data.description", v.as_str())),
+            );
+            texts.extend(data.model.as_ref().map(|v| ("data.model", v.as_str())));
+            texts.extend(data.summary.as_ref().map(|v| ("data.summary", v.as_str())));
+        }
         QueueItem { data, .. } => {
             if data.exit_code.is_some_and(|c| !(0..=3).contains(&c)) {
                 return Err(ConstraintError::OutOfRange {

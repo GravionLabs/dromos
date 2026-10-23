@@ -96,6 +96,33 @@ fn external_fixtures_map_to_their_variants() {
         load("queue-item.json"),
         BusEvent::QueueItem { .. }
     ));
+    assert!(matches!(load("agent-run.json"), BusEvent::AgentRun { .. }));
+}
+
+#[test]
+fn rejects_invalid_agent_run_data() {
+    let a = "agent-run.json";
+    assert_rejected(a, "depth 0", "", |e| e["data"]["depth"] = json!(0));
+    assert_rejected(a, "depth 9", "data.depth", |e| {
+        e["data"]["depth"] = json!(9)
+    });
+    assert_rejected(a, "state done", "", |e| e["data"]["state"] = json!("done"));
+    assert_rejected(a, "extra key", "unknown field `extra`", |e| {
+        e["data"]["extra"] = json!(1);
+    });
+    assert_rejected(a, "negative duration", "", |e| {
+        e["data"]["durationMs"] = json!(-1);
+    });
+    assert_rejected(a, "newline in summary", "data.summary", |e| {
+        e["data"]["summary"] = json!("a\nb");
+    });
+    assert_accepted(a, "empty description", |e| {
+        e["data"]["description"] = json!("")
+    });
+    assert_accepted(a, "root run", |e| {
+        e["data"]["parentAgentId"] = Value::Null;
+        e["data"]["depth"] = json!(1);
+    });
 }
 
 #[test]
@@ -615,7 +642,8 @@ mod event_wrapper {
                 "usage",
                 "queue.item",
                 "agent.registered",
-                "agent.state"
+                "agent.state",
+                "agent.run"
             ]
         );
     }

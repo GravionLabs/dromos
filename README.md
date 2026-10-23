@@ -52,7 +52,8 @@ curl -i -X POST http://127.0.0.1:4777/ingest \
 
 The event then appears on `GET /events/stream` with `id: 42`.
 
-- Allowed `type` values: `progress`, `attention`, `usage`, `queue.item`, `agent.state`. Any other type answers `403 { error }`.
+- Allowed `type` values: `progress`, `attention`, `usage`, `queue.item`, `agent.state`, `agent.run`. Any other type answers `403 { error }`.
+- `agent.run` reports one subagent run of a client session (parent, tool call, depth). It is a client-side subagent, not a bus agent: bus agent instances use `agent.registered` / `agent.state`.
 - `202 { ids }`: stored (in order) and broadcast to stream subscribers after the commit. The reply never waits on subscribers.
 - `400 { error }`: invalid JSON, an empty array, or an item that fails the event schema.
 - A batch is all-or-nothing: if any item is disallowed (403) or invalid (400), the whole batch is rejected and nothing is stored or broadcast.

@@ -211,6 +211,31 @@ describe('external event types', () => {
   });
 });
 
+describe('agent.run', () => {
+  const run = (patch: Record<string, unknown>) => {
+    const e = readFixture('agent-run.json');
+    e.data = { ...(e.data as object), ...patch };
+    return BusEventSchema.safeParse(e).success;
+  };
+
+  it('keeps depth 2 with a parent in the fixture', () => {
+    const data = readFixture('agent-run.json').data as Record<string, unknown>;
+    expect(data.depth).toBe(2);
+    expect(data.parentAgentId).toBe('e5f6a7b8');
+  });
+
+  it('rejects depth 0, state done and an extra data key', () => {
+    expect(run({ depth: 0 })).toBe(false);
+    expect(run({ state: 'done' })).toBe(false);
+    expect(run({ extra: 1 })).toBe(false);
+  });
+
+  it('bounds depth to 1..8', () => {
+    expect(run({ depth: 8 })).toBe(true);
+    expect(run({ depth: 9 })).toBe(false);
+  });
+});
+
 describe('Rust parity cases (schema/parity.json)', () => {
   type Case = { name: string; fixture: string; valid: boolean; set?: Record<string, unknown> };
   const cases: Case[] = JSON.parse(
@@ -263,6 +288,7 @@ describe('events JSON Schema', () => {
       '#/definitions/QueueItemEvent',
       '#/definitions/AgentRegisteredEvent',
       '#/definitions/AgentStateEvent',
+      '#/definitions/AgentRunEvent',
     ]);
   });
 

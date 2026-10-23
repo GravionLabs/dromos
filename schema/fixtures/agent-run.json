@@ -1,0 +1,21 @@
+{
+  "id": 49,
+  "type": "agent.run",
+  "at": "2026-10-23T08:12:00.000Z",
+  "source": "apm-hub/subagent-stop",
+  "agentId": "orchestrator-1",
+  "issue": 43,
+  "runId": null,
+  "data": {
+    "state": "stopped",
+    "runAgentId": "a1b2c3d4",
+    "parentAgentId": "e5f6a7b8",
+    "toolUseId": "toolu_01ABC",
+    "agentType": "implementer",
+    "description": "Implement the ingest route",
+    "depth": 2,
+    "model": "claude-sonnet-5-5",
+    "durationMs": 184000,
+    "summary": "Route added, tests green"
+  }
+}
