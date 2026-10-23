@@ -118,6 +118,21 @@ export const QueueItemEventSchema = z
   })
   .meta({ id: 'QueueItemEvent' });
 
+/** An agent instance registered with the bus for the first time. */
+export const AgentRegisteredEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('agent.registered'),
+    data: z
+      .strictObject({
+        role: text(1, 64),
+        cli: text(1, 64),
+        model: text(1, 128).nullable(),
+      })
+      .meta({ id: 'AgentRegisteredData' }),
+  })
+  .meta({ id: 'AgentRegisteredEvent' });
+
 export const BusEventSchema = z
   .discriminatedUnion('type', [
     HookIdleEventSchema,
@@ -126,6 +141,7 @@ export const BusEventSchema = z
     AttentionEventSchema,
     UsageEventSchema,
     QueueItemEventSchema,
+    AgentRegisteredEventSchema,
   ])
   .meta({ id: 'BusEvent' });
 export type BusEvent = z.infer<typeof BusEventSchema>;
@@ -137,4 +153,5 @@ export const BUS_EVENT_TYPES = [
   'attention',
   'usage',
   'queue.item',
+  'agent.registered',
 ] as const satisfies readonly BusEvent['type'][];

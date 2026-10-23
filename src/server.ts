@@ -17,9 +17,9 @@ export function createBusServer(ctx: ToolContext): McpServer {
     'whoami',
     {
       description:
-        'Returns the role this connection is bound to (orchestrator, implementer or reviewer).',
+        'Returns the role (orchestrator, implementer or reviewer) and the agent id this connection is bound to.',
     },
-    () => text(JSON.stringify({ role: ctx.role })),
+    () => text(JSON.stringify({ role: ctx.role, agentId: ctx.agentId })),
   );
 
   registerMessagingTools(server, ctx);

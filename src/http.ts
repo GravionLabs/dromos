@@ -23,6 +23,7 @@ export interface HttpOptions {
 interface Session {
   transport: StreamableHTTPServerTransport;
   role: Role;
+  agentId: string;
 }
 
 export interface RunningHttp {
@@ -32,6 +33,8 @@ export interface RunningHttp {
 }
 
 const MCP_PATH = /^\/mcp\/([^/]+)\/?$/;
+const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const DEFAULT_CLI = 'unknown';
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -65,6 +68,20 @@ export async function startHttp({
     }
     const existing = session?.transport;
 
+    const header = req.headers['x-agent-id'];
+    const requested = Array.isArray(header) ? header[0] : header;
+    if (requested !== undefined && !AGENT_ID.test(requested)) {
+      sendJson(res, 400, { error: 'invalid X-Agent-Id' });
+      return;
+    }
+    if (session && requested !== undefined && session.agentId !== requested) {
+      sendJson(res, 403, { error: `session belongs to agent ${session.agentId}` });
+      return;
+    }
+    if (session) {
+      res.setHeader('x-agent-id', session.agentId);
+    }
+
     if (req.method === 'POST') {
       let body: unknown;
       try {
@@ -78,10 +95,22 @@ export async function startHttp({
         return;
       }
       if (sessionId === undefined && isInitializeRequest(body)) {
+        const agentId = requested ?? `${role}-${randomUUID().slice(0, 8)}`;
+        const known = db.getAgent(agentId);
+        if (known && known.role !== role) {
+          sendJson(res, 409, { error: `agent ${agentId} is registered as ${known.role}` });
+          return;
+        }
+        if (!known) {
+          db.insertAgent({ id: agentId, role, cli: DEFAULT_CLI });
+          db.insertEvent(role, 'agent.registered', { role, cli: DEFAULT_CLI, model: null });
+          log.logLine('STATE', `${agentId} registered as ${role}`);
+        }
+        res.setHeader('x-agent-id', agentId);
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (id) => {
-            sessions.set(id, { transport, role });
+            sessions.set(id, { transport, role, agentId });
           },
         });
         transport.onclose = () => {
@@ -89,7 +118,7 @@ export async function startHttp({
             sessions.delete(transport.sessionId);
           }
         };
-        await createBusServer({ role, db, config, events, log }).connect(transport);
+        await createBusServer({ role, agentId, db, config, events, log }).connect(transport);
         await transport.handleRequest(req, res, body);
         return;
       }

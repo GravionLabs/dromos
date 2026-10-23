@@ -16,7 +16,7 @@ export interface TestBus {
   events: BusEvents;
   /** Contents of the bus log file ('' when nothing was logged). */
   readLog(): string;
-  connect(role: Role): Promise<Client>;
+  connect(role: Role, agentId?: string): Promise<Client>;
   close(): Promise<void>;
 }
 
@@ -40,9 +40,13 @@ export async function startTestBus(overrides: Record<string, unknown> = {}): Pro
         return '';
       }
     },
-    async connect(role) {
+    async connect(role, agentId) {
       const client = new Client({ name: `test-${role}`, version: '0.0.0' });
-      await client.connect(new StreamableHTTPClientTransport(new URL(`${http.url}/mcp/${role}`)));
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(`${http.url}/mcp/${role}`), {
+          requestInit: agentId ? { headers: { 'x-agent-id': agentId } } : undefined,
+        }),
+      );
       clients.push(client);
       return client;
     },

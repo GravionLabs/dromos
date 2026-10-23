@@ -1,0 +1,14 @@
+{
+  "id": 47,
+  "type": "agent.registered",
+  "at": "2026-10-22T09:35:00.000Z",
+  "source": "implementer",
+  "agentId": "implementer-1",
+  "issue": null,
+  "runId": null,
+  "data": {
+    "role": "implementer",
+    "cli": "claude",
+    "model": "claude-sonnet-5-5"
+  }
+}

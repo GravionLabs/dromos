@@ -66,7 +66,7 @@ describe('agent-bus server', () => {
       async (role) => {
         const client = await bus.connect(role);
         const result = await client.callTool({ name: 'whoami', arguments: {} });
-        expect(JSON.parse(textOf(result))).toEqual({ role });
+        expect(JSON.parse(textOf(result))).toEqual(expect.objectContaining({ role }));
       },
     );
 
@@ -108,15 +108,103 @@ describe('agent-bus server', () => {
       expect(res.status).toBe(403);
     });
 
+    describe('agent identity', () => {
+      const whoami = async (c: Awaited<ReturnType<typeof bus.connect>>) =>
+        JSON.parse(textOf(await c.callTool({ name: 'whoami', arguments: {} })));
+      const initBody = JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-03-26',
+          capabilities: {},
+          clientInfo: { name: 'x', version: '0' },
+        },
+      });
+      const init = (headers: Record<string, string> = {}) =>
+        fetch(`${bus.http.url}/mcp/implementer`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            accept: 'application/json, text/event-stream',
+            ...headers,
+          },
+          body: initBody,
+        });
+
+      it('whoami returns the supplied X-Agent-Id and registers the agent', async () => {
+        const client = await bus.connect('implementer', 'impl-a');
+        expect(await whoami(client)).toEqual({ role: 'implementer', agentId: 'impl-a' });
+        expect(bus.db.getAgent('impl-a')?.role).toBe('implementer');
+      });
+
+      it('mints an id when X-Agent-Id is missing and returns it in the header', async () => {
+        const res = await init();
+        const minted = res.headers.get('x-agent-id') ?? '';
+        expect(minted).toMatch(/^implementer-[0-9a-f]{8}$/);
+        expect(bus.db.getAgent(minted)?.role).toBe('implementer');
+      });
+
+      it('whoami returns the minted id', async () => {
+        const client = await bus.connect('reviewer');
+        const { agentId } = await whoami(client);
+        expect(agentId).toMatch(/^reviewer-[0-9a-f]{8}$/);
+      });
+
+      it('emits agent.registered once per new agent', async () => {
+        await bus.connect('implementer', 'impl-b');
+        await bus.connect('implementer', 'impl-b');
+        const registered = bus.db
+          .listEvents('implementer')
+          .filter((e) => e.kind === 'agent.registered');
+        expect(registered).toHaveLength(1);
+        expect(registered[0]?.data).toEqual({ role: 'implementer', cli: 'unknown', model: null });
+        expect(bus.db.listAgents({ role: 'implementer' })).toHaveLength(1);
+      });
+
+      it('rejects an id already registered under another role with 409', async () => {
+        await bus.connect('implementer', 'shared');
+        const res = await fetch(`${bus.http.url}/mcp/reviewer`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            accept: 'application/json, text/event-stream',
+            'x-agent-id': 'shared',
+          },
+          body: initBody,
+        });
+        expect(res.status).toBe(409);
+      });
+
+      it('rejects a malformed X-Agent-Id with 400', async () => {
+        expect((await init({ 'x-agent-id': 'bad id!' })).status).toBe(400);
+      });
+
+      it('rejects a session used with another agent id with 403', async () => {
+        const first = await init({ 'x-agent-id': 'owner' });
+        const res = await fetch(`${bus.http.url}/mcp/implementer`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            accept: 'application/json, text/event-stream',
+            'mcp-session-id': first.headers.get('mcp-session-id') ?? '',
+            'x-agent-id': 'intruder',
+          },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
+        });
+        expect(res.status).toBe(403);
+      });
+    });
+
     it('gives each connection its own session', async () => {
       const a = await bus.connect('implementer');
       const b = await bus.connect('reviewer');
-      expect(JSON.parse(textOf(await a.callTool({ name: 'whoami', arguments: {} })))).toEqual({
-        role: 'implementer',
-      });
-      expect(JSON.parse(textOf(await b.callTool({ name: 'whoami', arguments: {} })))).toEqual({
-        role: 'reviewer',
-      });
+      expect(JSON.parse(textOf(await a.callTool({ name: 'whoami', arguments: {} })))).toMatchObject(
+        { role: 'implementer' },
+      );
+      expect(JSON.parse(textOf(await b.callTool({ name: 'whoami', arguments: {} })))).toMatchObject(
+        { role: 'reviewer' },
+      );
     });
   });
 });

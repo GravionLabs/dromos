@@ -119,7 +119,7 @@ impl std::error::Error for ConstraintError {}
 /// [`Event`] calls this after parsing. A bare [`BusEvent`] deserialised with serde is **not**
 /// checked; call this on it, or deserialise through [`Event`] instead.
 pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
-    use BusEvent::{Attention, HookBusy, HookIdle, Progress, QueueItem, Usage};
+    use BusEvent::{AgentRegistered, Attention, HookBusy, HookIdle, Progress, QueueItem, Usage};
     let (agent_id, run_id) = match event {
         HookIdle {
             agent_id, run_id, ..
@@ -137,6 +137,9 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
             agent_id, run_id, ..
         }
         | QueueItem {
+            agent_id, run_id, ..
+        }
+        | AgentRegistered {
             agent_id, run_id, ..
         } => (
             agent_id.as_ref().map(|v| v.as_str()),
@@ -169,6 +172,11 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
                     rule: ">= 0",
                 });
             }
+            texts.extend(data.model.as_ref().map(|v| ("data.model", v.as_str())));
+        }
+        AgentRegistered { data, .. } => {
+            texts.push(("data.role", data.role.as_str()));
+            texts.push(("data.cli", data.cli.as_str()));
             texts.extend(data.model.as_ref().map(|v| ("data.model", v.as_str())));
         }
         QueueItem { data, .. } => {
