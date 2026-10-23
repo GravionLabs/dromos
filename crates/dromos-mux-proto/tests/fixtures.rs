@@ -102,17 +102,24 @@ fn external_fixtures_map_to_their_variants() {
 #[test]
 fn rejects_invalid_agent_run_data() {
     let a = "agent-run.json";
-    assert_rejected(a, "depth 0", "", |e| e["data"]["depth"] = json!(0));
+    assert_rejected(a, "depth 0", "nonzero", |e| e["data"]["depth"] = json!(0));
     assert_rejected(a, "depth 9", "data.depth", |e| {
         e["data"]["depth"] = json!(9)
     });
-    assert_rejected(a, "state done", "", |e| e["data"]["state"] = json!("done"));
+    assert_rejected(a, "state done", "unknown variant `done`", |e| {
+        e["data"]["state"] = json!("done")
+    });
     assert_rejected(a, "extra key", "unknown field `extra`", |e| {
         e["data"]["extra"] = json!(1);
     });
-    assert_rejected(a, "negative duration", "", |e| {
-        e["data"]["durationMs"] = json!(-1);
-    });
+    assert_rejected(
+        a,
+        "negative duration",
+        "data.durationMs must be >= 0",
+        |e| {
+            e["data"]["durationMs"] = json!(-1);
+        },
+    );
     assert_rejected(a, "newline in summary", "data.summary", |e| {
         e["data"]["summary"] = json!("a\nb");
     });

@@ -230,9 +230,42 @@ describe('agent.run', () => {
     expect(run({ extra: 1 })).toBe(false);
   });
 
-  it('bounds depth to 1..8', () => {
+  it('bounds depth to 1..8 and requires an integer', () => {
+    expect(run({ depth: 1 })).toBe(true);
     expect(run({ depth: 8 })).toBe(true);
     expect(run({ depth: 9 })).toBe(false);
+    expect(run({ depth: 1.5 })).toBe(false);
+  });
+
+  it('accepts both states and null optional fields', () => {
+    expect(run({ state: 'started' })).toBe(true);
+    expect(run({ state: 'stopped' })).toBe(true);
+    expect(
+      run({
+        parentAgentId: null,
+        toolUseId: null,
+        description: null,
+        model: null,
+        durationMs: null,
+        summary: null,
+      }),
+    ).toBe(true);
+  });
+
+  it('bounds the text fields', () => {
+    expect(run({ runAgentId: '' })).toBe(false);
+    expect(run({ runAgentId: 'a'.repeat(65) })).toBe(false);
+    expect(run({ agentType: '' })).toBe(false);
+    expect(run({ description: '' })).toBe(true);
+    expect(run({ description: 'd'.repeat(201) })).toBe(false);
+    expect(run({ summary: 's'.repeat(120) })).toBe(true);
+    expect(run({ summary: 's'.repeat(121) })).toBe(false);
+  });
+
+  it('rejects a negative duration and a missing key', () => {
+    expect(run({ durationMs: -1 })).toBe(false);
+    expect(run({ durationMs: 0 })).toBe(true);
+    expect(run({ summary: undefined })).toBe(false);
   });
 });
 

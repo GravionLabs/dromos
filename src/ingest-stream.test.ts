@@ -1,3 +1,5 @@
+import { once } from 'node:events';
+import { connect } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { BusEvent } from './db.js';
 import { startTestBus, type TestBus } from './test-helpers.js';
@@ -108,14 +110,32 @@ describe('POST /ingest reaches GET /events/stream', () => {
     expect(frame?.event.data).toEqual(agentRun.data);
   });
 
-  it('answers 202 promptly while a subscriber never reads its stream', async () => {
-    await open(); // body is never read
-    const started = performance.now();
-    for (let i = 0; i < 20; i++) {
-      const res = await ingest(bus, event);
-      expect(res.status).toBe(202);
+  it('answers 202 for every post while a stalled subscriber is cut off by backpressure', async () => {
+    await bus.close();
+    bus = await startTestBus({}, { maxStreamBufferedBytes: 1024 });
+    // A raw socket that requests the stream and then never reads, so the server-side buffer fills.
+    const socket = connect(Number(new URL(bus.http.url).port), '127.0.0.1');
+    await once(socket, 'connect');
+    socket.write('GET /events/stream HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n');
+    socket.pause();
+    for (let i = 0; i < 50 && bus.events.eventListenerCount() === 0; i++) {
+      await new Promise((r) => setTimeout(r, 20));
     }
-    expect(performance.now() - started).toBeLessThan(2000);
-    expect(bus.db.listEvents()).toHaveLength(20);
+    expect(bus.events.eventListenerCount()).toBe(1);
+
+    const big = { ...event, data: { line: 'x'.repeat(1000), agent: 'orchestrator' } };
+    const started = performance.now();
+    for (let i = 0; i < 300; i++) {
+      const res = await ingest(bus, big);
+      expect(res.status).toBe(202);
+      await res.arrayBuffer();
+    }
+    for (let i = 0; i < 50 && bus.events.eventListenerCount() !== 0; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    socket.destroy();
+    expect(bus.events.eventListenerCount()).toBe(0);
+    expect(performance.now() - started).toBeLessThan(5000);
+    expect(bus.db.listEvents(undefined, 500)).toHaveLength(300);
   });
 });
