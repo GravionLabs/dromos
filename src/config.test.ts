@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ConfigError, loadConfig } from './config.js';
+import { ConfigError, createDefaultWarn, loadConfig } from './config.js';
 
 describe('loadConfig', () => {
   let dir: string;
@@ -67,8 +67,10 @@ describe('loadConfig', () => {
   it('prefers an explicit path over DROMOS_CONFIG', () => {
     const explicit = write('explicit.json', { port: 1111 });
     const fromEnv = write('env.json', { port: 2222 });
-    const config = loadConfig(explicit, { env: { DROMOS_CONFIG: fromEnv }, cwd: dir });
+    const warn = vi.fn();
+    const config = loadConfig(explicit, { env: { DROMOS_CONFIG: fromEnv }, cwd: dir, warn });
     expect(config.port).toBe(1111);
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('accepts any model string without validation', () => {
@@ -138,9 +140,14 @@ describe('loadConfig', () => {
       write('dromos.config.json', { port: 1111 });
       const warn = vi.fn();
       const env = { DROMOS_CONFIG: '' };
-      expect(() => loadConfig(undefined, { env, cwd: dir, warn })).toThrow(
-        new RegExp(`^invalid JSON in ${dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: EISDIR`),
-      );
+      let thrown: unknown;
+      try {
+        loadConfig(undefined, { env, cwd: dir, warn });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(ConfigError);
+      expect((thrown as Error).message).toContain(`invalid JSON in ${dir}:`);
       expect(warn).not.toHaveBeenCalled();
     });
 
@@ -153,17 +160,13 @@ describe('loadConfig', () => {
       expect(warn).not.toHaveBeenCalled();
     });
 
-    it('writes the default warning to stderr with the dromos prefix', () => {
-      write('agent-bus.config.json', { port: 4444 });
-      const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-      try {
-        loadConfig(undefined, { env: {}, cwd: dir });
-        expect(spy).toHaveBeenCalledWith(
-          'dromos: agent-bus.config.json is deprecated, rename to dromos.config.json\n',
-        );
-      } finally {
-        spy.mockRestore();
-      }
+    it('builds a default warn sink that writes one dromos-prefixed line', () => {
+      const write = vi.fn();
+      createDefaultWarn(write)('agent-bus.config.json is deprecated, rename to dromos.config.json');
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(write).toHaveBeenCalledWith(
+        'dromos: agent-bus.config.json is deprecated, rename to dromos.config.json\n',
+      );
     });
   });
 });

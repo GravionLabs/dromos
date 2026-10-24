@@ -66,6 +66,15 @@ export interface LoadConfigOptions {
   warn?: (message: string) => void;
 }
 
+/** Builds the default warning sink: prefixes `dromos: ` and writes one line to `write`. */
+export function createDefaultWarn(
+  write: (chunk: string) => unknown = (chunk) => process.stderr.write(chunk),
+): (message: string) => void {
+  return (message) => {
+    write(`dromos: ${message}\n`);
+  };
+}
+
 /**
  * Loads the dromos configuration.
  *
@@ -77,7 +86,7 @@ export interface LoadConfigOptions {
 export function loadConfig(path?: string, options: LoadConfigOptions = {}): Config {
   const env = options.env ?? process.env;
   const cwd = options.cwd ?? process.cwd();
-  const warn = options.warn ?? ((message: string) => process.stderr.write(`dromos: ${message}\n`));
+  const warn = options.warn ?? createDefaultWarn();
   const explicit = path ?? env[CONFIG_ENV];
   let file = resolve(cwd, explicit ?? CONFIG_FILE_NAME);
   if (explicit === undefined && !existsSync(file)) {
