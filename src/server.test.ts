@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_AGENTS } from './http.js';
 import { startTestBus, type TestBus, textOf } from './test-helpers.js';
 
-describe('agent-bus server', () => {
+describe('dromos server', () => {
   let bus: TestBus;
 
   beforeEach(async () => {
@@ -19,6 +19,11 @@ describe('agent-bus server', () => {
     const client = await bus.connect('orchestrator');
     const result = await client.callTool({ name: 'ping', arguments: {} });
     expect(result.content).toEqual([{ type: 'text', text: 'pong' }]);
+  });
+
+  it('identifies itself as dromos', async () => {
+    const client = await bus.connect('orchestrator');
+    expect(client.getServerVersion()?.name).toBe('dromos');
   });
 
   it('lists the ping tool', async () => {

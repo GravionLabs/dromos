@@ -7,10 +7,10 @@ try {
   const config = loadConfig();
   const db = openDb(join(config.dataDir, 'bus.db'));
   const { url } = await startHttp({ config, db });
-  process.stderr.write(`agent-bus listening on ${url}\n`);
+  process.stderr.write(`dromos listening on ${url}\n`);
 } catch (error) {
   if (error instanceof ConfigError) {
-    process.stderr.write(`agent-bus: ${error.message}\n`);
+    process.stderr.write(`dromos: ${error.message}\n`);
     process.exit(1);
   }
   throw error;

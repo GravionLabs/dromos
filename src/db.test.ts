@@ -30,7 +30,7 @@ describe('db', () => {
 
   describe('migration 3', () => {
     it('keeps version-2 event rows and adds nullable agent_id, issue and run_id', () => {
-      const dir = mkdtempSync(join(tmpdir(), 'agent-bus-db-'));
+      const dir = mkdtempSync(join(tmpdir(), 'dromos-db-'));
       try {
         const file = join(dir, 'bus.db');
         const raw = new Database(file);
@@ -83,7 +83,7 @@ describe('db', () => {
 
   describe('migration 2', () => {
     it('keeps version-1 rows and adds agents plus nullable message agent columns', () => {
-      const dir = mkdtempSync(join(tmpdir(), 'agent-bus-db-'));
+      const dir = mkdtempSync(join(tmpdir(), 'dromos-db-'));
       try {
         const file = join(dir, 'bus.db');
         const raw = new Database(file);
@@ -188,7 +188,7 @@ describe('db', () => {
     });
 
     it('is idempotent when a file database is opened twice', () => {
-      const dir = mkdtempSync(join(tmpdir(), 'agent-bus-db-'));
+      const dir = mkdtempSync(join(tmpdir(), 'dromos-db-'));
       try {
         const file = join(dir, 'nested', 'bus.db');
         const first = openDb(file);
