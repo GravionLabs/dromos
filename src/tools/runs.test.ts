@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
@@ -191,10 +191,63 @@ describe('start_run', () => {
       ['-C', repoPath, 'check-ignore', '-q', '--', '.worktrees/probe'],
       { reject: false },
     );
-    const gitSubcommands = mockExeca.mock.calls.map(([, a]) => (a as string[])[2]);
-    expect(gitSubcommands).not.toContain('fetch');
-    expect(gitSubcommands).not.toContain('worktree');
+    const calledWith = (word: string) =>
+      mockExeca.mock.calls.some(([, a]) => (a as string[]).includes(word));
+    expect(calledWith('fetch')).toBe(false);
+    expect(calledWith('worktree')).toBe(false);
+    expect(mockExeca.mock.calls.some(([cmd]) => cmd === 'gh')).toBe(false);
+    expect(existsSync(join(repoPath, '.worktrees'))).toBe(false);
     expect(bus.db.listRuns()).toEqual([]);
+  });
+
+  it('honours a custom worktreeDir with exact worktree add args', async () => {
+    await bus.close();
+    bus = await startTestBus({ worktreeDir: 'work/trees' });
+    const orchestrator = await bus.connect('orchestrator');
+    const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+    const worktreePath = join(repoPath, 'work', 'trees', '14');
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(textOf(result)).worktreePath).toBe(worktreePath);
+    expect(mockExeca).toHaveBeenCalledWith(
+      'git',
+      ['-C', repoPath, 'check-ignore', '-q', '--', 'work/trees/probe'],
+      { reject: false },
+    );
+    expect(mockExeca).toHaveBeenCalledWith('git', [
+      '-C',
+      repoPath,
+      'worktree',
+      'add',
+      '-b',
+      'agent/14-add-start-run',
+      '--',
+      worktreePath,
+      'origin/main',
+    ]);
+  });
+
+  it('refuses a worktreeDir symlinked outside the repository', async () => {
+    mkdirSync(repoPath, { recursive: true });
+    const outside = join(root, 'outside');
+    mkdirSync(outside);
+    symlinkSync(outside, join(repoPath, '.worktrees'));
+    const orchestrator = await bus.connect('orchestrator');
+    const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('resolves outside the repository');
+    expect(mockExeca.mock.calls.some(([, a]) => (a as string[]).includes('worktree'))).toBe(false);
+    expect(bus.db.listRuns()).toEqual([]);
+  });
+
+  it('leaves no worktree dir behind when the branch already exists', async () => {
+    const base = mockExeca.getMockImplementation() as (c: string, a: string[]) => Promise<unknown>;
+    mockExeca.mockImplementation(async (cmd: string, a: string[]) =>
+      a.includes('rev-parse') && !a.includes('--show-toplevel') ? { exitCode: 0 } : base(cmd, a),
+    );
+    const orchestrator = await bus.connect('orchestrator');
+    const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+    expect(result.isError).toBe(true);
+    expect(existsSync(join(repoPath, '.worktrees'))).toBe(false);
   });
 
   it('returns a readable error when the worktree path exists and removes nothing', async () => {

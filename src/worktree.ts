@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { dirname, isAbsolute, relative } from 'node:path';
 import { execa } from 'execa';
 
 export function slugify(title: string): string {
@@ -38,7 +39,20 @@ export async function assertWorktreeDirIgnored(
       `worktree directory '${worktreeDir}' is not git-ignored in ${repoPath}; add '${worktreeDir}/' to .gitignore (apm-hub: Enable-Worktrees.ps1)`,
     );
   }
-  throw new Error(`git check-ignore failed in ${repoPath} (exit code ${String(res.exitCode)})`);
+  const detail = String(res.stderr || res.shortMessage || '').trim();
+  throw new Error(
+    `git check-ignore failed in ${repoPath} (exit code ${String(res.exitCode)})${detail ? `: ${detail}` : ''}`,
+  );
+}
+
+/** Creates the worktree parent dir and refuses when it resolves (symlinks) outside the repository. */
+export function ensureWorktreeParent(repoPath: string, worktreePath: string): void {
+  const parent = dirname(worktreePath);
+  mkdirSync(parent, { recursive: true });
+  const rel = relative(realpathSync(repoPath), realpathSync(parent));
+  if (rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error(`worktree directory ${parent} resolves outside the repository ${repoPath}`);
+  }
 }
 
 export async function createWorktree(
@@ -46,6 +60,7 @@ export async function createWorktree(
   baseBranch: string,
   branch: string,
   worktreePath: string,
+  prepare?: () => void,
 ): Promise<void> {
   if (!isSafeBranchName(baseBranch)) {
     throw new Error(`invalid base branch name: ${baseBranch}`);
@@ -61,6 +76,7 @@ export async function createWorktree(
   if (check.exitCode === 0) {
     throw new Error(`branch already exists: ${branch}`);
   }
+  prepare?.();
   await execa('git', ['-C', repoPath, 'fetch', '--', 'origin', baseBranch]);
   await execa('git', [
     '-C',

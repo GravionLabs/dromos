@@ -177,9 +177,17 @@ describe('loadConfig', () => {
       expect(loadConfig(file, { env: {}, cwd: dir }).worktreeDir).toBe('work/trees');
     });
 
-    it.each(['../x', 'a/../b', '/tmp/x', '\\tmp\\x', 'C:\\x', ''])('rejects %j', (value) => {
+    it.each(['..foo', './x', 'work/trees/', '.gitignored', 'a.b'])('accepts %j', (value) => {
       const file = write('c.json', { worktreeDir: value });
-      expect(() => loadConfig(file, { env: {}, cwd: dir })).toThrow(ConfigError);
+      expect(loadConfig(file, { env: {}, cwd: dir }).worktreeDir).toBe(value);
     });
+
+    it.each(['..', '../x', 'a/../b', '/tmp/x', '\\tmp\\x', 'C:\\x', '', '.', '.git', '.git/x'])(
+      'rejects %j',
+      (value) => {
+        const file = write('c.json', { worktreeDir: value });
+        expect(() => loadConfig(file, { env: {}, cwd: dir })).toThrow(ConfigError);
+      },
+    );
   });
 });
