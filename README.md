@@ -1,6 +1,6 @@
 # dromos
 
-Local MCP message bus that coordinates **interactive** AI coding agents (Claude Code and GitHub Copilot CLI), each running in its own terminal. Formerly `agent-bus`; the repository is renamed, the code rename is tracked in #70 (the package, config file and some internals still say `agent-bus`).
+Local MCP message bus that coordinates **interactive** AI coding agents (Claude Code and GitHub Copilot CLI), each running in its own terminal. Formerly `agent-bus`; the old `agent-bus.config.json` and `AGENT_BUS_CONFIG` still load with a deprecation warning for one release.
 
 Three roles:
 
