@@ -7,7 +7,7 @@ import { resolveGateCommands, runGate } from './gate.js';
 let dir: string;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'agent-bus-gate-'));
+  dir = mkdtempSync(join(tmpdir(), 'dromos-gate-'));
 });
 
 afterEach(() => {

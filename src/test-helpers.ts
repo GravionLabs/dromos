@@ -25,7 +25,7 @@ export async function startTestBus(
   overrides: Record<string, unknown> = {},
   httpOptions: Pick<HttpOptions, 'heartbeatMs' | 'maxEventStreams' | 'maxStreamBufferedBytes'> = {},
 ): Promise<TestBus> {
-  const dataDir = mkdtempSync(join(tmpdir(), 'agent-bus-test-'));
+  const dataDir = mkdtempSync(join(tmpdir(), 'dromos-test-'));
   const config = ConfigSchema.parse({ port: 0, dataDir, ...overrides });
   const db = openDb(':memory:');
   const events = new BusEvents();

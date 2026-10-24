@@ -27,7 +27,7 @@ describe('createBusLog', () => {
   let dir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'agent-bus-log-'));
+    dir = mkdtempSync(join(tmpdir(), 'dromos-log-'));
   });
 
   afterEach(() => {

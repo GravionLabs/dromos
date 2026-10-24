@@ -1,5 +1,5 @@
 {
-  "name": "agent-bus",
+  "name": "@gravionlabs/dromos",
   "version": "0.1.0",
   "private": true,
   "description": "Local MCP bus coordinating interactive Claude Code / Copilot CLI agents",

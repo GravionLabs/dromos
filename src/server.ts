@@ -9,7 +9,7 @@ import { registerSubmitTools } from './tools/submit.js';
 const text = (value: string) => ({ content: [{ type: 'text' as const, text: value }] });
 
 export function createBusServer(ctx: ToolContext): McpServer {
-  const server = new McpServer({ name: 'agent-bus', version: '0.1.0' });
+  const server = new McpServer({ name: 'dromos', version: '0.1.0' });
 
   server.registerTool('ping', { description: 'Health check. Returns "pong".' }, () => text('pong'));
 

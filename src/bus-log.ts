@@ -28,7 +28,7 @@ export function createBusLog(dataDir: string): BusLog {
         appendFileSync(file, `${formatLogLine(kind, text)}\n`);
       } catch (error) {
         process.stderr.write(
-          `agent-bus: cannot write ${file}: ${error instanceof Error ? error.message : error}\n`,
+          `dromos: cannot write ${file}: ${error instanceof Error ? error.message : error}\n`,
         );
       }
     },
