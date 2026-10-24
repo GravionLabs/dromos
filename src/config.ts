@@ -79,11 +79,12 @@ export function loadConfig(path?: string, options: LoadConfigOptions = {}): Conf
   const env = options.env ?? process.env;
   const cwd = options.cwd ?? process.cwd();
   const warn = options.warn ?? ((message: string) => process.stderr.write(`dromos: ${message}\n`));
-  const legacyEnv = path === undefined && !env[CONFIG_ENV] ? env[LEGACY_CONFIG_ENV] : undefined;
-  if (legacyEnv) {
+  const legacyEnv =
+    path === undefined && env[CONFIG_ENV] === undefined ? env[LEGACY_CONFIG_ENV] : undefined;
+  if (legacyEnv !== undefined) {
     warn(`${LEGACY_CONFIG_ENV} is deprecated, rename to ${CONFIG_ENV}`);
   }
-  const explicit = path ?? (env[CONFIG_ENV] || legacyEnv || undefined);
+  const explicit = path ?? env[CONFIG_ENV] ?? legacyEnv;
   let file = resolve(cwd, explicit ?? CONFIG_FILE_NAME);
   if (explicit === undefined && !existsSync(file)) {
     const legacyFile = resolve(cwd, LEGACY_CONFIG_FILE_NAME);
