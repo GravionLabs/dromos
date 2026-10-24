@@ -12,3 +12,6 @@ apm_modules/
 
 # Rust
 target/
+
+# Run worktrees
+.worktrees/

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
@@ -30,6 +30,7 @@ describe('start_run', () => {
           stdout: JSON.stringify({ number: 14, title: 'Add Start Run!', body: 'Body', labels: [] }),
         };
       }
+      if (args.includes('check-ignore')) return { exitCode: 0 };
       if (args.includes('rev-parse')) return { exitCode: 1 };
       return { stdout: '' };
     });
@@ -75,7 +76,7 @@ describe('start_run', () => {
   it('creates the worktree, stores the run and delivers the task', async () => {
     const orchestrator = await bus.connect('orchestrator');
     const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
-    const worktreePath = join(root, 'wt-repo-14');
+    const worktreePath = join(repoPath, '.worktrees', '14');
     expect(result.isError).toBeFalsy();
     expect(JSON.parse(textOf(result))).toEqual({
       runId: 'run-14-1',
@@ -176,8 +177,81 @@ describe('start_run', () => {
     expect(bus.db.listRuns()).toEqual([]);
   });
 
+  it('refuses when the worktree dir is not git-ignored and creates nothing', async () => {
+    const base = mockExeca.getMockImplementation() as (c: string, a: string[]) => Promise<unknown>;
+    mockExeca.mockImplementation(async (cmd: string, a: string[]) =>
+      a.includes('check-ignore') ? { exitCode: 1 } : base(cmd, a),
+    );
+    const orchestrator = await bus.connect('orchestrator');
+    const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("worktree directory '.worktrees' is not git-ignored");
+    expect(mockExeca).toHaveBeenCalledWith(
+      'git',
+      ['-C', repoPath, 'check-ignore', '-q', '--', '.worktrees/probe'],
+      { reject: false },
+    );
+    const calledWith = (word: string) =>
+      mockExeca.mock.calls.some(([, a]) => (a as string[]).includes(word));
+    expect(calledWith('fetch')).toBe(false);
+    expect(calledWith('worktree')).toBe(false);
+    expect(mockExeca.mock.calls.some(([cmd]) => cmd === 'gh')).toBe(false);
+    expect(existsSync(join(repoPath, '.worktrees'))).toBe(false);
+    expect(bus.db.listRuns()).toEqual([]);
+  });
+
+  it('honours a custom worktreeDir with exact worktree add args', async () => {
+    await bus.close();
+    bus = await startTestBus({ worktreeDir: 'work/trees' });
+    const orchestrator = await bus.connect('orchestrator');
+    const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+    const worktreePath = join(repoPath, 'work', 'trees', '14');
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(textOf(result)).worktreePath).toBe(worktreePath);
+    expect(mockExeca).toHaveBeenCalledWith(
+      'git',
+      ['-C', repoPath, 'check-ignore', '-q', '--', 'work/trees/probe'],
+      { reject: false },
+    );
+    expect(mockExeca).toHaveBeenCalledWith('git', [
+      '-C',
+      repoPath,
+      'worktree',
+      'add',
+      '-b',
+      'agent/14-add-start-run',
+      '--',
+      worktreePath,
+      'origin/main',
+    ]);
+  });
+
+  it('refuses a worktreeDir symlinked outside the repository', async () => {
+    mkdirSync(repoPath, { recursive: true });
+    const outside = join(root, 'outside');
+    mkdirSync(outside);
+    symlinkSync(outside, join(repoPath, '.worktrees'));
+    const orchestrator = await bus.connect('orchestrator');
+    const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('resolves outside the repository');
+    expect(mockExeca.mock.calls.some(([, a]) => (a as string[]).includes('worktree'))).toBe(false);
+    expect(bus.db.listRuns()).toEqual([]);
+  });
+
+  it('leaves no worktree dir behind when the branch already exists', async () => {
+    const base = mockExeca.getMockImplementation() as (c: string, a: string[]) => Promise<unknown>;
+    mockExeca.mockImplementation(async (cmd: string, a: string[]) =>
+      a.includes('rev-parse') && !a.includes('--show-toplevel') ? { exitCode: 0 } : base(cmd, a),
+    );
+    const orchestrator = await bus.connect('orchestrator');
+    const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+    expect(result.isError).toBe(true);
+    expect(existsSync(join(repoPath, '.worktrees'))).toBe(false);
+  });
+
   it('returns a readable error when the worktree path exists and removes nothing', async () => {
-    mkdirSync(join(root, 'wt-repo-14'));
+    mkdirSync(join(repoPath, '.worktrees', '14'), { recursive: true });
     const orchestrator = await bus.connect('orchestrator');
     const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
     expect(result.isError).toBe(true);
@@ -276,7 +350,7 @@ describe('start_run', () => {
       arguments: { repoPath: other, issue: 14 },
     });
     expect(result.isError).toBeFalsy();
-    expect(JSON.parse(textOf(result)).worktreePath).toBe(join(root, 'wt-other-14'));
+    expect(JSON.parse(textOf(result)).worktreePath).toBe(join(root, 'other', '.worktrees', '14'));
   });
 
   it('guards concurrent starts for the same repo and issue', async () => {
@@ -291,6 +365,7 @@ describe('start_run', () => {
 
   it('reports a branch that already exists', async () => {
     mockExeca.mockImplementation(async (cmd: string, a: string[]) => {
+      if (a.includes('check-ignore')) return { exitCode: 0 };
       if (a.includes('--show-toplevel')) return { stdout: `${toplevelOf(a)}\n` };
       if (cmd === 'gh' && a[0] === 'repo') return { stdout: 'o/r' };
       if (cmd === 'gh') {
@@ -309,6 +384,7 @@ describe('start_run', () => {
 
   it('leaves no run or message when viewIssue fails', async () => {
     mockExeca.mockImplementation(async (cmd: string, a: string[]) => {
+      if (a.includes('check-ignore')) return { exitCode: 0 };
       if (a.includes('--show-toplevel')) return { stdout: `${toplevelOf(a)}\n` };
       if (cmd === 'gh' && a[0] === 'repo') return { stdout: 'o/r' };
       if (cmd === 'gh') return { stdout: 'garbage' };
@@ -348,7 +424,7 @@ describe('start_run', () => {
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain('disk full');
     expect(textOf(result)).toContain('agent/14-add-start-run');
-    expect(textOf(result)).toContain(join(root, 'wt-repo-14'));
+    expect(textOf(result)).toContain(join(repoPath, '.worktrees', '14'));
     expect(textOf(result)).toContain('clean them up manually');
     expect(bus.db.listRuns()).toEqual([]);
     expect(destructive()).toEqual([]);
@@ -372,7 +448,7 @@ describe('start_run', () => {
       name: 'start_run',
       arguments: { repoPath: join(repoPath, 'src', 'deep'), issue: 14 },
     });
-    expect(JSON.parse(textOf(result)).worktreePath).toBe(join(root, 'wt-repo-14'));
+    expect(JSON.parse(textOf(result)).worktreePath).toBe(join(repoPath, '.worktrees', '14'));
     expect(bus.db.getRun('run-14-1')?.repoPath).toBe(repoPath);
     const dup = await orchestrator.callTool({ name: 'start_run', arguments: args() });
     expect(dup.isError).toBe(true);

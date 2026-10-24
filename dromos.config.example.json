@@ -10,6 +10,7 @@
     "commands": [{ "name": "test", "run": "pnpm test" }]
   },
   "baseBranch": "main",
+  "worktreeDir": ".worktrees",
   "roles": {
     "orchestrator": { "cli": "claude", "model": null },
     "implementer": { "cli": "claude", "model": null },

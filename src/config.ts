@@ -26,6 +26,8 @@ export const GateCommandSchema = z.object({
 });
 export type GateCommand = z.infer<typeof GateCommandSchema>;
 
+export const hasDotDot = (p: string): boolean => p.split(/[\\/]/).includes('..');
+
 export const ConfigSchema = z.object({
   host: z.string().min(1).default('127.0.0.1'),
   port: z.number().int().min(0).max(65535).default(4777),
@@ -40,6 +42,19 @@ export const ConfigSchema = z.object({
     })
     .prefault({}),
   baseBranch: z.string().min(1).default('main'),
+  worktreeDir: z
+    .string()
+    .min(1)
+    .refine((p) => !p.startsWith('/') && !p.startsWith('\\') && !/^[A-Za-z]:/.test(p), {
+      message: 'worktreeDir must be a relative path',
+    })
+    .refine((p) => !hasDotDot(p), {
+      message: "worktreeDir must not contain '..' segments",
+    })
+    .refine((p) => p !== '.' && p.split(/[\\/]/)[0] !== '.git', {
+      message: "worktreeDir must not be '.' or inside '.git'",
+    })
+    .default('.worktrees'),
   roles: z
     .object({
       orchestrator: roleConfig('claude'),

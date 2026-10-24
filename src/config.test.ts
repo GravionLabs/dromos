@@ -32,6 +32,7 @@ describe('loadConfig', () => {
       blockingSeverities: ['critical', 'important'],
       gate: { timeoutSeconds: 900, commands: [] },
       baseBranch: 'main',
+      worktreeDir: '.worktrees',
       roles: {
         orchestrator: { cli: 'claude', model: null },
         implementer: { cli: 'claude', model: null },
@@ -168,5 +169,25 @@ describe('loadConfig', () => {
         'dromos: agent-bus.config.json is deprecated, rename to dromos.config.json\n',
       );
     });
+  });
+
+  describe('worktreeDir', () => {
+    it('honours a custom relative dir', () => {
+      const file = write('c.json', { worktreeDir: 'work/trees' });
+      expect(loadConfig(file, { env: {}, cwd: dir }).worktreeDir).toBe('work/trees');
+    });
+
+    it.each(['..foo', './x', 'work/trees/', '.gitignored', 'a.b'])('accepts %j', (value) => {
+      const file = write('c.json', { worktreeDir: value });
+      expect(loadConfig(file, { env: {}, cwd: dir }).worktreeDir).toBe(value);
+    });
+
+    it.each(['..', '../x', 'a/../b', '/tmp/x', '\\tmp\\x', 'C:\\x', '', '.', '.git', '.git/x'])(
+      'rejects %j',
+      (value) => {
+        const file = write('c.json', { worktreeDir: value });
+        expect(() => loadConfig(file, { env: {}, cwd: dir })).toThrow(ConfigError);
+      },
+    );
   });
 });

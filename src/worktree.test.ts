@@ -1,10 +1,10 @@
 import { existsSync } from 'node:fs';
 import { execa } from 'execa';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createWorktree, isSafeBranchName, slugify } from './worktree.js';
+import { assertWorktreeDirIgnored, createWorktree, isSafeBranchName, slugify } from './worktree.js';
 
 vi.mock('execa');
-vi.mock('node:fs', () => ({ existsSync: vi.fn() }));
+vi.mock('node:fs', () => ({ existsSync: vi.fn(), mkdirSync: vi.fn(), realpathSync: vi.fn() }));
 const mockExeca = vi.mocked(execa) as unknown as ReturnType<typeof vi.fn>;
 const mockExists = vi.mocked(existsSync);
 
@@ -94,5 +94,53 @@ describe('createWorktree', () => {
       .mockResolvedValueOnce({ exitCode: 1 })
       .mockRejectedValueOnce(new Error('fetch failed'));
     await expect(createWorktree('/repo', 'main', 'b', '/wt/x')).rejects.toThrow('fetch failed');
+  });
+});
+
+describe('assertWorktreeDirIgnored', () => {
+  it.each(['.worktrees', 'work/trees'])('checks %s with exact args', async (dir) => {
+    mockExeca.mockResolvedValue({ exitCode: 0 });
+    await assertWorktreeDirIgnored('/repo', dir);
+    expect(mockExeca.mock.calls).toEqual([
+      ['git', ['-C', '/repo', 'check-ignore', '-q', '--', `${dir}/probe`], { reject: false }],
+    ]);
+  });
+
+  it('throws the readable error when the dir is not ignored (exit 1)', async () => {
+    mockExeca.mockResolvedValue({ exitCode: 1 });
+    await expect(assertWorktreeDirIgnored('/repo', '.worktrees')).rejects.toThrow(
+      "worktree directory '.worktrees' is not git-ignored in /repo; add '.worktrees/' to .gitignore (apm-hub: Enable-Worktrees.ps1)",
+    );
+  });
+
+  it('throws a generic error on other exit codes', async () => {
+    mockExeca.mockResolvedValue({ exitCode: 128 });
+    await expect(assertWorktreeDirIgnored('/repo', '.worktrees')).rejects.toThrow(
+      'git check-ignore failed in /repo (exit code 128)',
+    );
+  });
+});
+
+describe('check-ignore failure detail and prepare hook', () => {
+  it('includes stderr in the generic failure', async () => {
+    mockExeca.mockResolvedValue({ exitCode: 128, stderr: 'fatal: not a git repository' });
+    await expect(assertWorktreeDirIgnored('/repo', '.worktrees')).rejects.toThrow(
+      'exit code 128): fatal: not a git repository',
+    );
+  });
+
+  it('includes shortMessage when the process could not start', async () => {
+    mockExeca.mockResolvedValue({ shortMessage: 'spawn git ENOENT' });
+    await expect(assertWorktreeDirIgnored('/repo', '.worktrees')).rejects.toThrow(
+      'spawn git ENOENT',
+    );
+  });
+
+  it('runs prepare only after the branch pre-check passes', async () => {
+    mockExists.mockReturnValue(false);
+    mockExeca.mockResolvedValueOnce({ exitCode: 0 });
+    const prepare = vi.fn();
+    await expect(createWorktree('/repo', 'main', 'b', '/wt/x', prepare)).rejects.toThrow();
+    expect(prepare).not.toHaveBeenCalled();
   });
 });
