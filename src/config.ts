@@ -3,7 +3,10 @@ import { dirname, resolve } from 'node:path';
 import { z } from 'zod';
 import { SeveritySchema } from './schemas.js';
 
-export const CONFIG_FILE_NAME = 'agent-bus.config.json';
+export const CONFIG_FILE_NAME = 'dromos.config.json';
+export const LEGACY_CONFIG_FILE_NAME = 'agent-bus.config.json';
+export const CONFIG_ENV = 'DROMOS_CONFIG';
+export const LEGACY_CONFIG_ENV = 'AGENT_BUS_CONFIG';
 
 export const CliSchema = z.enum(['claude', 'copilot']);
 export type Cli = z.infer<typeof CliSchema>;
@@ -60,20 +63,35 @@ export class ConfigError extends Error {
 export interface LoadConfigOptions {
   env?: NodeJS.ProcessEnv;
   cwd?: string;
+  /** Receives deprecation warnings; defaults to writing a line to stderr. */
+  warn?: (message: string) => void;
 }
 
 /**
- * Loads the bus configuration.
+ * Loads the dromos configuration.
  *
- * Lookup order: explicit `path`, then `AGENT_BUS_CONFIG`, then `./agent-bus.config.json`.
+ * Lookup order: explicit `path`, `DROMOS_CONFIG`, legacy `AGENT_BUS_CONFIG` (deprecated),
+ * `./dromos.config.json`, legacy `./agent-bus.config.json` (deprecated).
  * An explicitly named file (argument or env var) must exist; the implicit default file is optional.
  * `dataDir` is resolved relative to the config file's directory, or `cwd` when there is no file.
  */
 export function loadConfig(path?: string, options: LoadConfigOptions = {}): Config {
   const env = options.env ?? process.env;
   const cwd = options.cwd ?? process.cwd();
-  const explicit = path ?? env.AGENT_BUS_CONFIG;
-  const file = resolve(cwd, explicit ?? CONFIG_FILE_NAME);
+  const warn = options.warn ?? ((message: string) => process.stderr.write(`dromos: ${message}\n`));
+  const legacyEnv = path === undefined && !env[CONFIG_ENV] ? env[LEGACY_CONFIG_ENV] : undefined;
+  if (legacyEnv) {
+    warn(`${LEGACY_CONFIG_ENV} is deprecated, rename to ${CONFIG_ENV}`);
+  }
+  const explicit = path ?? (env[CONFIG_ENV] || legacyEnv || undefined);
+  let file = resolve(cwd, explicit ?? CONFIG_FILE_NAME);
+  if (explicit === undefined && !existsSync(file)) {
+    const legacyFile = resolve(cwd, LEGACY_CONFIG_FILE_NAME);
+    if (existsSync(legacyFile)) {
+      warn(`${LEGACY_CONFIG_FILE_NAME} is deprecated, rename to ${CONFIG_FILE_NAME}`);
+      file = legacyFile;
+    }
+  }
 
   let raw: unknown = {};
   let baseDir = cwd;
