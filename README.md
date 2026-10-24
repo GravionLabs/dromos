@@ -1,6 +1,6 @@
 # dromos
 
-Local MCP message bus that coordinates **interactive** AI coding agents (Claude Code and GitHub Copilot CLI), each running in its own terminal. Formerly `agent-bus`; the old `agent-bus.config.json` and `AGENT_BUS_CONFIG` still load with a deprecation warning for one release.
+Local MCP message bus that coordinates **interactive** AI coding agents (Claude Code and GitHub Copilot CLI), each running in its own terminal. Formerly `agent-bus`; the old `agent-bus.config.json` still loads with a deprecation warning for one release.
 
 Three roles:
 
@@ -113,7 +113,7 @@ dromos up --reviewer-cli copilot --reviewer-model GPT-Luna
 
 `--cli` and `--model` can be set per role. Precedence: flag > `roles.<role>` in the config file > the CLI's own default. Model names are passed verbatim to `claude --model` / `copilot --model`; there is no model list and no validation.
 
-Config: `dromos.config.json` in the working directory (or the file named by `DROMOS_CONFIG`), merged over defaults. The old `agent-bus.config.json` and `AGENT_BUS_CONFIG` still load for one release with a deprecation warning. See `dromos.config.example.json` for host, port, `maxRounds`, gate commands, base branch, `roles` and `layouts`.
+Config: `dromos.config.json` in the working directory (or the file named by `DROMOS_CONFIG`), merged over defaults. The old `agent-bus.config.json` still loads for one release with a deprecation warning. See `dromos.config.example.json` for host, port, `maxRounds`, gate commands, base branch, `roles` and `layouts`.
 
 ## Workflow (planned)
 

@@ -118,55 +118,48 @@ describe('loadConfig', () => {
       expect(warn).not.toHaveBeenCalled();
     });
 
-    it('still loads AGENT_BUS_CONFIG and warns once', () => {
-      const file = write('legacy.json', { port: 4444 });
+    it('loads ./dromos.config.json without a warning', () => {
+      write('dromos.config.json', { port: 1111 });
       const warn = vi.fn();
-      const env = { AGENT_BUS_CONFIG: file };
-      expect(loadConfig(undefined, { env, cwd: '/', warn }).port).toBe(4444);
-      expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn).toHaveBeenCalledWith('AGENT_BUS_CONFIG is deprecated, rename to DROMOS_CONFIG');
-    });
-
-    it('prefers DROMOS_CONFIG over AGENT_BUS_CONFIG without a warning', () => {
-      const fresh = write('fresh.json', { port: 5555 });
-      const old = write('old.json', { port: 6666 });
-      const warn = vi.fn();
-      const env = { DROMOS_CONFIG: fresh, AGENT_BUS_CONFIG: old };
-      expect(loadConfig(undefined, { env, cwd: '/', warn }).port).toBe(5555);
+      expect(loadConfig(undefined, { env: {}, cwd: dir, warn }).port).toBe(1111);
       expect(warn).not.toHaveBeenCalled();
     });
 
-    it('prefers an explicit path over AGENT_BUS_CONFIG without a warning', () => {
-      const explicit = write('explicit.json', { port: 1111 });
+    it('loads DROMOS_CONFIG without a warning', () => {
+      const file = write('custom.json', { port: 3333 });
+      const warn = vi.fn();
+      expect(loadConfig(undefined, { env: { DROMOS_CONFIG: file }, cwd: '/', warn }).port).toBe(
+        3333,
+      );
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('treats an empty DROMOS_CONFIG as set rather than falling back', () => {
+      write('dromos.config.json', { port: 1111 });
+      const warn = vi.fn();
+      const env = { DROMOS_CONFIG: '' };
+      expect(() => loadConfig(undefined, { env, cwd: dir, warn })).toThrow(
+        new RegExp(`^invalid JSON in ${dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: EISDIR`),
+      );
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('ignores AGENT_BUS_CONFIG and uses the normal lookup without a warning', () => {
       const old = write('old.json', { port: 2222 });
+      write('dromos.config.json', { port: 1111 });
       const warn = vi.fn();
       const env = { AGENT_BUS_CONFIG: old };
-      expect(loadConfig(explicit, { env, cwd: dir, warn }).port).toBe(1111);
+      expect(loadConfig(undefined, { env, cwd: dir, warn }).port).toBe(1111);
       expect(warn).not.toHaveBeenCalled();
-    });
-
-    it('treats an empty DROMOS_CONFIG as set, ignoring AGENT_BUS_CONFIG', () => {
-      const old = write('old.json', { port: 2222 });
-      const warn = vi.fn();
-      const env = { DROMOS_CONFIG: '', AGENT_BUS_CONFIG: old };
-      expect(() => loadConfig(undefined, { env, cwd: dir, warn })).toThrow(ConfigError);
-      expect(warn).not.toHaveBeenCalled();
-    });
-
-    it('fails when AGENT_BUS_CONFIG points at a missing file, after warning', () => {
-      const warn = vi.fn();
-      const env = { AGENT_BUS_CONFIG: join(dir, 'missing.json') };
-      expect(() => loadConfig(undefined, { env, cwd: dir, warn })).toThrow(/config file not found/);
-      expect(warn).toHaveBeenCalledTimes(1);
     });
 
     it('writes the default warning to stderr with the dromos prefix', () => {
-      const file = write('legacy.json', { port: 4444 });
+      write('agent-bus.config.json', { port: 4444 });
       const spy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
       try {
-        loadConfig(undefined, { env: { AGENT_BUS_CONFIG: file }, cwd: dir });
+        loadConfig(undefined, { env: {}, cwd: dir });
         expect(spy).toHaveBeenCalledWith(
-          'dromos: AGENT_BUS_CONFIG is deprecated, rename to DROMOS_CONFIG\n',
+          'dromos: agent-bus.config.json is deprecated, rename to dromos.config.json\n',
         );
       } finally {
         spy.mockRestore();

@@ -6,7 +6,6 @@ import { SeveritySchema } from './schemas.js';
 export const CONFIG_FILE_NAME = 'dromos.config.json';
 export const LEGACY_CONFIG_FILE_NAME = 'agent-bus.config.json';
 export const CONFIG_ENV = 'DROMOS_CONFIG';
-export const LEGACY_CONFIG_ENV = 'AGENT_BUS_CONFIG';
 
 export const CliSchema = z.enum(['claude', 'copilot']);
 export type Cli = z.infer<typeof CliSchema>;
@@ -70,7 +69,7 @@ export interface LoadConfigOptions {
 /**
  * Loads the dromos configuration.
  *
- * Lookup order: explicit `path`, `DROMOS_CONFIG`, legacy `AGENT_BUS_CONFIG` (deprecated),
+ * Lookup order: explicit `path`, `DROMOS_CONFIG`,
  * `./dromos.config.json`, legacy `./agent-bus.config.json` (deprecated).
  * An explicitly named file (argument or env var) must exist; the implicit default file is optional.
  * `dataDir` is resolved relative to the config file's directory, or `cwd` when there is no file.
@@ -79,12 +78,7 @@ export function loadConfig(path?: string, options: LoadConfigOptions = {}): Conf
   const env = options.env ?? process.env;
   const cwd = options.cwd ?? process.cwd();
   const warn = options.warn ?? ((message: string) => process.stderr.write(`dromos: ${message}\n`));
-  const legacyEnv =
-    path === undefined && env[CONFIG_ENV] === undefined ? env[LEGACY_CONFIG_ENV] : undefined;
-  if (legacyEnv !== undefined) {
-    warn(`${LEGACY_CONFIG_ENV} is deprecated, rename to ${CONFIG_ENV}`);
-  }
-  const explicit = path ?? env[CONFIG_ENV] ?? legacyEnv;
+  const explicit = path ?? env[CONFIG_ENV];
   let file = resolve(cwd, explicit ?? CONFIG_FILE_NAME);
   if (explicit === undefined && !existsSync(file)) {
     const legacyFile = resolve(cwd, LEGACY_CONFIG_FILE_NAME);
