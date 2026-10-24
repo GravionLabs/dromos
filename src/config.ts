@@ -40,6 +40,16 @@ export const ConfigSchema = z.object({
     })
     .prefault({}),
   baseBranch: z.string().min(1).default('main'),
+  worktreeDir: z
+    .string()
+    .min(1)
+    .refine((p) => !p.startsWith('/') && !p.startsWith('\\') && !/^[A-Za-z]:/.test(p), {
+      message: 'worktreeDir must be a relative path',
+    })
+    .refine((p) => !p.split(/[\\/]/).includes('..'), {
+      message: "worktreeDir must not contain '..' segments",
+    })
+    .default('.worktrees'),
   roles: z
     .object({
       orchestrator: roleConfig('claude'),

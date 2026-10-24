@@ -20,6 +20,27 @@ export function isSafeBranchName(name: string): boolean {
   );
 }
 
+/** Refuses unless `<worktreeDir>/` is git-ignored in the repository (dromos never edits tracked files). */
+export async function assertWorktreeDirIgnored(
+  repoPath: string,
+  worktreeDir: string,
+): Promise<void> {
+  const res = await execa(
+    'git',
+    ['-C', repoPath, 'check-ignore', '-q', '--', `${worktreeDir}/probe`],
+    {
+      reject: false,
+    },
+  );
+  if (res.exitCode === 0) return;
+  if (res.exitCode === 1) {
+    throw new Error(
+      `worktree directory '${worktreeDir}' is not git-ignored in ${repoPath}; add '${worktreeDir}/' to .gitignore (apm-hub: Enable-Worktrees.ps1)`,
+    );
+  }
+  throw new Error(`git check-ignore failed in ${repoPath} (exit code ${String(res.exitCode)})`);
+}
+
 export async function createWorktree(
   repoPath: string,
   baseBranch: string,

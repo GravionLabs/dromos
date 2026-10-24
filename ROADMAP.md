@@ -11,7 +11,7 @@ Feature #2 (project foundation) and Feature #7 (messaging: `post`, `ack`, `inbox
 | Order | Issue | Title | Depends on |
 | --- | --- | --- | --- |
 | 1 | #13 | run state machine (pure module) | — |
-| 2 | #14 | `start_run`: fetch issue, create worktree | ~#13 |
+| 2 | #14 | `start_run`: fetch issue, create worktree under `<repo>/.worktrees/<issue>` (config `worktreeDir`, must be git-ignored) | ~#13 |
 | 3 | #15 | deterministic gate runner | ~#13 |
 | 4 | #16 | `submit_implementation` with background gate | ~#14, #15 |
 | 5 | #17 | `submit_review` with verdict routing | ~#16 |

@@ -1,4 +1,5 @@
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { mkdirSync } from 'node:fs';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { execa } from 'execa';
 import { z } from 'zod';
@@ -6,7 +7,12 @@ import { requireRole } from '../auth.js';
 import type { ToolContext } from '../context.js';
 import { repoFromPath, viewIssue } from '../github.js';
 import { isTerminal } from '../state-machine.js';
-import { createWorktree, isSafeBranchName, slugify } from '../worktree.js';
+import {
+  assertWorktreeDirIgnored,
+  createWorktree,
+  isSafeBranchName,
+  slugify,
+} from '../worktree.js';
 import { errorResult, jsonResult } from './util.js';
 
 /** repo_path + issue pairs whose start_run is currently in flight (guards the async gap). */
@@ -68,11 +74,13 @@ export function registerRunTools(server: McpServer, ctx: ToolContext): void {
       let created: { branch: string; worktreePath: string } | undefined;
       let started: { runId: string; branch: string; worktreePath: string } | undefined;
       try {
+        await assertWorktreeDirIgnored(repoPath, ctx.config.worktreeDir);
         const repo = await repoFromPath(repoPath);
         const info = await viewIssue(repo, issue);
         const slug = slugify(info.title);
         const branch = slug ? `agent/${issue}-${slug}` : `agent/${issue}`;
-        const worktreePath = join(dirname(repoPath), `wt-${basename(repoPath)}-${issue}`);
+        const worktreePath = join(repoPath, ctx.config.worktreeDir, String(issue));
+        mkdirSync(dirname(worktreePath), { recursive: true });
         await createWorktree(repoPath, base, branch, worktreePath);
         created = { branch, worktreePath };
 
