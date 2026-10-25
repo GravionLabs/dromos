@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { z } from 'zod';
 import { SeveritySchema } from './schemas.js';
+import { isSafeBranchName } from './worktree.js';
 
 export const CONFIG_FILE_NAME = 'dromos.config.json';
 export const LEGACY_CONFIG_FILE_NAME = 'agent-bus.config.json';
@@ -42,6 +43,14 @@ export const ConfigSchema = z.object({
     })
     .prefault({}),
   baseBranch: z.string().min(1).default('main'),
+  /** 'conventional' = feat/fix by issue kind; any other value is a fixed branch prefix (e.g. 'agent'). */
+  branchPrefix: z
+    .string()
+    .min(1)
+    .refine((p) => isSafeBranchName(p) && !p.endsWith('-') && !p.startsWith('/'), {
+      message: 'branchPrefix must be a valid branch-name prefix',
+    })
+    .default('conventional'),
   worktreeDir: z
     .string()
     .min(1)

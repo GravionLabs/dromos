@@ -113,11 +113,11 @@ dromos up --reviewer-cli copilot --reviewer-model GPT-Luna
 
 `--cli` and `--model` can be set per role. Precedence: flag > `roles.<role>` in the config file > the CLI's own default. Model names are passed verbatim to `claude --model` / `copilot --model`; there is no model list and no validation.
 
-Config: `dromos.config.json` in the working directory (or the file named by `DROMOS_CONFIG`), merged over defaults. See `dromos.config.example.json` for host, port, `maxRounds`, gate commands, base branch, `worktreeDir` (relative path, no `..`, default `.worktrees`), `roles` and `layouts`.
+Config: `dromos.config.json` in the working directory (or the file named by `DROMOS_CONFIG`), merged over defaults. See `dromos.config.example.json` for host, port, `maxRounds`, gate commands, base branch, `branchPrefix` (default `conventional`, see `start_run`), `worktreeDir` (relative path, no `..`, default `.worktrees`), `roles` and `layouts`.
 
 ## Workflow (planned)
 
-1. `start_run(issue)`: create worktree and branch, post the task to the implementer. The worktree lives at `<repoPath>/<worktreeDir>/<issue>` (default `.worktrees/<issue>`); `start_run` refuses unless `<worktreeDir>/` is git-ignored in that repository.
+1. `start_run(issue)`: create worktree and branch `<type>/<issue>-<slug>` (`fix` for issues labelled `bug` or titled `fix...`/`[bug]...`, otherwise `feat`; e.g. `feat/14-add-start-run`). Set `branchPrefix` to a fixed string such as `agent` to get `agent/<issue>-<slug>` instead. Post the task to the implementer. The worktree lives at `<repoPath>/<worktreeDir>/<issue>` (default `.worktrees/<issue>`); `start_run` refuses unless `<worktreeDir>/` is git-ignored in that repository.
 2. `submit_implementation`: the bus runs build, tests and lint. Red goes back to the implementer.
 3. `submit_review`: schema-validated verdict. Blocking findings go back to the implementer.
 4. After the round limit (default 3) the run is `blocked` and the orchestrator is notified.

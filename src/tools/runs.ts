@@ -21,12 +21,17 @@ import { errorResult, jsonResult } from './util.js';
 /** repo_path + issue pairs whose start_run is currently in flight (guards the async gap). */
 const inFlight = new Set<string>();
 
+/** Bug issue: label `bug` (any case) or a title starting with `fix` (whole word) or `[bug]`. */
+function isBugIssue(info: { title: string; labels: string[] }): boolean {
+  return info.labels.some((l) => l.toLowerCase() === 'bug') || /^(fix\b|\[bug\])/i.test(info.title);
+}
+
 export function registerRunTools(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     'start_run',
     {
       description:
-        'Orchestrator only. Fetch a GitHub issue, create an agent/<issue>-<slug> branch and git ' +
+        'Orchestrator only. Fetch a GitHub issue, create a <type>/<issue>-<slug> branch (type feat, or fix for bug issues; config branchPrefix overrides) and git ' +
         'worktree, register a run and send the task to the implementer.',
       inputSchema: {
         repoPath: z
@@ -80,7 +85,16 @@ export function registerRunTools(server: McpServer, ctx: ToolContext): void {
         const repo = await repoFromPath(repoPath);
         const info = await viewIssue(repo, issue);
         const slug = slugify(info.title);
-        const branch = slug ? `agent/${issue}-${slug}` : `agent/${issue}`;
+        const prefix =
+          ctx.config.branchPrefix === 'conventional'
+            ? isBugIssue(info)
+              ? 'fix'
+              : 'feat'
+            : ctx.config.branchPrefix;
+        const branch = slug ? `${prefix}/${issue}-${slug}` : `${prefix}/${issue}`;
+        if (!isSafeBranchName(branch)) {
+          return errorResult(`invalid branch name: ${branch}; nothing was created`);
+        }
         const worktreePath = join(repoPath, ctx.config.worktreeDir, String(issue));
         try {
           await claimRunLease({ repoPath, issue, branch, worktreePath });

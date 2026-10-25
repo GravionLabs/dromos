@@ -102,7 +102,7 @@ describe('start_run', () => {
     expect(result.isError).toBeFalsy();
     expect(JSON.parse(textOf(result))).toEqual({
       runId: 'run-14-1',
-      branch: 'agent/14-add-start-run',
+      branch: 'feat/14-add-start-run',
       worktreePath,
     });
     expect(mockExeca).toHaveBeenCalledWith(
@@ -125,7 +125,7 @@ describe('start_run', () => {
       'worktree',
       'add',
       '-b',
-      'agent/14-add-start-run',
+      'feat/14-add-start-run',
       '--',
       worktreePath,
       'origin/main',
@@ -148,14 +148,14 @@ describe('start_run', () => {
           runId: 'run-14-1',
           issue: { number: 14, title: 'Add Start Run!', body: 'Body' },
           worktreePath,
-          branch: 'agent/14-add-start-run',
+          branch: 'feat/14-add-start-run',
           baseBranch: 'main',
         },
       },
     ]);
     expect(bus.readLog()).toContain('orchestrator -> implementer [task] run-14-1');
     expect(bus.readLog()).toContain(
-      'run-14-1 started: implementing (round 1) on agent/14-add-start-run',
+      'run-14-1 started: implementing (round 1) on feat/14-add-start-run',
     );
   });
 
@@ -241,7 +241,7 @@ describe('start_run', () => {
       'worktree',
       'add',
       '-b',
-      'agent/14-add-start-run',
+      'feat/14-add-start-run',
       '--',
       worktreePath,
       'origin/main',
@@ -410,7 +410,7 @@ describe('start_run', () => {
     const orchestrator = await bus.connect('orchestrator');
     const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
     expect(result.isError).toBe(true);
-    expect(textOf(result)).toContain('branch already exists: agent/14-add-start-run');
+    expect(textOf(result)).toContain('branch already exists: feat/14-add-start-run');
     expect(bus.db.listRuns()).toEqual([]);
     expect(destructive()).toEqual([]);
   });
@@ -456,14 +456,85 @@ describe('start_run', () => {
     spy.mockRestore();
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain('disk full');
-    expect(textOf(result)).toContain('agent/14-add-start-run');
+    expect(textOf(result)).toContain('feat/14-add-start-run');
     expect(textOf(result)).toContain(join(repoPath, '.worktrees', '14'));
     expect(textOf(result)).toContain('clean them up manually');
     expect(bus.db.listRuns()).toEqual([]);
     expect(destructive()).toEqual([]);
   });
 
-  it('falls back to agent/<issue> when the title has no slug characters', async () => {
+  describe('branch type', () => {
+    const withIssue = (title: string, labels: string[]) => {
+      const base = mockExeca.getMockImplementation() as (
+        c: string,
+        a: string[],
+      ) => Promise<unknown>;
+      mockExeca.mockImplementation(async (cmd: string, a: string[]) =>
+        cmd === 'gh' && a[0] === 'issue'
+          ? {
+              stdout: JSON.stringify({
+                number: 14,
+                title,
+                body: '',
+                labels: labels.map((name) => ({ name })),
+              }),
+            }
+          : base(cmd, a),
+      );
+    };
+    const branchFor = async (): Promise<string> => {
+      const orchestrator = await bus.connect('orchestrator');
+      const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      expect(result.isError).toBeFalsy();
+      return JSON.parse(textOf(result)).branch;
+    };
+    // Branch convention enforced by the apm-hub ledger hook.
+    const conventional = /^(feat|fix)\/\d+-[a-z0-9-]+$/;
+
+    it('uses fix for a bug label (case-insensitive)', async () => {
+      withIssue('Crash on start', ['Bug']);
+      expect(await branchFor()).toBe('fix/14-crash-on-start');
+    });
+
+    it.each(['Fix crash on start', '[Bug] crash on start'])(
+      'uses fix for title %j',
+      async (title) => {
+        withIssue(title, []);
+        const branch = await branchFor();
+        expect(branch).toMatch(/^fix\/14-/);
+        expect(branch).toMatch(conventional);
+      },
+    );
+
+    it('keeps feat for a title that only starts with the letters fix', async () => {
+      withIssue('Fixture loader', ['enhancement']);
+      expect(await branchFor()).toBe('feat/14-fixture-loader');
+    });
+
+    it('defaults to feat and matches the ledger hook regex', async () => {
+      expect(await branchFor()).toMatch(conventional);
+    });
+
+    it('uses a fixed branchPrefix with exact worktree add args', async () => {
+      await bus.close();
+      bus = await startTestBus({ branchPrefix: 'agent' });
+      withIssue('Fix crash', ['bug']);
+      expect(await branchFor()).toBe('agent/14-fix-crash');
+      expect(mockExeca).toHaveBeenCalledWith('git', [
+        '-C',
+        repoPath,
+        'worktree',
+        'add',
+        '-b',
+        'agent/14-fix-crash',
+        '--',
+        join(repoPath, '.worktrees', '14'),
+        'origin/main',
+      ]);
+    });
+  });
+
+  it('falls back to feat/<issue> when the title has no slug characters', async () => {
     const base = mockExeca.getMockImplementation() as (c: string, a: string[]) => Promise<unknown>;
     mockExeca.mockImplementation(async (cmd: string, a: string[]) =>
       cmd === 'gh' && a[0] === 'issue'
@@ -472,7 +543,7 @@ describe('start_run', () => {
     );
     const orchestrator = await bus.connect('orchestrator');
     const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
-    expect(JSON.parse(textOf(result)).branch).toBe('agent/14');
+    expect(JSON.parse(textOf(result)).branch).toBe('feat/14');
   });
 
   it('uses the git toplevel for a subdirectory repoPath and dedupes against the root', async () => {
@@ -558,7 +629,7 @@ describe('start_run', () => {
       expect(lease).toMatchObject({
         path: wt(),
         issue: 14,
-        branch: 'agent/14-add-start-run',
+        branch: 'feat/14-add-start-run',
         owner: 'dromos',
       });
       expect(lease.heartbeat).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);

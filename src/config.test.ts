@@ -32,6 +32,7 @@ describe('loadConfig', () => {
       blockingSeverities: ['critical', 'important'],
       gate: { timeoutSeconds: 900, commands: [] },
       baseBranch: 'main',
+      branchPrefix: 'conventional',
       worktreeDir: '.worktrees',
       roles: {
         orchestrator: { cli: 'claude', model: null },
@@ -189,5 +190,22 @@ describe('loadConfig', () => {
         expect(() => loadConfig(file, { env: {}, cwd: dir })).toThrow(ConfigError);
       },
     );
+  });
+
+  describe('branchPrefix', () => {
+    it('defaults to conventional', () => {
+      const file = write('c.json', {});
+      expect(loadConfig(file, { env: {}, cwd: dir }).branchPrefix).toBe('conventional');
+    });
+
+    it.each(['agent', 'team/bot'])('accepts %j', (value) => {
+      const file = write('c.json', { branchPrefix: value });
+      expect(loadConfig(file, { env: {}, cwd: dir }).branchPrefix).toBe(value);
+    });
+
+    it.each(['', '-x', 'a..b', 'a b', 'x/', '/x', 'x.lock', 'a;b'])('rejects %j', (value) => {
+      const file = write('c.json', { branchPrefix: value });
+      expect(() => loadConfig(file, { env: {}, cwd: dir })).toThrow(ConfigError);
+    });
   });
 });
