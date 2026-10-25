@@ -1,13 +1,39 @@
 lockfile_version: '1'
-apm_version: 0.33.0
+apm_version: 0.35.0
 dependencies:
+- repo_url: gravionlabs/apm-hub
+  materialization_repo_url: GravionLabs/apm-hub
+  name: rust
+  host: github.com
+  resolved_commit: 62d7efa8d0004b71bbb5d0914b2af6f87adb4256
+  resolved_ref: v2.4.0
+  version: 2.4.0
+  virtual_path: packages/rust
+  is_virtual: true
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/rust-implementation
+  - .claude/skills/rust-implementation/SKILL.md
+  - .claude/skills/rust-implementation/references/conventions.md
+  - .claude/skills/rust-implementation/references/tauri.md
+  - .claude/skills/rust-test
+  - .claude/skills/rust-test/SKILL.md
+  - .claude/skills/rust-test/references/mocking-and-properties.md
+  deployed_file_hashes:
+    .claude/skills/rust-implementation/SKILL.md: sha256:f7302453355f7480c40a2ea55c203bcda826b1343f1ee46607cc05d6bb0a3f34
+    .claude/skills/rust-implementation/references/conventions.md: sha256:5010bad341fafadfe5c805733364f4d8b1188b3068662ae7517e91f491baf6b6
+    .claude/skills/rust-implementation/references/tauri.md: sha256:74925a7f7ee1dabeeb39718ad74e9cb04c489f571e02e36c878704925bba5720
+    .claude/skills/rust-test/SKILL.md: sha256:0674ac9c0a5cf2546477325320f77ecd752a3a84e4a54b439263a5d8b49baa30
+    .claude/skills/rust-test/references/mocking-and-properties.md: sha256:16f852c641b37230e1ea7522102206ba105f3616341ad176ec459aa1b0e0c07a
+  content_hash: sha256:44f65e0c3a4ac0e385aa33b024fd17a2d95b7ec1b30676062d8e186f336846b3
+  declared_license: MIT
 - repo_url: gravionlabs/apm-hub
   materialization_repo_url: GravionLabs/apm-hub
   name: ts
   host: github.com
-  resolved_commit: a9e08c1aca9e81c6395dd1ab096f8fcb9a829c27
-  resolved_ref: a9e08c1aca9e81c6395dd1ab096f8fcb9a829c27
-  version: 2.3.0
+  resolved_commit: 62d7efa8d0004b71bbb5d0914b2af6f87adb4256
+  resolved_ref: v2.4.0
+  version: 2.4.0
   virtual_path: packages/ts
   is_virtual: true
   package_type: apm_package
@@ -70,10 +96,73 @@ dependencies:
     .claude/skills/ts-mcp-server-generator/templates/src/index.ts: sha256:bee7ed0ad78770c0c9362c09f8c193898c51b41587a3c971da7028dcf3af6d0f
     .claude/skills/ts-mcp-server-generator/templates/tsconfig.json: sha256:68b179e5085588b8890348d277100a927ebad0936974d96f92d397cea5b73a24
     .claude/skills/ts-pnpm-workflow/SKILL.md: sha256:483b8c45e65cb0e6fdd9992909dc7d106c6ae7089d99046732b5d43b782997cf
-    .claude/skills/ts-test/SKILL.md: sha256:a94f9ec5e386efa5d07ef27560785a54944d34b971f0c2c744429c49898d0f92
-  content_hash: sha256:8fbb2d4676cd062205b64c05bfb50f1e0c6e095b792fb391d5cafda9e100d5c4
+    .claude/skills/ts-test/SKILL.md: sha256:8a82130a983f1b738f8e0180b18481125cd49bdd1e80209652b7122231971c9c
+  content_hash: sha256:dbbdeadfafe4b1290db19b004a046f1937a980db5e765dd7e18a4f803ca12fe5
   declared_license: MIT
 deployments:
+- kind: project-relative
+  target: claude
+  value: .claude/skills/rust-implementation
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/rust
+  active_owner: gravionlabs/apm-hub/packages/rust
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/rust-implementation/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/rust
+  active_owner: gravionlabs/apm-hub/packages/rust
+  content_hash: sha256:f7302453355f7480c40a2ea55c203bcda826b1343f1ee46607cc05d6bb0a3f34
+- kind: project-relative
+  target: claude
+  value: .claude/skills/rust-implementation/references/conventions.md
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/rust
+  active_owner: gravionlabs/apm-hub/packages/rust
+  content_hash: sha256:5010bad341fafadfe5c805733364f4d8b1188b3068662ae7517e91f491baf6b6
+- kind: project-relative
+  target: claude
+  value: .claude/skills/rust-implementation/references/tauri.md
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/rust
+  active_owner: gravionlabs/apm-hub/packages/rust
+  content_hash: sha256:74925a7f7ee1dabeeb39718ad74e9cb04c489f571e02e36c878704925bba5720
+- kind: project-relative
+  target: claude
+  value: .claude/skills/rust-test
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/rust
+  active_owner: gravionlabs/apm-hub/packages/rust
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/rust-test/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/rust
+  active_owner: gravionlabs/apm-hub/packages/rust
+  content_hash: sha256:0674ac9c0a5cf2546477325320f77ecd752a3a84e4a54b439263a5d8b49baa30
+- kind: project-relative
+  target: claude
+  value: .claude/skills/rust-test/references/mocking-and-properties.md
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/rust
+  active_owner: gravionlabs/apm-hub/packages/rust
+  content_hash: sha256:16f852c641b37230e1ea7522102206ba105f3616341ad176ec459aa1b0e0c07a
 - kind: project-relative
   target: claude
   value: .claude/skills/setup-prettier-eslint-husky
@@ -361,4 +450,4 @@ deployments:
   owners:
   - gravionlabs/apm-hub/packages/ts
   active_owner: gravionlabs/apm-hub/packages/ts
-  content_hash: sha256:a94f9ec5e386efa5d07ef27560785a54944d34b971f0c2c744429c49898d0f92
+  content_hash: sha256:8a82130a983f1b738f8e0180b18481125cd49bdd1e80209652b7122231971c9c
