@@ -38,6 +38,21 @@ describe('recordEvent', () => {
     expect(seen).toEqual([row.id]);
   });
 
+  it('persists the envelope agentId, issue and runId on the stored row', () => {
+    const row = recordEvent(bus.db, bus.events, 'orchestrator', {
+      ...valid,
+      agentId: 'impl-1',
+      issue: 7,
+      runId: 'run-9',
+    });
+    expect(bus.db.listEventsSince(0)[0]).toMatchObject({
+      id: row.id,
+      agentId: 'impl-1',
+      issue: 7,
+      runId: 'run-9',
+    });
+  });
+
   it.each([
     ['unknown type', { ...valid, type: 'nope' }],
     ['wrong data shape', { ...valid, data: { line: '' } }],

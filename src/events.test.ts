@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startTestBus, type TestBus } from './test-helpers.js';
 
 describe('POST /events', () => {
@@ -78,6 +78,7 @@ describe('POST /events', () => {
       expect(seen).toEqual([]);
       expect(bus.db.getAgent('impl-1')?.state).toBe('idle');
       expect(bus.readLog()).not.toContain('HOOK');
+      expect(bus.readLog()).toMatch(/ERROR +rejected hook implementer busy/);
     },
   );
 
@@ -90,6 +91,27 @@ describe('POST /events', () => {
     expect(await res.json()).toEqual({ error: 'internal error' });
     expect(bus.db.listEvents('implementer')).toHaveLength(1);
     expect(bus.readLog()).toMatch(/ERROR +hook implementer idle: Error: boom/);
+  });
+
+  it('answers 500 and stores nothing when the agent state update fails, so a retry cannot duplicate', async () => {
+    await bus.connect('implementer', 'impl-1');
+    vi.spyOn(bus.db, 'updateAgentState').mockImplementation(() => {
+      throw new Error('db down');
+    });
+    const before = bus.db.listEvents().length;
+    const res = await post('{"role":"implementer","cli":"claude","state":"busy"}');
+    expect(res.status).toBe(500);
+    expect(bus.db.listEvents().length).toBe(before);
+    expect(bus.readLog()).toMatch(/ERROR +hook implementer busy: Error: db down/);
+    vi.restoreAllMocks();
+  });
+
+  it('stores a hook row with the resolved agent id, or null when none resolves', async () => {
+    await post('{"role":"reviewer","cli":"claude","state":"busy"}');
+    expect(bus.db.listEvents('reviewer')[0]?.agentId).toBeNull();
+    await bus.connect('implementer', 'impl-1');
+    await post('{"role":"implementer","cli":"claude","state":"busy"}');
+    expect(bus.db.listEvents('implementer')[0]?.agentId).toBe('impl-1');
   });
 
   it('includes the model in the log line when given', async () => {

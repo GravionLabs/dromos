@@ -384,31 +384,37 @@ export async function startHttp({
       return;
     }
     const { role, cli, state, model } = parsed.data;
+    // The instance a hook belongs to is resolved first; null when ambiguous or unknown.
+    const agentId = hookAgentId(req, role) ?? null;
+    const envelope = {
+      id: 0,
+      type: `hook:${state}`,
+      at: new Date().toISOString(),
+      source: `hook/${cli}`,
+      agentId,
+      issue: null,
+      runId: null,
+      data: parsed.data,
+    };
+    // Validate before any side effect, so a later failure never leaves a stored row to retry.
+    const checked = BusEventSchema.safeParse(envelope);
+    if (!checked.success) {
+      const detail = z.prettifyError(checked.error);
+      log.logLine('ERROR', `rejected hook ${role} ${state}: ${detail.replace(/\s+/g, ' ')}`);
+      sendJson(res, 400, { error: detail });
+      return;
+    }
     try {
-      recordEvent(db, events, role, {
-        id: 0,
-        type: `hook:${state}`,
-        at: new Date().toISOString(),
-        source: `hook/${cli}`,
-        // A hook names a role, not an instance (the instance is resolved below), so agentId holds
-        // the role here, unlike emitAgentEvent which has the real agent id.
-        agentId: role,
-        issue: null,
-        runId: null,
-        data: parsed.data,
-      });
-      log.logLine('HOOK', `${role} ${state} (${cli}${model ? `, ${model}` : ''})`);
-      const agentId = hookAgentId(req, role);
       if (agentId) {
         setAgentState(agentId, state);
       }
+      recordEvent(db, events, role, envelope);
+      log.logLine('HOOK', `${role} ${state} (${cli}${model ? `, ${model}` : ''})`);
     } catch (error) {
-      if (error instanceof EventValidationError) {
-        sendJson(res, 400, { error: error.detail });
-        return;
-      }
-      // The row may already be stored (e.g. a stream subscriber threw), so report a server error.
-      log.logLine('ERROR', `hook ${role} ${state}: ${String(error)}`);
+      log.logLine(
+        'ERROR',
+        `hook ${role} ${state}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+      );
       sendJson(res, 500, { error: 'internal error' });
       return;
     }
