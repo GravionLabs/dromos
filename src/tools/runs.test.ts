@@ -496,19 +496,39 @@ describe('start_run', () => {
       expect(await branchFor()).toBe('fix/14-crash-on-start');
     });
 
-    it.each(['Fix crash on start', '[Bug] crash on start'])(
-      'uses fix for title %j',
-      async (title) => {
-        withIssue(title, []);
-        const branch = await branchFor();
-        expect(branch).toMatch(/^fix\/14-/);
-        expect(branch).toMatch(conventional);
-      },
-    );
+    it.each([
+      'Fix crash on start',
+      '[Bug] crash on start',
+      'Fixes crash',
+      'Fixed crash',
+      'FIX: crash',
+    ])('uses fix for title %j', async (title) => {
+      withIssue(title, []);
+      const branch = await branchFor();
+      expect(branch).toMatch(/^fix\/14-/);
+      expect(branch).toMatch(conventional);
+    });
 
-    it('keeps feat for a title that only starts with the letters fix', async () => {
-      withIssue('Fixture loader', ['enhancement']);
-      expect(await branchFor()).toBe('feat/14-fixture-loader');
+    it.each([
+      ['Fixture loader', 'feat/14-fixture-loader'],
+      ['Fixing things', 'feat/14-fixing-things'],
+      ['Add fix command', 'feat/14-add-fix-command'],
+      ['Prefix [bug] handling', 'feat/14-prefix-bug-handling'],
+    ])('keeps feat for title %j', async (title, expected) => {
+      withIssue(title, ['enhancement']);
+      expect(await branchFor()).toBe(expected);
+    });
+
+    it('uses fix/<issue> when a bug title has no slug characters', async () => {
+      withIssue('***', ['bug']);
+      expect(await branchFor()).toBe('fix/14');
+    });
+
+    it('uses <prefix>/<issue> for a fixed prefix when the title has no slug characters', async () => {
+      await bus.close();
+      bus = await startTestBus({ branchPrefix: 'agent' });
+      withIssue('***', []);
+      expect(await branchFor()).toBe('agent/14');
     });
 
     it('defaults to feat and matches the ledger hook regex', async () => {

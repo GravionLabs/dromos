@@ -203,7 +203,21 @@ describe('loadConfig', () => {
       expect(loadConfig(file, { env: {}, cwd: dir }).branchPrefix).toBe(value);
     });
 
-    it.each(['', '-x', 'a..b', 'a b', 'x/', '/x', 'x.lock', 'a;b'])('rejects %j', (value) => {
+    it.each([
+      '',
+      '-x',
+      'a..b',
+      'a b',
+      'x/',
+      '/x',
+      'x.lock',
+      'a;b',
+      'x-',
+      'a//b',
+      '.hidden',
+      'a/.b',
+      'a./b',
+    ])('rejects %j', (value) => {
       const file = write('c.json', { branchPrefix: value });
       expect(() => loadConfig(file, { env: {}, cwd: dir })).toThrow(ConfigError);
     });

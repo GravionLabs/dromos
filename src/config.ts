@@ -47,9 +47,15 @@ export const ConfigSchema = z.object({
   branchPrefix: z
     .string()
     .min(1)
-    .refine((p) => isSafeBranchName(p) && !p.endsWith('-') && !p.startsWith('/'), {
-      message: 'branchPrefix must be a valid branch-name prefix',
-    })
+    .refine(
+      (p) =>
+        isSafeBranchName(p) &&
+        !p.endsWith('-') &&
+        p.split('/').every((seg) => seg !== '' && !seg.startsWith('.') && !seg.endsWith('.')),
+      {
+        message: 'branchPrefix must be a valid branch-name prefix',
+      },
+    )
     .default('conventional'),
   worktreeDir: z
     .string()
