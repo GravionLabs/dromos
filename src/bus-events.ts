@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { BusEvent } from './db.js';
+import type { EventRecord } from './db.js';
 import type { Role } from './schemas.js';
 
 /** In-process signal used to wake up `inbox` long-polls when a message arrives. */
@@ -49,11 +49,11 @@ export class BusEvents extends EventEmitter {
   static readonly EVENT_CHANNEL = 'event';
 
   /** Broadcast a stored event row to every stream subscriber. */
-  publishEvent(event: BusEvent): void {
+  publishEvent(event: EventRecord): void {
     this.emit(BusEvents.EVENT_CHANNEL, event);
   }
 
-  onEvent(listener: (event: BusEvent) => void): () => void {
+  onEvent(listener: (event: EventRecord) => void): () => void {
     this.on(BusEvents.EVENT_CHANNEL, listener);
     return () => this.off(BusEvents.EVENT_CHANNEL, listener);
   }

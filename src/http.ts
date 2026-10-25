@@ -8,7 +8,7 @@ import { BusEvents } from './bus-events.js';
 import { type BusLog, createBusLog } from './bus-log.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
-import { recordEvent } from './event-store.js';
+import { EventValidationError, recordEvent } from './event-store.js';
 import { createEventStream, createHostGuard } from './event-stream.js';
 import { type BusEvent, BusEventSchema, INGEST_TYPES, isIngestType } from './events/schema.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
@@ -332,15 +332,17 @@ export async function startHttp({
       runId: agent.runId,
       data,
     };
-    const checked = BusEventSchema.safeParse(envelope);
-    if (!checked.success) {
+    try {
+      recordEvent(db, events, agent.role, envelope);
+    } catch (error) {
+      if (!(error instanceof EventValidationError)) {
+        throw error;
+      }
       log.logLine(
         'ERROR',
-        `dropped invalid ${type} event for agent ${agent.id} (${agent.role}): ${z.prettifyError(checked.error)}`,
+        `dropped invalid ${type} event for agent ${agent.id} (${agent.role}): ${error.detail}`,
       );
-      return;
     }
-    recordEvent(db, events, agent.role, type, checked.data.data);
   }
 
   /** Update agents.state and emit agent.state, but only when the state actually changes. */
@@ -382,11 +384,43 @@ export async function startHttp({
       return;
     }
     const { role, cli, state, model } = parsed.data;
-    recordEvent(db, events, role, `hook:${state}`, parsed.data);
-    log.logLine('HOOK', `${role} ${state} (${cli}${model ? `, ${model}` : ''})`);
-    const agentId = hookAgentId(req, role);
-    if (agentId) {
-      setAgentState(agentId, state);
+    // The instance a hook belongs to is resolved first; null when ambiguous or unknown.
+    const agentId = hookAgentId(req, role) ?? null;
+    const envelope = {
+      id: 0,
+      type: `hook:${state}`,
+      at: new Date().toISOString(),
+      source: `hook/${cli}`,
+      agentId,
+      issue: null,
+      runId: null,
+      data: parsed.data,
+    };
+    // Validate before any side effect, so a later failure never leaves a stored row to retry.
+    const checked = BusEventSchema.safeParse(envelope);
+    if (!checked.success) {
+      const detail = briefIssue(checked.error);
+      log.logLine('ERROR', `rejected hook ${role} ${state}: ${detail}`);
+      sendJson(res, 400, { error: detail });
+      return;
+    }
+    // Order is deliberate: agent.state first, hook row last. The two writes are not atomic, but a
+    // failure in the state step stores no hook row, and after a failure the retry finds the state
+    // already changed (setAgentState is then a no-op) so it stores the hook row exactly once.
+    // Only a subscriber throwing on the hook row itself leaves it stored with a 500.
+    try {
+      if (agentId) {
+        setAgentState(agentId, state);
+      }
+      recordEvent(db, events, role, envelope);
+      log.logLine('HOOK', `${role} ${state} (${cli}${model ? `, ${model}` : ''})`);
+    } catch (error) {
+      log.logLine(
+        'ERROR',
+        `hook ${role} ${state}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+      );
+      sendJson(res, 500, { error: 'internal error' });
+      return;
     }
     res.writeHead(204).end();
   }

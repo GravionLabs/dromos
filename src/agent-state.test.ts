@@ -204,6 +204,18 @@ describe('agent.state events', () => {
     );
   });
 
+  it('answers 500 when emitting agent.state fails for a non-validation reason', async () => {
+    await bus.connect('implementer', 'impl-1');
+    bus.events.onEvent((e) => {
+      if (e.kind === 'agent.state') {
+        throw new Error('subscriber failed');
+      }
+    });
+    const res = await hook('busy', { 'x-agent-id': 'impl-1' });
+    expect(res.status).toBe(500);
+    expect(bus.readLog()).toMatch(/ERROR +hook implementer busy: Error: subscriber failed/);
+  });
+
   it('logs an ERROR and still closes when the database is gone during shutdown', async () => {
     const local = await startTestBus();
     try {

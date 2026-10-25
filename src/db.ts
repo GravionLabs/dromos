@@ -119,7 +119,7 @@ export interface NewMessage {
   payload: unknown;
 }
 
-export interface BusEvent {
+export interface EventRecord {
   id: number;
   role: string;
   kind: string;
@@ -279,10 +279,10 @@ export interface Db {
   getRun(id: string): Run | undefined;
   listRuns(): Run[];
   updateRun(id: string, patch: RunPatch): Run | undefined;
-  insertEvent(role: string, kind: string, data: unknown, context?: EventContext): BusEvent;
-  listEvents(role?: string, limit?: number): BusEvent[];
+  insertEvent(role: string, kind: string, data: unknown, context?: EventContext): EventRecord;
+  listEvents(role?: string, limit?: number): EventRecord[];
   /** Events with id strictly greater than `afterId`, ascending, for stream replay. */
-  listEventsSince(afterId: number, limit?: number): BusEvent[];
+  listEventsSince(afterId: number, limit?: number): EventRecord[];
   /** Runs `fn` in one SQLite transaction; rolls back when it throws. */
   transaction<T>(fn: () => T): T;
   schemaVersion(): number;
@@ -364,7 +364,7 @@ export function openDb(file: string): Db {
     'SELECT * FROM events WHERE id > ? ORDER BY id ASC LIMIT ?',
   );
 
-  const toEvent = (row: EventRow): BusEvent => ({
+  const toEvent = (row: EventRow): EventRecord => ({
     id: row.id,
     role: row.role,
     kind: row.kind,
