@@ -33,6 +33,19 @@ Can start in parallel to stage 1; #44 needs #12.
 
 Unblocks apm-hub 2.6.0 (#389) at #43.
 
+## Stage 2b — history and attention for unattended apm-hub loops (Epic #132, Features #133 and #134; milestone 0.2.0)
+
+apm-hub makes its orchestrator loops run without a human by default (GravionLabs/apm-hub#573). The bus contributes the cross-harness run history that apm-hub's retro reads and the answer channel for parked gates. The apm-hub ledger stays its source of truth; the bus holds a projection (decision candidate in #131).
+
+| Order | Issue | Title | Size | Depends on |
+| --- | --- | --- | --- | --- |
+| 1 | #136 | `progress` events: optional `data.kind` and `data.fields` | S | #97 |
+| 2 | #135 | `GET /events` query API: filters, time window, pagination | M | #43 |
+| 3 | #138 | `attention` with id and state, `POST /attention/{id}/answer` → `attention.answered` | M | #43, #97 |
+| 4 | #137 | `dromos run metrics` and `GET /runs/{issue}/metrics` | M | #135, #136, apm-hub#393 |
+
+Unblocks apm-hub 2.8.0 (#591, #592) at #135–#137; #138 is what #103 (herdr) and #53 (dromos-mux) answer attentions through, and it settles the headless `input` question of #65 for gate answers (restart with a fresh prompt instead).
+
 ## Stage 3 — roles, CLI, idle hooks (Epic #1, Features #20 and #26)
 
 | Issue | Title | Depends on |
