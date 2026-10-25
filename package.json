@@ -1,5 +1,5 @@
 {
-  "name": "agent-bus",
+  "name": "@gravionlabs/dromos",
   "version": "0.1.0",
   "private": true,
   "description": "Local MCP bus coordinating interactive Claude Code / Copilot CLI agents",
@@ -13,19 +13,24 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "test": "vitest run",
+    "schema": "tsx src/events/export-schema.ts",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "changelog": "git-cliff -c cliff.toml -o CHANGELOG.md",
+    "changelog:release": "git-cliff -c cliff.toml -o CHANGELOG.md --unreleased -t v{version}"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "better-sqlite3": "^13.0.3",
+    "execa": "^10.1.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.2",
+    "@vitest/coverage-v8": "5.0.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1"

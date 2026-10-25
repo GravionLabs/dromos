@@ -74,6 +74,36 @@ describe('messaging tools', () => {
       expect(bus.db.listUnacked('reviewer')).toEqual([]);
     });
 
+    it('addresses a registered agent id and records sender and recipient agents', async () => {
+      const impl = await bus.connect('implementer', 'impl-a');
+      const orchestrator = await bus.connect('orchestrator', 'orch-1');
+      const result = await orchestrator.callTool({
+        name: 'post',
+        arguments: { to: 'impl-a', type: 'chat', payload: 'x' },
+      });
+      expect(result.isError).toBeFalsy();
+      expect(bus.db.listUnacked('implementer')).toEqual([]);
+      expect(bus.db.listUnacked('implementer', 20, 'impl-a')).toMatchObject([
+        { from: 'orchestrator', to: 'implementer', fromAgent: 'orch-1', toAgent: 'impl-a' },
+      ]);
+      expect(impl).toBeDefined();
+    });
+
+    it('rejects an unknown agent id and posting to yourself by id', async () => {
+      const impl = await bus.connect('implementer', 'impl-a');
+      const unknown = await impl.callTool({
+        name: 'post',
+        arguments: { to: 'ghost', type: 'chat', payload: 'x' },
+      });
+      const self = await impl.callTool({
+        name: 'post',
+        arguments: { to: 'impl-a', type: 'chat', payload: 'x' },
+      });
+      expect(unknown.isError).toBe(true);
+      expect(textOf(unknown)).toContain('unknown recipient');
+      expect(self.isError).toBe(true);
+    });
+
     it('rejects an unknown run id', async () => {
       const client = await bus.connect('orchestrator');
       const result = await client.callTool({
@@ -127,6 +157,23 @@ describe('messaging tools', () => {
       const result = await reviewer.callTool({ name: 'ack', arguments: { ids: [id, 999] } });
       expect(JSON.parse(textOf(result))).toEqual({ acked: [], ignored: [id, 999] });
       expect(bus.db.listUnacked('orchestrator')).toHaveLength(1);
+    });
+
+    it('does not let another agent of the same role ack an agent-addressed message', async () => {
+      await bus.connect('implementer', 'impl-a');
+      const b = await bus.connect('implementer', 'impl-b');
+      const orchestrator = await bus.connect('orchestrator');
+      const { id } = JSON.parse(
+        textOf(
+          await orchestrator.callTool({
+            name: 'post',
+            arguments: { to: 'impl-a', type: 'chat', payload: 'x' },
+          }),
+        ),
+      ) as { id: number };
+      const result = await b.callTool({ name: 'ack', arguments: { ids: [id] } });
+      expect(JSON.parse(textOf(result))).toEqual({ acked: [], ignored: [id] });
+      expect(bus.db.listUnacked('implementer', 20, 'impl-a')).toHaveLength(1);
     });
 
     it('rejects an empty id list', async () => {

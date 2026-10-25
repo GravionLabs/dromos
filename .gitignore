@@ -9,3 +9,9 @@ coverage/
 
 # APM dependencies
 apm_modules/
+
+# Rust
+target/
+
+# Run worktrees
+.worktrees/

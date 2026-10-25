@@ -1,0 +1,56 @@
+# Release on main (apm-hub convention): the version comes from GitVersion (GitVersion.yml, release/next increments
+# Minor), gh-release tags, regenerates CHANGELOG.md with git-cliff (cliff.toml), publishes the GitHub Release and
+# closes the issues labelled `merged` (set by release-pr.yml when their PRs merged into release/next).
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  determine-version:
+    name: Determine Version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      semver: ${{ steps.version.outputs.semver }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        uses: GravionLabs/ci/versioning/determine-version@main
+        with:
+          gitversion-config-file: GitVersion.yml
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: determine-version
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT || github.token }}
+
+      - name: Create GitHub Release
+        uses: GravionLabs/ci/versioning/gh-release@main
+        with:
+          token: ${{ secrets.GH_PAT || github.token }}
+          version: ${{ needs.determine-version.outputs.semver }}
+          changelog-file: CHANGELOG.md
+          cliff-config: cliff.toml
+          update-changelog: 'true'

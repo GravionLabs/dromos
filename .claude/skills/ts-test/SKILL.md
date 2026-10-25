@@ -16,7 +16,6 @@ description: >
 - **Config**: `vitest.config.ts` at project root
 - **Run all**: `<pm> test` (package manager from `detect-techstack`)
 - **Run single file**: `npx vitest run <path>`
-- **Targeted run** (per commit, test files of the changed paths): `npx vitest run <path> <path>`; unknown mapping: the project's fast script (e.g. `<pm> run test:unit`), never the full suite
 
 ### File Naming
 

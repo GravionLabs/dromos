@@ -2,14 +2,14 @@ name: dromos
 version: 1.0.0
 description: APM project for dromos
 author: Jérôme Kaufmann
-# Which agent platforms to deploy to (uncomment to pin):
-# targets:
-#   - copilot
-#   - claude
-
+# Which agent platforms to deploy to.
+# Resolution order: --target flag > this field > auto-detect from filesystem.
+# Accepted values: agent-skills, antigravity, claude, codex, copilot, cursor, gemini, grok-build, hermes, kiro, opencode, vscode, windsurf
+targets:
+  - claude
 dependencies:
   apm:
-    - GravionLabs/apm-hub/packages/ts
+    - GravionLabs/apm-hub/packages/ts#a9e08c1aca9e81c6395dd1ab096f8fcb9a829c27
   mcp: []
 includes: auto
 scripts: {}

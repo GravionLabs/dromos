@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-export const LOG_KINDS = ['MESSAGE', 'STATE', 'GATE', 'REVIEW', 'HOOK', 'ERROR'] as const;
+export const LOG_KINDS = ['MESSAGE', 'STATE', 'GATE', 'REVIEW', 'HOOK', 'INGEST', 'ERROR'] as const;
 export type LogKind = (typeof LOG_KINDS)[number];
 
 export interface BusLog {
@@ -28,7 +28,7 @@ export function createBusLog(dataDir: string): BusLog {
         appendFileSync(file, `${formatLogLine(kind, text)}\n`);
       } catch (error) {
         process.stderr.write(
-          `agent-bus: cannot write ${file}: ${error instanceof Error ? error.message : error}\n`,
+          `dromos: cannot write ${file}: ${error instanceof Error ? error.message : error}\n`,
         );
       }
     },

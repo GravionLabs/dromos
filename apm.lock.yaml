@@ -5,8 +5,9 @@ dependencies:
   materialization_repo_url: GravionLabs/apm-hub
   name: ts
   host: github.com
-  resolved_commit: e2ad0b7c75c77772ec21dee6b765ae8efd37c048
-  version: 2.3.1
+  resolved_commit: a9e08c1aca9e81c6395dd1ab096f8fcb9a829c27
+  resolved_ref: a9e08c1aca9e81c6395dd1ab096f8fcb9a829c27
+  version: 2.3.0
   virtual_path: packages/ts
   is_virtual: true
   package_type: apm_package
@@ -69,8 +70,8 @@ dependencies:
     .claude/skills/ts-mcp-server-generator/templates/src/index.ts: sha256:bee7ed0ad78770c0c9362c09f8c193898c51b41587a3c971da7028dcf3af6d0f
     .claude/skills/ts-mcp-server-generator/templates/tsconfig.json: sha256:68b179e5085588b8890348d277100a927ebad0936974d96f92d397cea5b73a24
     .claude/skills/ts-pnpm-workflow/SKILL.md: sha256:483b8c45e65cb0e6fdd9992909dc7d106c6ae7089d99046732b5d43b782997cf
-    .claude/skills/ts-test/SKILL.md: sha256:8a82130a983f1b738f8e0180b18481125cd49bdd1e80209652b7122231971c9c
-  content_hash: sha256:46885fd76e7853959b8f94b9c53fc90cf8fd5bc9a8e69adc93105c4f86b3d738
+    .claude/skills/ts-test/SKILL.md: sha256:a94f9ec5e386efa5d07ef27560785a54944d34b971f0c2c744429c49898d0f92
+  content_hash: sha256:8fbb2d4676cd062205b64c05bfb50f1e0c6e095b792fb391d5cafda9e100d5c4
   declared_license: MIT
 deployments:
 - kind: project-relative
@@ -360,4 +361,4 @@ deployments:
   owners:
   - gravionlabs/apm-hub/packages/ts
   active_owner: gravionlabs/apm-hub/packages/ts
-  content_hash: sha256:8a82130a983f1b738f8e0180b18481125cd49bdd1e80209652b7122231971c9c
+  content_hash: sha256:a94f9ec5e386efa5d07ef27560785a54944d34b971f0c2c744429c49898d0f92

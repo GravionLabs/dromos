@@ -2,11 +2,16 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ToolContext } from './context.js';
 import { registerInboxTool } from './tools/inbox.js';
 import { registerMessagingTools } from './tools/messaging.js';
+import { registerPrTools } from './tools/pr.js';
+import { registerReviewTools } from './tools/review.js';
+import { registerRunTools } from './tools/runs.js';
+import { registerStatusTools } from './tools/status.js';
+import { registerSubmitTools } from './tools/submit.js';
 
 const text = (value: string) => ({ content: [{ type: 'text' as const, text: value }] });
 
 export function createBusServer(ctx: ToolContext): McpServer {
-  const server = new McpServer({ name: 'agent-bus', version: '0.1.0' });
+  const server = new McpServer({ name: 'dromos', version: '0.1.0' });
 
   server.registerTool('ping', { description: 'Health check. Returns "pong".' }, () => text('pong'));
 
@@ -14,13 +19,18 @@ export function createBusServer(ctx: ToolContext): McpServer {
     'whoami',
     {
       description:
-        'Returns the role this connection is bound to (orchestrator, implementer or reviewer).',
+        'Returns the role (orchestrator, implementer or reviewer) and the agent id this connection is bound to.',
     },
-    () => text(JSON.stringify({ role: ctx.role })),
+    () => text(JSON.stringify({ role: ctx.role, agentId: ctx.agentId })),
   );
 
   registerMessagingTools(server, ctx);
   registerInboxTool(server, ctx);
+  registerRunTools(server, ctx);
+  registerSubmitTools(server, ctx);
+  registerReviewTools(server, ctx);
+  registerPrTools(server, ctx);
+  registerStatusTools(server, ctx);
 
   return server;
 }

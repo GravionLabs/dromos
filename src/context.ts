@@ -7,6 +7,8 @@ import type { Role } from './schemas.js';
 /** Everything a tool handler needs; `role` is bound to the MCP session that made the call. */
 export interface ToolContext {
   role: Role;
+  /** Id of the agent instance bound to the MCP session (supplied or minted at initialize). */
+  agentId: string;
   db: Db;
   config: Config;
   events: BusEvents;

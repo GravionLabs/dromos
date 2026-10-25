@@ -1,0 +1,21 @@
+[package]
+name = "dromos-schema-gen"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+prettyplease = "0.3"
+schemars = "0.8"
+serde_json = "1"
+syn = { version = "3", default-features = false, features = ["full", "parsing"] }
+typify = "0.8"
+
+[dev-dependencies]
+quote = "1"
+syn = { version = "3", default-features = false, features = ["full", "parsing", "printing"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,14 @@
+{
+  "id": 45,
+  "type": "usage",
+  "at": "2026-10-22T09:21:00.000Z",
+  "source": "apm-hub/statusline",
+  "agentId": "implementer-1",
+  "issue": 39,
+  "runId": null,
+  "data": {
+    "contextTokens": 48213,
+    "costUsd": 0.37,
+    "model": "claude-sonnet-5-5"
+  }
+}

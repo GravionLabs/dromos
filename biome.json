@@ -7,8 +7,10 @@
       "!dist",
       "!coverage",
       "!.agents",
+      "!.claude",
       "!.github/ISSUE_TEMPLATE",
-      "!pnpm-lock.yaml"
+      "!pnpm-lock.yaml",
+      "!schema/events.schema.json"
     ]
   },
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
