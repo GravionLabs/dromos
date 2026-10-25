@@ -23,7 +23,7 @@ Order inside dromos: #136 → #135 → #138 → #137 (Stage 2b), then Stage 4. G
 
 Feature #2 (project foundation) and Feature #7 (messaging: `post`, `ack`, `inbox`, `/events`, bus log).
 
-`v0.1.0` (2026-10-25): Feature #12 workflow core (#13–#19; the Feature is still open with label `merged` and can be closed), Feature #37 Rust workspace and event schema (#38, #39), agent instances #41, SSE stream #42, `POST /ingest` #43, rename #71, worktree #80, Node CI #90, release conventions #108, apm-hub compatible lease #126 and branch names #127. apm-hub consumes `/ingest` since its 2.4.0 (#389).
+`v0.1.0` (2026-10-25): Feature #12 workflow core (#13–#19), Feature #37 Rust workspace and event schema (#38, #39), agent instances #41, SSE stream #42, `POST /ingest` #43, rename #71, worktree #80, Node CI #90, release conventions #108, apm-hub compatible lease #126 and branch names #127. apm-hub consumes `/ingest` since its 2.4.0 (#389).
 
 ## Stage 2 — events and instances (Feature #40; milestone 0.2.0)
 
