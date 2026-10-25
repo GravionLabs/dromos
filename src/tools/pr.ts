@@ -27,7 +27,9 @@ function parsePrUrl(stdout: string): string | undefined {
   const candidate = lastLine(stdout);
   try {
     const url = new URL(candidate);
-    return url.protocol === 'https:' && candidate === url.href.replace(/\/$/, '')
+    return url.protocol === 'https:' &&
+      /^\/[^/]+\/[^/]+\/pull\/\d+$/.test(url.pathname) &&
+      candidate === url.href.replace(/\/$/, '')
       ? candidate
       : undefined;
   } catch {
@@ -41,6 +43,39 @@ function lastLine(stdout: string): string {
     .map((l) => l.trim())
     .filter((l) => l !== '');
   return lines[lines.length - 1] ?? '';
+}
+
+/**
+ * Repository config keys that make `git push` run a program, change credentials or redirect the
+ * push. The worktree is implementer-controlled, so such keys from its local or worktree config
+ * make open_pr refuse to push; global and system config stay trusted. core.hooksPath is not
+ * listed because the push overrides it with `-c core.hooksPath=/dev/null` (husky sets it locally).
+ */
+const UNSAFE_LOCAL_CONFIG = [
+  /^core\.(sshcommand|gitproxy|askpass|fsmonitor)$/i,
+  /^credential\./i,
+  /^url\..*\.(pushinsteadof|insteadof)$/is,
+  /^remote\..*\.(pushurl|receivepack|uploadpack|vcs|proxy)$/is,
+  /^(protocol|http|ssh)\./i,
+  /^gpg\.(.*\.)?program$/is,
+  /^push\.gpgsign$/i,
+];
+
+/** Unsafe keys set in local or worktree scope, from `git config --show-scope --name-only --null --list`. */
+function unsafeLocalKeys(listing: string): string[] {
+  const parts = listing.split('\0');
+  const keys = new Set<string>();
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    const scope = parts[i];
+    const key = parts[i + 1] ?? '';
+    if (
+      (scope === 'local' || scope === 'worktree') &&
+      UNSAFE_LOCAL_CONFIG.some((r) => r.test(key))
+    ) {
+      keys.add(key.replace(/[^\x21-\x7e]/g, '?').slice(0, 80));
+    }
+  }
+  return [...keys];
 }
 
 /** Run ids with an open_pr in progress, one set per bus (its db), shared by all sessions. */
@@ -86,6 +121,23 @@ export function registerPrTools(server: McpServer, ctx: ToolContext): void {
       inFlight.add(runId);
       try {
         let stdout: string;
+        try {
+          const listing = await execa(
+            'git',
+            ['-C', run.worktreePath, 'config', '--show-scope', '--name-only', '--null', '--list'],
+            { timeout: EXEC_TIMEOUT_MS },
+          );
+          const unsafe = unsafeLocalKeys(String(listing.stdout));
+          if (unsafe.length > 0) {
+            const message = `refusing to push: worktree config sets ${unsafe.join(', ')}`;
+            logError(`${runId} open_pr: ${message}`);
+            return errorResult(`${message}; remove it and retry`);
+          }
+        } catch (err) {
+          const message = failure('git config', err);
+          logError(`${runId} open_pr: ${message}`);
+          return errorResult(message);
+        }
         try {
           await execa(
             'git',
@@ -160,10 +212,13 @@ export function registerPrTools(server: McpServer, ctx: ToolContext): void {
             return next;
           });
         } catch (err) {
+          // Recovery is intentionally manual (no gh pr view lookup): a retry fails with gh's
+          // "already exists" error, so the created PR url must be in both the log and the result.
           const reason = err instanceof Error ? err.message : String(err);
           logError(`${runId} open_pr: PR ${prUrl} created but state update failed: ${reason}`);
           return errorResult(
-            `PR ${prUrl} was created but recording it failed: ${reason}; run stays approved`,
+            `PR ${prUrl} was created but recording it failed: ${reason}; run stays approved, ` +
+              'record the PR manually (a retry fails because the PR already exists)',
           );
         }
         void afterRunTransition(ctx, { ...current, state: moved.state });

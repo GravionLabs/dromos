@@ -10,6 +10,10 @@ export interface PrBodyInput {
 
 const ZWSP = '\u200b';
 
+/** Every sequence a Markdown renderer may treat as a line break. */
+const LINE_BREAK = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/;
+const LINE_BREAKS = new RegExp(LINE_BREAK.source, 'g');
+
 /**
  * Neutralizes agent-written text: no live closing keywords, no @mentions, and every line is
  * quoted so it cannot forge a section heading.
@@ -19,7 +23,7 @@ function untrusted(text: string): string {
     .replace(/\b(clos|fix|resolv)(e[sd]?|ing)?\b/gi, (m) => `${m[0]}${ZWSP}${m.slice(1)}`)
     .replace(/@/g, `@${ZWSP}`)
     .replace(/#(?=\d)/g, `#${ZWSP}`)
-    .split(/\r?\n/)
+    .split(LINE_BREAK)
     .map((l) => `> ${l}`.trimEnd())
     .join('\n');
 }
@@ -29,7 +33,15 @@ function inline(text: string): string {
 }
 
 function cell(text: string): string {
-  return text.replace(/\r?\n/g, ' ').replace(/\|/g, '\\|');
+  return text.replace(LINE_BREAKS, ' ').replace(/\|/g, '\\|');
+}
+
+/** Code span whose fence is longer than any backtick run inside the text. */
+function codeSpan(text: string): string {
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((r) => r.length));
+  if (longest === 0) return `\`${text}\``;
+  const fence = '`'.repeat(longest + 1);
+  return `${fence} ${text} ${fence}`;
 }
 
 function seconds(ms: number): string {
@@ -40,7 +52,7 @@ function gateSection(gate: GateResult | null): string {
   if (!gate) return '_No gate result recorded._';
   const rows = gate.steps.map(
     (s) =>
-      `| ${cell(s.name)} | \`${cell(s.command)}\` | ${s.exitCode} | ${seconds(s.durationMs)} |`,
+      `| ${cell(s.name)} | ${codeSpan(cell(s.command))} | ${s.exitCode} | ${seconds(s.durationMs)} |`,
   );
   return ['| Step | Command | Exit code | Duration |', '| --- | --- | --- | --- |', ...rows].join(
     '\n',

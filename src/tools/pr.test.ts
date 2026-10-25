@@ -65,12 +65,18 @@ describe('open_pr', () => {
     expect(mockExeca).toHaveBeenNthCalledWith(
       1,
       'git',
+      ['-C', '/wt', 'config', '--show-scope', '--name-only', '--null', '--list'],
+      expect.objectContaining({ timeout: expect.any(Number) }),
+    );
+    expect(mockExeca).toHaveBeenNthCalledWith(
+      2,
+      'git',
       ['-c', 'core.hooksPath=/dev/null', '-C', '/wt', 'push', '-u', 'origin', '--', 'feat/1-title'],
       expect.objectContaining({ timeout: expect.any(Number) }),
     );
     const run = bus.db.getRun('run-1-1');
     expect(mockExeca).toHaveBeenNthCalledWith(
-      2,
+      3,
       'gh',
       [
         'pr',
@@ -91,7 +97,7 @@ describe('open_pr', () => {
         timeout: expect.any(Number),
       }),
     );
-    const input = mockExeca.mock.calls[1]?.[2].input as string;
+    const input = mockExeca.mock.calls[2]?.[2].input as string;
     expect(input).toContain('Closes #1');
     expect(input).toContain('Did it');
     expect(run).toMatchObject({ state: 'pr_opened', prUrl: PR_URL });
@@ -107,7 +113,7 @@ describe('open_pr', () => {
   it('adds --draft only when draft is true', async () => {
     addRun();
     await call({ draft: true });
-    expect(mockExeca.mock.calls[1]?.[1]).toContain('--draft');
+    expect(mockExeca.mock.calls[2]?.[1]).toContain('--draft');
   });
 
   it.each(['pr_opened', 'blocked', 'implementing', 'gating', 'reviewing'] as const)(
@@ -138,22 +144,99 @@ describe('open_pr', () => {
     expect(bus.db.getRun('run-1-1')?.state).toBe('approved');
   });
 
-  it.each(['git', 'gh'])('leaves the run approved when %s fails', async (failing) => {
+  const failingStep = (cmd: string, args: string[]) =>
+    cmd === 'gh' ? 'gh pr create' : args.includes('push') ? 'git push' : 'git config';
+
+  it.each(['git config', 'git push', 'gh pr create'])(
+    'leaves the run approved when %s fails',
+    async (failing) => {
+      addRun();
+      mockExeca.mockImplementation(async (cmd: string, args: string[]) => {
+        if (failingStep(cmd, args) === failing) {
+          throw Object.assign(new Error(`Command failed: ${cmd} secret-arg`), {
+            stderr: `\n boom https://user:tok@github.com/o/r\nsecond`,
+          });
+        }
+        return { stdout: cmd === 'gh' ? PR_URL : '' };
+      });
+      const result = await call();
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toBe(`${failing} failed: boom https://***@github.com/o/r`);
+      expect(textOf(result)).not.toMatch(/tok|secret-arg|second/);
+      expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'approved', prUrl: null });
+      expect(bus.db.listUnacked('orchestrator')).toEqual([]);
+      expect(mockAfter).not.toHaveBeenCalled();
+      expect(bus.readLog()).toContain(`${failing} failed`);
+    },
+  );
+
+  it('falls back to a generic message when stderr is empty', async () => {
+    addRun();
+    mockExeca.mockImplementation(async (cmd: string, args: string[]) => {
+      if (args.includes('push')) throw Object.assign(new Error('x'), { stderr: '  \n' });
+      return { stdout: cmd === 'gh' ? PR_URL : '' };
+    });
+    expect(textOf(await call())).toBe('git push failed');
+  });
+
+  it('maps a gh timeout to a short error', async () => {
     addRun();
     mockExeca.mockImplementation(async (cmd: string) => {
-      if (cmd === failing) {
-        throw Object.assign(new Error(`Command failed: ${cmd} secret-arg`), {
-          stderr: `${failing} boom https://user:tok@github.com/o/r\nsecond`,
-        });
-      }
-      return { stdout: PR_URL };
+      if (cmd === 'gh') throw Object.assign(new Error('Command timed out'), { timedOut: true });
+      return { stdout: '' };
     });
+    expect(textOf(await call())).toBe('gh pr create timed out');
+    expect(bus.db.getRun('run-1-1')?.state).toBe('approved');
+  });
+
+  it.each([
+    ['core.sshcommand'],
+    ['credential.helper'],
+    ['credential.https://github.com.helper'],
+    ['url.https://evil.example/.insteadof'],
+    ['url.git@evil:.pushinsteadof'],
+    ['remote.origin.pushurl'],
+    ['remote.origin.receivepack'],
+    ['http.proxy'],
+    ['protocol.ext.allow'],
+  ])('refuses to push when the worktree config sets %s', async (key) => {
+    addRun();
+    mockExeca.mockImplementation(async (_cmd: string, args: string[]) => ({
+      stdout: args.includes('config')
+        ? `global\0credential.helper\0local\0remote.origin.url\0worktree\0${key}\0`
+        : '',
+    }));
     const result = await call();
     expect(result.isError).toBe(true);
-    expect(textOf(result)).toContain(`${failing} boom https://***@github.com/o/r`);
-    expect(textOf(result)).not.toMatch(/tok|secret-arg|second/);
-    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'approved', prUrl: null });
-    expect(bus.db.listUnacked('orchestrator')).toEqual([]);
+    expect(textOf(result)).toBe(
+      `refusing to push: worktree config sets ${key}; remove it and retry`,
+    );
+    expect(mockExeca).toHaveBeenCalledTimes(1);
+    expect(bus.db.getRun('run-1-1')?.state).toBe('approved');
+  });
+
+  it('trusts global and system config and a local core.hooksPath', async () => {
+    addRun();
+    mockExeca.mockImplementation(async (cmd: string, args: string[]) => ({
+      stdout: args.includes('config')
+        ? 'global\0core.sshcommand\0system\0credential.helper\0local\0core.hookspath\0'
+        : cmd === 'gh'
+          ? PR_URL
+          : '',
+    }));
+    const result = await call();
+    expect(result.isError).toBeFalsy();
+    expect(bus.db.getRun('run-1-1')?.state).toBe('pr_opened');
+  });
+
+  it('masks control characters in a reported config key', async () => {
+    addRun();
+    mockExeca.mockImplementation(async () => ({
+      stdout: 'local\0url.a\nb.insteadof\0',
+    }));
+    expect(textOf(await call())).toBe(
+      'refusing to push: worktree config sets url.a?b.insteadof; remove it and retry',
+    );
   });
 
   it('returns the gh error when a PR already exists', async () => {
@@ -206,7 +289,12 @@ describe('open_pr', () => {
 
   it('maps a timeout to a short error and leaves the run approved', async () => {
     addRun();
-    mockExeca.mockRejectedValue(Object.assign(new Error('Command timed out'), { timedOut: true }));
+    mockExeca.mockImplementation(async (_cmd: string, args: string[]) => {
+      if (args.includes('push')) {
+        throw Object.assign(new Error('Command timed out'), { timedOut: true });
+      }
+      return { stdout: '' };
+    });
     const result = await call();
     expect(textOf(result)).toBe('git push timed out');
     expect(bus.db.getRun('run-1-1')?.state).toBe('approved');
@@ -217,6 +305,8 @@ describe('open_pr', () => {
     ['non-url text', 'done'],
     ['http url', 'http://github.com/o/r/pull/9'],
     ['url with trailing text', 'https://github.com/o/r/pull/9 created'],
+    ['https url without a pull path', 'https://github.com/o/r'],
+    ['https url with a non-numeric pull', 'https://github.com/o/r/pull/x'],
   ])('rejects gh output without an https url: %s', async (_n, out) => {
     addRun();
     mockExeca.mockImplementation(async (cmd: string) => ({ stdout: cmd === 'gh' ? out : '' }));
@@ -246,6 +336,41 @@ describe('open_pr', () => {
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain(PR_URL);
     expect(textOf(result)).toContain('db down');
+    expect(textOf(result)).toContain('record the PR manually');
+    expect(bus.readLog()).toContain(PR_URL);
     expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'approved', prUrl: null });
+    expect(mockAfter).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing when updateRun fails', async () => {
+    addRun();
+    const spy = vi.spyOn(bus.db, 'updateRun').mockImplementation(() => {
+      throw new Error('disk full');
+    });
+    const result = await call();
+    spy.mockRestore();
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain(PR_URL);
+    expect(textOf(result)).toContain('disk full');
+    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'approved', prUrl: null });
+    expect(bus.db.listUnacked('orchestrator')).toEqual([]);
+    expect(mockAfter).not.toHaveBeenCalled();
+  });
+
+  it('rolls back the run update when the notice insert fails', async () => {
+    addRun();
+    const spy = vi.spyOn(bus.db, 'insertMessage').mockImplementation(() => {
+      throw new Error('db down');
+    });
+    await call();
+    spy.mockRestore();
+    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'approved', prUrl: null });
+    expect(bus.db.listUnacked('orchestrator')).toEqual([]);
+  });
+
+  it('releases the lease via afterRunTransition exactly once on success', async () => {
+    addRun();
+    await call();
+    expect(mockAfter).toHaveBeenCalledTimes(1);
   });
 });

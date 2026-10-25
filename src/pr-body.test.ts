@@ -123,4 +123,81 @@ describe('buildPrBody', () => {
     expect(body.match(/^Closes #/gm)).toHaveLength(1);
     expect(body).toContain('> ## Quality gate');
   });
+
+  const summaryOf = (lastSummary: string) =>
+    buildPrBody({ ...base, lastSummary, lastReview: null, lastGate: null });
+
+  it.each([
+    ['LF', '\n'],
+    ['CRLF', '\r\n'],
+    ['lone CR', '\r'],
+    ['vertical tab', '\v'],
+    ['form feed', '\f'],
+    ['NEL', '\u0085'],
+    ['line separator', ' '],
+    ['paragraph separator', ' '],
+  ])('quotes every line after a %s so no heading can be forged', (_n, sep) => {
+    const body = summaryOf(`intro${sep}## Rounds${sep}x`);
+    expect(body).toContain('## Summary\n\n> intro\n> ## Rounds\n> x\n\n## Quality gate');
+    expect(body.match(/^## /gm)).toHaveLength(4);
+  });
+
+  it.each([['\r'], [' '], ['\v']])('replaces line break %j in table cells with a space', (sep) => {
+    const g: GateResult = {
+      passed: true,
+      steps: [
+        { name: `a${sep}## x`, command: `b${sep}c`, exitCode: 1, durationMs: 0, outputTail: '' },
+      ],
+    };
+    expect(buildPrBody({ ...base, lastGate: g })).toContain('| a ## x | `b c` | 1 | 0.0 s |');
+  });
+
+  it.each([
+    'close',
+    'closes',
+    'closed',
+    'closing',
+    'fix',
+    'fixes',
+    'fixed',
+    'fixing',
+    'resolve',
+    'resolves',
+    'resolved',
+    'RESOLVING',
+  ])('breaks the closing keyword %s', (kw) => {
+    const body = summaryOf(`${kw} #42`);
+    expect(body).toContain(`> ${kw[0]}​${kw.slice(1)} #​42`);
+  });
+
+  it('leaves words that only contain a keyword untouched', () => {
+    expect(summaryOf('prefix enclosed unresolved')).toContain('> prefix enclosed unresolved');
+  });
+
+  it('breaks @mentions and bare or cross-repo issue refs', () => {
+    expect(summaryOf('cc @octocat see o/r#5 and #6')).toContain('> cc @​octocat see o/r#​5 and #​6');
+  });
+
+  it('keeps a finding on one line and replaces backticks in its location', () => {
+    const body = buildPrBody({
+      ...base,
+      lastReview: {
+        verdict: 'approve',
+        summary: 's',
+        findings: [{ severity: 'important', file: 'a`b.ts', line: 3, summary: 'one\rtwo' }],
+      },
+    });
+    expect(body).toContain("- **important** `a'b.ts:3` — one two");
+  });
+
+  it.each([
+    ['a single backtick', 'echo `x`', '`` echo `x` ``'],
+    ['a double backtick run', 'a ``b`` c', '``` a ``b`` c ```'],
+  ])('fences a command with %s in a longer code span', (_n, command, cellText) => {
+    const g: GateResult = {
+      passed: true,
+      steps: [{ name: 'n', command, exitCode: 0, durationMs: 0, outputTail: '' }],
+    };
+    expect(buildPrBody({ ...base, lastGate: g })).toContain(`| n | ${cellText} | 0 | 0.0 s |`);
+  });
 });
