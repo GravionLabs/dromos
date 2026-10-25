@@ -399,11 +399,15 @@ export async function startHttp({
     // Validate before any side effect, so a later failure never leaves a stored row to retry.
     const checked = BusEventSchema.safeParse(envelope);
     if (!checked.success) {
-      const detail = z.prettifyError(checked.error);
-      log.logLine('ERROR', `rejected hook ${role} ${state}: ${detail.replace(/\s+/g, ' ')}`);
+      const detail = briefIssue(checked.error);
+      log.logLine('ERROR', `rejected hook ${role} ${state}: ${detail}`);
       sendJson(res, 400, { error: detail });
       return;
     }
+    // Order is deliberate: agent.state first, hook row last. The two writes are not atomic, but a
+    // failure in the state step stores no hook row, and after a failure the retry finds the state
+    // already changed (setAgentState is then a no-op) so it stores the hook row exactly once.
+    // Only a subscriber throwing on the hook row itself leaves it stored with a 500.
     try {
       if (agentId) {
         setAgentState(agentId, state);

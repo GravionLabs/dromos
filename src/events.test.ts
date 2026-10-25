@@ -106,12 +106,59 @@ describe('POST /events', () => {
     vi.restoreAllMocks();
   });
 
+  it('stores agent.state first, then the hook row, both ordered by id', async () => {
+    await bus.connect('implementer', 'impl-1');
+    const from = bus.db.listEventsSince(0).length;
+    await post('{"role":"implementer","cli":"claude","state":"busy"}');
+    const added = bus.db.listEventsSince(0).slice(from);
+    expect(added.map((e) => e.kind)).toEqual(['agent.state', 'hook:busy']);
+  });
+
   it('stores a hook row with the resolved agent id, or null when none resolves', async () => {
     await post('{"role":"reviewer","cli":"claude","state":"busy"}');
-    expect(bus.db.listEvents('reviewer')[0]?.agentId).toBeNull();
+    const none = bus.db.listEventsSince(0).filter((e) => e.kind === 'hook:busy');
+    expect(none.map((e) => e.agentId)).toEqual([null]);
     await bus.connect('implementer', 'impl-1');
     await post('{"role":"implementer","cli":"claude","state":"busy"}');
-    expect(bus.db.listEvents('implementer')[0]?.agentId).toBe('impl-1');
+    const hooks = bus.db.listEventsSince(0).filter((e) => e.kind === 'hook:busy');
+    expect(hooks.map((e) => e.agentId)).toEqual([null, 'impl-1']);
+  });
+
+  it('when a subscriber throws on agent.state: 500, no hook row, and a retry stores it once', async () => {
+    await bus.connect('implementer', 'impl-1');
+    let fail = true;
+    bus.events.onEvent((e) => {
+      if (fail && e.kind === 'agent.state') throw new Error('boom');
+    });
+    const body = '{"role":"implementer","cli":"claude","state":"busy"}';
+    expect((await post(body)).status).toBe(500);
+    expect(bus.db.getAgent('impl-1')?.state).toBe('busy');
+    expect(bus.db.listEventsSince(0).filter((e) => e.kind === 'hook:busy')).toHaveLength(0);
+    fail = false;
+    expect((await post(body)).status).toBe(204);
+    expect(bus.db.listEventsSince(0).filter((e) => e.kind === 'hook:busy')).toHaveLength(1);
+  });
+
+  it('when a subscriber throws on the hook event: 500, state changed, hook row stored', async () => {
+    await bus.connect('implementer', 'impl-1');
+    bus.events.onEvent((e) => {
+      if (e.kind === 'hook:busy') throw new Error('boom');
+    });
+    const res = await post('{"role":"implementer","cli":"claude","state":"busy"}');
+    expect(res.status).toBe(500);
+    expect(bus.db.getAgent('impl-1')?.state).toBe('busy');
+    expect(bus.db.listEventsSince(0).filter((e) => e.kind === 'hook:busy')).toHaveLength(1);
+    expect(bus.readLog()).toMatch(/ERROR +hook implementer busy: Error: boom/);
+  });
+
+  it('answers a rejected hook with a one-line error, not the full report', async () => {
+    const res = await post(
+      JSON.stringify({ role: 'implementer', cli: 'claude', state: 'busy', model: 'a\u0007b' }),
+    );
+    expect(res.status).toBe(400);
+    const { error } = (await res.json()) as { error: string };
+    expect(error).toMatch(/^[^\n]+$/);
+    expect(error).toContain('model');
   });
 
   it('includes the model in the log line when given', async () => {
