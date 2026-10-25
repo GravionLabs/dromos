@@ -51,7 +51,9 @@ describe('status', () => {
     const res = await client.callTool({ name: 'status', arguments: {} });
     expect(textOf(res)).toBe('[]');
     addRun(1);
-    expect(textOf(await client.callTool({ name: 'status', arguments: {} }))).toContain('\n  {\n');
+    const text = textOf(await client.callTool({ name: 'status', arguments: {} }));
+    expect(text).toBe(JSON.stringify(JSON.parse(text), null, 2));
+    expect(text).not.toBe('[]');
   });
 
   it('returns the full run with trimmed gate, review, unacked counts and hook events', async () => {
@@ -98,7 +100,7 @@ describe('status', () => {
       durationMs: 1,
     });
     expect(out.lastGate.steps[1].outputTail).toBe('boom');
-    expect(out.unackedByRole).toEqual({ implementer: 2 });
+    expect(out.unackedByRole).toEqual({ orchestrator: 0, implementer: 2, reviewer: 0 });
     expect(out.lastHookEvents).toEqual([
       {
         role: 'implementer',
@@ -115,7 +117,7 @@ describe('status', () => {
         createdAt: expect.any(String),
       },
     ]);
-    expect(textOf(res)).toContain('\n  "id": "run-5-1"');
+    expect(textOf(res)).toBe(JSON.stringify(out, null, 2));
   });
 
   it('returns null gate/review and empty collections for a fresh run', async () => {
@@ -124,7 +126,11 @@ describe('status', () => {
     const out = JSON.parse(
       textOf(await client.callTool({ name: 'status', arguments: { runId: 'run-6-1' } })),
     );
-    expect(out).toMatchObject({ lastGate: null, lastReview: null, unackedByRole: {} });
+    expect(out).toMatchObject({
+      lastGate: null,
+      lastReview: null,
+      unackedByRole: { orchestrator: 0, implementer: 0, reviewer: 0 },
+    });
     expect(out.lastHookEvents).toEqual([]);
   });
 
@@ -133,5 +139,66 @@ describe('status', () => {
     const res = await client.callTool({ name: 'status', arguments: { runId: 'nope' } });
     expect(res.isError).toBe(true);
     expect(textOf(res)).toBe('unknown run: nope');
+  });
+
+  it('keeps outputTail on every failed step, bounded, without mutating the stored run', async () => {
+    addRun(7);
+    const long = `${'x'.repeat(5000)}END`;
+    const gate: GateResult = {
+      passed: false,
+      steps: [
+        { name: 'a', command: 'a', exitCode: 2, durationMs: 1, outputTail: long },
+        { name: 'b', command: 'b', exitCode: 3, durationMs: 1, outputTail: 'fail-b' },
+      ],
+    };
+    bus.db.updateRun('run-7-1', { lastGate: gate });
+    const client = await bus.connect('reviewer');
+    const out = JSON.parse(
+      textOf(await client.callTool({ name: 'status', arguments: { runId: 'run-7-1' } })),
+    );
+    expect(out.lastGate.steps[0].outputTail).toHaveLength(4000);
+    expect(out.lastGate.steps[0].outputTail.endsWith('END')).toBe(true);
+    expect(out.lastGate.steps[1].outputTail).toBe('fail-b');
+    expect(bus.db.getRun('run-7-1')?.lastGate).toEqual(gate);
+  });
+
+  it('drops outputTail from every step of a passing gate', async () => {
+    addRun(8);
+    bus.db.updateRun('run-8-1', {
+      lastGate: {
+        passed: true,
+        steps: [{ name: 'a', command: 'a', exitCode: 0, durationMs: 1, outputTail: 'noise' }],
+      },
+    });
+    const client = await bus.connect('reviewer');
+    const out = JSON.parse(
+      textOf(await client.callTool({ name: 'status', arguments: { runId: 'run-8-1' } })),
+    );
+    expect(out.lastGate).toEqual({
+      passed: true,
+      steps: [{ name: 'a', command: 'a', exitCode: 0, durationMs: 1 }],
+    });
+  });
+
+  it('reports only allowlisted hook fields and tolerates malformed data', async () => {
+    addRun(9);
+    bus.db.insertEvent('implementer', 'hook:idle', {
+      cli: 'claude',
+      secret: 'leak',
+      sessionId: 's',
+    });
+    bus.db.insertEvent('implementer', 'task:done', { cli: 'other' });
+    bus.db.insertEvent('reviewer', 'hook:busy', null);
+    bus.db.insertEvent('orchestrator', 'hook:idle', { cli: 42, model: { a: 1 } });
+    const client = await bus.connect('reviewer');
+    const text = textOf(await client.callTool({ name: 'status', arguments: { runId: 'run-9-1' } }));
+    expect(text).not.toContain('leak');
+    const hooks = JSON.parse(text).lastHookEvents;
+    const stripped = hooks.map(({ createdAt: _c, ...r }: Record<string, unknown>) => r);
+    expect(stripped).toEqual([
+      { role: 'implementer', cli: 'claude', model: null, state: 'idle' },
+      { role: 'orchestrator', cli: null, model: null, state: 'idle' },
+      { role: 'reviewer', cli: null, model: null, state: 'busy' },
+    ]);
   });
 });
