@@ -5,6 +5,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.1.1] — 2026-10-25
+
+### Documentation
+- Add what apm-hub's self-learning workflow needs from dromos
+- Align ROADMAP.md with v0.1.0 and the milestones
+
+
 ## [0.1.0] — 2026-10-25
 
 ### Bug Fixes
@@ -32,6 +39,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Rename agent-bus to dromos in ROADMAP.md (#70)
 - Rewrite README for dromos
 - Add stage 2b (history and attention for unattended apm-hub loops) to ROADMAP.md (#139)
+- Update CHANGELOG.md for v0.1.0 [skip ci]
 
 
 ### Features
