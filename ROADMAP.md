@@ -2,6 +2,23 @@
 
 Order of work for the open issues of `dromos` (repository renamed from `agent-bus` on 2026-10-18, code rename: see #70). Dependencies come from the `Blocked by` lines of the issues. The PBIs of Epic #1 (stages 1, 3, 6) have no such lines; their dependencies here are inferred from the titles and marked with `~`. apm-hub side: `GravionLabs/apm-hub` `ROADMAP.md` (releases 2.6.0, 2.7.0, Feature #398).
 
+## Unattended path — what apm-hub's self-learning workflow needs from dromos
+
+apm-hub's Epic #573 (`GravionLabs/apm-hub` `ROADMAP.md`, "Unattended path") runs Features and Epics without a human and feeds a retro loop. Its steps 0–4 (releases 2.5.0–2.7.0) need nothing from dromos; the ledger stays the source of truth and the bus holds a projection. dromos is needed from step 4 on:
+
+| apm-hub step | Needs from dromos | Issue | Milestone | Status |
+| --- | --- | --- | --- | --- |
+| 4 (#389, 2.6.0) | `POST /ingest` for the `SubagentStop` hook | #43 | 0.1.0 | released |
+| 4 (#391, 2.7.0) | `attention` with id and state, answer endpoint | #138 (Feature #134) | 0.2.0 | open |
+| 5 (#591, 2.8.0) | `progress` events with `data.kind` and `data.fields` | #136 | 0.2.0 | open |
+| 5 (#592, 2.8.0) | `GET /events` query API | #135 | 0.2.0 | open |
+| 5 (#592, 2.8.0) | `dromos run metrics`, `GET /runs/{issue}/metrics` | #137 (also needs apm-hub#393) | 0.2.0 | open |
+| 6 (#398, 2.8.0) | headless session executor and HTTP endpoints | #62–#65 | 0.4.0 | open |
+| 6 (#398, optional) | pane executor, dromos-mux handles session requests | #66–#68 | 0.4.0, 0.5.0 | open |
+| any | merged Task issues are closed automatically | #150 | none | open, to be scheduled |
+
+Order inside dromos: #136 → #135 → #138 → #137 (Stage 2b), then Stage 4. Gate answers by `attention` (#138) and by the apm-hub `/ruling` comment (#581) are independent; the comment path works without dromos.
+
 ## Done
 
 Feature #2 (project foundation) and Feature #7 (messaging: `post`, `ack`, `inbox`, `/events`, bus log).
