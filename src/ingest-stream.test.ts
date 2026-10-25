@@ -43,7 +43,7 @@ async function firstFrame(
     const id = /^id: (.+)$/m.exec(text);
     const data = /^data: (.+)$/m.exec(text);
     if (id?.[1] && data?.[1]) {
-      return { id: id[1], event: JSON.parse(data[1]) as BusEvent };
+      return { id: id[1], event: JSON.parse(data[1]) as EventRecord };
     }
   }
   return undefined;
@@ -113,7 +113,7 @@ describe('POST /ingest reaches GET /events/stream', () => {
       text += decoder.decode(value, { stream: true });
       frames.length = 0;
       for (const m of text.matchAll(/^data: (.+)$/gm)) {
-        frames.push(JSON.parse(m[1] as string) as BusEvent);
+        frames.push(JSON.parse(m[1] as string) as EventRecord);
       }
     }
     expect(frames).toHaveLength(2);
