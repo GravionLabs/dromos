@@ -10,8 +10,30 @@ import { errorResult, jsonResult, logAndWake } from './util.js';
 
 const EXEC_TIMEOUT_MS = 120_000;
 
-/** Run ids with an open_pr in progress. */
-const inFlight = new Set<string>();
+/** First line of stderr (credentials masked), or a generic message; never the command line. */
+function failure(step: string, err: unknown): string {
+  const e = err as { timedOut?: boolean; stderr?: unknown } | null;
+  if (e?.timedOut) return `${step} timed out`;
+  const stderr = typeof e?.stderr === 'string' ? e.stderr : '';
+  const first = stderr
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .find((l) => l !== '');
+  if (!first) return `${step} failed`;
+  return `${step} failed: ${first.replace(/\/\/[^@\s/]+@/g, '//***@').slice(0, 300)}`;
+}
+
+function parsePrUrl(stdout: string): string | undefined {
+  const candidate = lastLine(stdout);
+  try {
+    const url = new URL(candidate);
+    return url.protocol === 'https:' && candidate === url.href.replace(/\/$/, '')
+      ? candidate
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function lastLine(stdout: string): string {
   const lines = stdout
@@ -21,7 +43,27 @@ function lastLine(stdout: string): string {
   return lines[lines.length - 1] ?? '';
 }
 
+/** Run ids with an open_pr in progress, one set per bus (its db), shared by all sessions. */
+const inFlightByBus = new WeakMap<object, Set<string>>();
+
+function inFlightFor(ctx: ToolContext): Set<string> {
+  let set = inFlightByBus.get(ctx.db);
+  if (!set) {
+    set = new Set();
+    inFlightByBus.set(ctx.db, set);
+  }
+  return set;
+}
+
 export function registerPrTools(server: McpServer, ctx: ToolContext): void {
+  const inFlight = inFlightFor(ctx);
+  const logError = (text: string) => {
+    try {
+      ctx.log.logLine('ERROR', text);
+    } catch {
+      // best effort
+    }
+  };
   server.registerTool(
     'open_pr',
     {
@@ -43,12 +85,30 @@ export function registerPrTools(server: McpServer, ctx: ToolContext): void {
       if (inFlight.has(runId)) return errorResult(`open_pr already in progress for run ${runId}`);
       inFlight.add(runId);
       try {
-        let prUrl: string;
+        let stdout: string;
         try {
-          await execa('git', ['-C', run.worktreePath, 'push', '-u', 'origin', run.branch], {
-            timeout: EXEC_TIMEOUT_MS,
-          });
-          const { stdout } = await execa(
+          await execa(
+            'git',
+            [
+              '-c',
+              'core.hooksPath=/dev/null',
+              '-C',
+              run.worktreePath,
+              'push',
+              '-u',
+              'origin',
+              '--',
+              run.branch,
+            ],
+            { timeout: EXEC_TIMEOUT_MS },
+          );
+        } catch (err) {
+          const message = failure('git push', err);
+          logError(`${runId} open_pr: ${message}`);
+          return errorResult(message);
+        }
+        try {
+          const out = await execa(
             'gh',
             [
               'pr',
@@ -67,26 +127,45 @@ export function registerPrTools(server: McpServer, ctx: ToolContext): void {
             ],
             { input: buildPrBody(run), timeout: EXEC_TIMEOUT_MS },
           );
-          prUrl = lastLine(String(stdout));
+          stdout = String(out.stdout);
         } catch (err) {
-          return errorResult(err instanceof Error ? err.message : String(err));
+          const message = failure('gh pr create', err);
+          logError(`${runId} open_pr: ${message}`);
+          return errorResult(message);
+        }
+        const prUrl = parsePrUrl(stdout);
+        if (!prUrl) {
+          logError(`${runId} open_pr: gh printed no PR url`);
+          return errorResult('gh pr create printed no https PR url; run stays approved');
         }
         const current = ctx.db.getRun(runId);
         if (current?.state !== 'approved') {
-          return errorResult(`run ${runId} is no longer approved`);
+          logError(`${runId} open_pr: PR ${prUrl} created but run is ${current?.state}`);
+          return errorResult(
+            `PR ${prUrl} was created but run ${runId} is no longer approved (${current?.state})`,
+          );
         }
-        const moved = ctx.db.transaction(() => {
-          const next = transition(current, { type: 'pr_opened' }, ctx.config.maxRounds);
-          ctx.db.updateRun(runId, { prUrl, state: next.state });
-          ctx.db.insertMessage({
-            from: 'orchestrator',
-            to: 'orchestrator',
-            type: 'notice',
-            runId,
-            payload: { runId, event: 'pr_opened', prUrl },
+        let moved: ReturnType<typeof transition>;
+        try {
+          moved = ctx.db.transaction(() => {
+            const next = transition(current, { type: 'pr_opened' }, ctx.config.maxRounds);
+            ctx.db.updateRun(runId, { prUrl, state: next.state });
+            ctx.db.insertMessage({
+              from: 'orchestrator',
+              to: 'orchestrator',
+              type: 'notice',
+              runId,
+              payload: { runId, event: 'pr_opened', prUrl },
+            });
+            return next;
           });
-          return next;
-        });
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : String(err);
+          logError(`${runId} open_pr: PR ${prUrl} created but state update failed: ${reason}`);
+          return errorResult(
+            `PR ${prUrl} was created but recording it failed: ${reason}; run stays approved`,
+          );
+        }
         void afterRunTransition(ctx, { ...current, state: moved.state });
         try {
           ctx.log.logLine('STATE', `${runId} ${moved.state} (round ${moved.round})`);

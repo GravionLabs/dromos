@@ -4,14 +4,19 @@ import type { GateResult, Review } from '../schemas.js';
 import { startTestBus, type TestBus, textOf } from '../test-helpers.js';
 
 const mockExeca = vi.hoisted(() => vi.fn());
+const mockAfter = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock('execa', () => ({ execa: mockExeca }));
+vi.mock('../run-lease.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../run-lease.js')>()),
+  afterRunTransition: mockAfter,
+}));
 
 const gate: GateResult = {
   passed: true,
   steps: [{ name: 'test', command: 'pnpm test', exitCode: 0, durationMs: 1500, outputTail: '' }],
 };
 const review: Review = { verdict: 'approve', summary: 'Looks good', findings: [] };
-const URL = 'https://github.com/o/r/pull/9';
+const PR_URL = 'https://github.com/o/r/pull/9';
 
 describe('open_pr', () => {
   let bus: TestBus;
@@ -40,8 +45,9 @@ describe('open_pr', () => {
 
   beforeEach(async () => {
     mockExeca.mockReset();
+    mockAfter.mockClear();
     mockExeca.mockImplementation(async (cmd: string) => ({
-      stdout: cmd === 'gh' ? `Creating pull request\n${URL}\n` : '',
+      stdout: cmd === 'gh' ? `Creating pull request\n${PR_URL}\n` : '',
     }));
     bus = await startTestBus();
   });
@@ -55,11 +61,11 @@ describe('open_pr', () => {
     bus.db.updateRun('run-1-1', { lastSummary: 'Did it', lastGate: gate, lastReview: review });
     const result = await call();
     expect(result.isError).toBeFalsy();
-    expect(JSON.parse(textOf(result))).toEqual({ prUrl: URL });
+    expect(JSON.parse(textOf(result))).toEqual({ prUrl: PR_URL });
     expect(mockExeca).toHaveBeenNthCalledWith(
       1,
       'git',
-      ['-C', '/wt', 'push', '-u', 'origin', 'feat/1-title'],
+      ['-c', 'core.hooksPath=/dev/null', '-C', '/wt', 'push', '-u', 'origin', '--', 'feat/1-title'],
       expect.objectContaining({ timeout: expect.any(Number) }),
     );
     const run = bus.db.getRun('run-1-1');
@@ -88,10 +94,14 @@ describe('open_pr', () => {
     const input = mockExeca.mock.calls[1]?.[2].input as string;
     expect(input).toContain('Closes #1');
     expect(input).toContain('Did it');
-    expect(run).toMatchObject({ state: 'pr_opened', prUrl: URL });
+    expect(run).toMatchObject({ state: 'pr_opened', prUrl: PR_URL });
+    expect(mockAfter).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ state: 'pr_opened', worktreePath: '/wt' }),
+    );
     const [msg] = bus.db.listUnacked('orchestrator');
     expect(msg?.type).toBe('notice');
-    expect(msg?.payload).toEqual({ runId: 'run-1-1', event: 'pr_opened', prUrl: URL });
+    expect(msg?.payload).toEqual({ runId: 'run-1-1', event: 'pr_opened', prUrl: PR_URL });
   });
 
   it('adds --draft only when draft is true', async () => {
@@ -100,10 +110,11 @@ describe('open_pr', () => {
     expect(mockExeca.mock.calls[1]?.[1]).toContain('--draft');
   });
 
-  it.each(['reviewing'] as const)(
+  it.each(['pr_opened', 'blocked', 'implementing', 'gating', 'reviewing'] as const)(
     'rejects a run in state %s without running anything',
     async (state) => {
-      addRun(state);
+      addRun('approved');
+      bus.db.updateRun('run-1-1', { state });
       const result = await call();
       expect(result.isError).toBe(true);
       expect(textOf(result)).toBe(`run run-1-1 is ${state}; open_pr requires approved`);
@@ -130,12 +141,17 @@ describe('open_pr', () => {
   it.each(['git', 'gh'])('leaves the run approved when %s fails', async (failing) => {
     addRun();
     mockExeca.mockImplementation(async (cmd: string) => {
-      if (cmd === failing) throw new Error(`${failing} boom`);
-      return { stdout: URL };
+      if (cmd === failing) {
+        throw Object.assign(new Error(`Command failed: ${cmd} secret-arg`), {
+          stderr: `${failing} boom https://user:tok@github.com/o/r\nsecond`,
+        });
+      }
+      return { stdout: PR_URL };
     });
     const result = await call();
     expect(result.isError).toBe(true);
-    expect(textOf(result)).toContain(`${failing} boom`);
+    expect(textOf(result)).toContain(`${failing} boom https://***@github.com/o/r`);
+    expect(textOf(result)).not.toMatch(/tok|secret-arg|second/);
     expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'approved', prUrl: null });
     expect(bus.db.listUnacked('orchestrator')).toEqual([]);
   });
@@ -143,7 +159,8 @@ describe('open_pr', () => {
   it('returns the gh error when a PR already exists', async () => {
     addRun();
     mockExeca.mockImplementation(async (cmd: string) => {
-      if (cmd === 'gh') throw new Error('a pull request for branch already exists');
+      if (cmd === 'gh')
+        throw Object.assign(new Error('x'), { stderr: 'a pull request for branch already exists' });
       return { stdout: '' };
     });
     const result = await call();
@@ -158,7 +175,7 @@ describe('open_pr', () => {
     });
     mockExeca.mockImplementation(async (cmd: string) => {
       if (cmd === 'git') await gateOpen;
-      return { stdout: URL };
+      return { stdout: PR_URL };
     });
     const first = call();
     await vi.waitFor(() => expect(mockExeca).toHaveBeenCalledTimes(1));
@@ -180,10 +197,55 @@ describe('open_pr', () => {
     addRun();
     mockExeca.mockImplementation(async (cmd: string) => {
       if (cmd === 'gh') bus.db.updateRun('run-1-1', { state: 'blocked' });
-      return { stdout: URL };
+      return { stdout: PR_URL };
     });
     const result = await call();
     expect(result.isError).toBe(true);
     expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'blocked', prUrl: null });
+  });
+
+  it('maps a timeout to a short error and leaves the run approved', async () => {
+    addRun();
+    mockExeca.mockRejectedValue(Object.assign(new Error('Command timed out'), { timedOut: true }));
+    const result = await call();
+    expect(textOf(result)).toBe('git push timed out');
+    expect(bus.db.getRun('run-1-1')?.state).toBe('approved');
+  });
+
+  it.each([
+    ['empty output', ''],
+    ['non-url text', 'done'],
+    ['http url', 'http://github.com/o/r/pull/9'],
+    ['url with trailing text', 'https://github.com/o/r/pull/9 created'],
+  ])('rejects gh output without an https url: %s', async (_n, out) => {
+    addRun();
+    mockExeca.mockImplementation(async (cmd: string) => ({ stdout: cmd === 'gh' ? out : '' }));
+    const result = await call();
+    expect(result.isError).toBe(true);
+    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'approved', prUrl: null });
+  });
+
+  it('surfaces the created PR url when the run left approved meanwhile', async () => {
+    addRun();
+    mockExeca.mockImplementation(async (cmd: string) => {
+      if (cmd === 'gh') bus.db.updateRun('run-1-1', { state: 'blocked' });
+      return { stdout: PR_URL };
+    });
+    const result = await call();
+    expect(textOf(result)).toContain(PR_URL);
+    expect(bus.readLog()).toContain(PR_URL);
+  });
+
+  it('returns the created PR url when recording it fails', async () => {
+    addRun();
+    const spy = vi.spyOn(bus.db, 'insertMessage').mockImplementation(() => {
+      throw new Error('db down');
+    });
+    const result = await call();
+    spy.mockRestore();
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain(PR_URL);
+    expect(textOf(result)).toContain('db down');
+    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'approved', prUrl: null });
   });
 });

@@ -46,7 +46,7 @@ describe('buildPrBody', () => {
 
       ## Summary
 
-      Did the thing.
+      > Did the thing.
 
       ## Quality gate
 
@@ -59,7 +59,7 @@ describe('buildPrBody', () => {
 
       Verdict: approve
 
-      Looks good.
+      > Looks good.
 
       ### Remaining findings
 
@@ -84,7 +84,7 @@ describe('buildPrBody', () => {
 
   it('omits the findings subsection when there are none', () => {
     const body = buildPrBody({ ...base, lastReview: { ...review, findings: [] } });
-    expect(body).toContain('Verdict: approve\n\nLooks good.\n\n## Rounds');
+    expect(body).toContain('Verdict: approve\n\n> Looks good.\n\n## Rounds');
     expect(body).not.toContain('Remaining findings');
   });
 
@@ -104,5 +104,23 @@ describe('buildPrBody', () => {
     const body = buildPrBody(base);
     expect(body).not.toContain('SECRET-LINT');
     expect(body).not.toContain('SECRET-TEST');
+  });
+
+  it('neutralizes closing keywords, mentions, headings and issue refs in agent text', () => {
+    const evil = 'Fixes #99 and closes o/r#5\n## Quality gate\ncc @octocat';
+    const body = buildPrBody({
+      ...base,
+      lastSummary: evil,
+      lastReview: {
+        verdict: 'approve',
+        summary: evil,
+        findings: [{ severity: 'important', file: 'a.ts', summary: 'Resolves #7 @bob\n## Rounds' }],
+      },
+    });
+    expect(body.slice(body.indexOf('\n'))).not.toMatch(/(fixes|closes|resolves) (#|o\/r#)\d/i);
+    expect(body).not.toMatch(/@(?!\u200b)\w/);
+    expect(body.match(/^## /gm)).toHaveLength(4);
+    expect(body.match(/^Closes #/gm)).toHaveLength(1);
+    expect(body).toContain('> ## Quality gate');
   });
 });

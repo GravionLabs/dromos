@@ -1,12 +1,32 @@
 import type { Finding, GateResult, Review } from './schemas.js';
 
-export type PrBodyInput = {
+export interface PrBodyInput {
   issueNumber: number;
   lastSummary: string | null;
   lastGate: GateResult | null;
   lastReview: Review | null;
   round: number;
-};
+}
+
+const ZWSP = '\u200b';
+
+/**
+ * Neutralizes agent-written text: no live closing keywords, no @mentions, and every line is
+ * quoted so it cannot forge a section heading.
+ */
+function untrusted(text: string): string {
+  return text
+    .replace(/\b(clos|fix|resolv)(e[sd]?|ing)?\b/gi, (m) => `${m[0]}${ZWSP}${m.slice(1)}`)
+    .replace(/@/g, `@${ZWSP}`)
+    .replace(/#(?=\d)/g, `#${ZWSP}`)
+    .split(/\r?\n/)
+    .map((l) => `> ${l}`.trimEnd())
+    .join('\n');
+}
+
+function inline(text: string): string {
+  return untrusted(text).replace(/\n> ?/g, ' ').replace(/^> ?/, '');
+}
 
 function cell(text: string): string {
   return text.replace(/\r?\n/g, ' ').replace(/\|/g, '\\|');
@@ -29,12 +49,12 @@ function gateSection(gate: GateResult | null): string {
 
 function findingItem(f: Finding): string {
   const loc = f.line === undefined ? f.file : `${f.file}:${f.line}`;
-  return `- **${f.severity}** \`${loc}\` — ${f.summary}`;
+  return `- **${f.severity}** \`${inline(loc).replace(/`/g, "'")}\` — ${inline(f.summary)}`;
 }
 
 function reviewSection(review: Review | null): string {
   if (!review) return '_No review recorded._';
-  const parts = [`Verdict: ${review.verdict}`, review.summary];
+  const parts = [`Verdict: ${review.verdict}`, untrusted(review.summary)];
   if (review.findings.length > 0) {
     parts.push(['### Remaining findings', '', ...review.findings.map(findingItem)].join('\n'));
   }
@@ -45,7 +65,7 @@ function reviewSection(review: Review | null): string {
 export function buildPrBody(input: PrBodyInput): string {
   return [
     `Closes #${input.issueNumber}`,
-    `## Summary\n\n${input.lastSummary ?? '_No summary recorded._'}`,
+    `## Summary\n\n${input.lastSummary === null ? '_No summary recorded._' : untrusted(input.lastSummary)}`,
     `## Quality gate\n\n${gateSection(input.lastGate)}`,
     `## Review\n\n${reviewSection(input.lastReview)}`,
     `## Rounds\n\n${input.round}`,
