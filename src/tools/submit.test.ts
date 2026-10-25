@@ -572,6 +572,25 @@ describe('submit_implementation', () => {
     expect(bus.db.getRun('run-1-1')?.state).toBe('implementing');
   });
 
+  it('stores the submitted summary in the gating transition and overwrites it on the next round', async () => {
+    addRun();
+    const gate = deferred();
+    mockRunGate.mockReturnValueOnce(gate.promise);
+    await submit('First try');
+    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'gating', lastSummary: 'First try' });
+    gate.resolve(red);
+    await settle();
+    expect(bus.db.getRun('run-1-1')).toMatchObject({
+      state: 'implementing',
+      lastSummary: 'First try',
+    });
+
+    mockRunGate.mockResolvedValue(green);
+    await submit('Second try');
+    await settle();
+    expect(bus.db.getRun('run-1-1')).toMatchObject({ round: 2, lastSummary: 'Second try' });
+  });
+
   it('accepts a summary of exactly 5000 characters', async () => {
     addRun();
     mockRunGate.mockResolvedValue(green);

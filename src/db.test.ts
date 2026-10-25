@@ -28,6 +28,37 @@ describe('db', () => {
     db.close();
   });
 
+  describe('migration 4', () => {
+    it('adds last_summary and keeps version-3 runs with a null summary', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'dromos-db-'));
+      try {
+        const file = join(dir, 'bus.db');
+        const raw = new Database(file);
+        for (const sql of MIGRATIONS.slice(0, 3)) raw.exec(sql);
+        raw.pragma('user_version = 3');
+        raw
+          .prepare(
+            `INSERT INTO runs (id, repo, repo_path, issue_number, issue_title, base_branch, branch,
+               worktree_path, state, round, created_at, updated_at)
+             VALUES ('old', 'o/r', '/r', 1, 't', 'main', 'b', '/w', 'implementing', 1,
+               '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
+          )
+          .run();
+        raw.close();
+
+        const migrated = openDb(file);
+        expect(MIGRATIONS).toHaveLength(4);
+        expect(migrated.schemaVersion()).toBe(4);
+        expect(migrated.getRun('old')?.lastSummary).toBeNull();
+        expect(migrated.updateRun('old', { lastSummary: 'x' })?.lastSummary).toBe('x');
+        expect(migrated.getRun('old')?.lastSummary).toBe('x');
+        migrated.close();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe('migration 3', () => {
     it('keeps version-2 event rows and adds nullable agent_id, issue and run_id', () => {
       const dir = mkdtempSync(join(tmpdir(), 'dromos-db-'));
@@ -286,6 +317,7 @@ describe('db', () => {
         lastGate: null,
         lastReview: null,
         prUrl: null,
+        lastSummary: null,
       });
     });
 

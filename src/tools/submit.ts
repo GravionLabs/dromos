@@ -202,7 +202,11 @@ export function registerSubmitTools(server: McpServer, ctx: ToolContext): void {
         return errorResult(`run ${runId} is no longer in state 'implementing'`);
       }
       const next = transition(fresh, { type: 'implementation_submitted' }, ctx.config.maxRounds);
-      ctx.db.updateRun(runId, { state: next.state, round: next.round });
+      ctx.db.updateRun(runId, {
+        state: next.state,
+        round: next.round,
+        lastSummary: summary,
+      });
       // Start the gate right after the commit so a logging failure cannot strand the run in gating.
       pendingGates.set(runId, runInBackground(ctx, fresh, summary));
       void afterRunTransition(ctx, { ...fresh, state: next.state });

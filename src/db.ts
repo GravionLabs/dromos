@@ -72,6 +72,9 @@ export const MIGRATIONS: readonly string[] = [
   ALTER TABLE events ADD COLUMN issue INTEGER;
   ALTER TABLE events ADD COLUMN run_id TEXT;
   `,
+  `
+  ALTER TABLE runs ADD COLUMN last_summary TEXT;
+  `,
 ];
 
 export interface Run {
@@ -88,6 +91,7 @@ export interface Run {
   lastGate: GateResult | null;
   lastReview: Review | null;
   prUrl: string | null;
+  lastSummary: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -105,7 +109,9 @@ export type NewRun = Pick<
 > &
   Partial<Pick<Run, 'state' | 'round'>>;
 
-export type RunPatch = Partial<Pick<Run, 'state' | 'round' | 'lastGate' | 'lastReview' | 'prUrl'>>;
+export type RunPatch = Partial<
+  Pick<Run, 'state' | 'round' | 'lastGate' | 'lastReview' | 'prUrl' | 'lastSummary'>
+>;
 
 export interface NewMessage {
   from: Role;
@@ -154,6 +160,7 @@ interface RunRow {
   last_gate_json: string | null;
   last_review_json: string | null;
   pr_url: string | null;
+  last_summary: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -199,6 +206,7 @@ function toRun(row: RunRow): Run {
     lastGate: row.last_gate_json ? (JSON.parse(row.last_gate_json) as GateResult) : null,
     lastReview: row.last_review_json ? (JSON.parse(row.last_review_json) as Review) : null,
     prUrl: row.pr_url,
+    lastSummary: row.last_summary,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -433,6 +441,10 @@ export function openDb(file: string): Db {
       if (patch.prUrl !== undefined) {
         columns.push('pr_url = @prUrl');
         values.prUrl = patch.prUrl;
+      }
+      if (patch.lastSummary !== undefined) {
+        columns.push('last_summary = @lastSummary');
+        values.lastSummary = patch.lastSummary;
       }
       columns.push('updated_at = @updatedAt');
       const info = db.prepare(`UPDATE runs SET ${columns.join(', ')} WHERE id = @id`).run(values);
