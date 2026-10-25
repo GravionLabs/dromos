@@ -2,7 +2,7 @@ import { once } from 'node:events';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { connect } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BusEvent } from './db.js';
+import type { EventRecord } from './db.js';
 import { recordEvent } from './event-store.js';
 import { startTestBus, type TestBus } from './test-helpers.js';
 
@@ -27,7 +27,7 @@ function ingest(bus: TestBus, body: unknown): Promise<Response> {
 async function firstFrame(
   res: Response,
   timeoutMs: number,
-): Promise<{ id: string; event: BusEvent } | undefined> {
+): Promise<{ id: string; event: EventRecord } | undefined> {
   const reader = res.body?.getReader();
   if (!reader) return undefined;
   const decoder = new TextDecoder();
@@ -103,7 +103,7 @@ describe('POST /ingest reaches GET /events/stream', () => {
         return c.signal;
       })(),
     });
-    const frames: BusEvent[] = [];
+    const frames: EventRecord[] = [];
     const reader = replay.body?.getReader();
     const decoder = new TextDecoder();
     let text = '';
@@ -295,7 +295,16 @@ describe('replay and live publish deliver each ingested id once, in order', () =
       if (req.url !== '/ingest') return;
       const writeHead = res.writeHead.bind(res) as (...args: unknown[]) => ServerResponse;
       res.writeHead = ((...args: unknown[]) => {
-        raced = recordEvent(bus.db, bus.events, 'implementer', 'hook:busy', {}).id;
+        raced = recordEvent(bus.db, bus.events, 'implementer', {
+          id: 0,
+          type: 'hook:busy',
+          at: new Date().toISOString(),
+          source: 'hook/claude',
+          agentId: 'implementer',
+          issue: null,
+          runId: null,
+          data: { role: 'implementer', cli: 'claude', state: 'busy' },
+        }).id;
         return writeHead(...args);
       }) as ServerResponse['writeHead'];
     });
