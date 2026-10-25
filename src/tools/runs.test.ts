@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { execa } from 'execa';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { leaseKey, stamp } from '../lease.js';
+import { afterRunTransition } from '../run-lease.js';
 import { startTestBus, type TestBus, textOf } from '../test-helpers.js';
 
 vi.mock('execa');
@@ -299,7 +300,15 @@ describe('start_run', () => {
     const orchestrator = await bus.connect('orchestrator');
     await orchestrator.callTool({ name: 'start_run', arguments: args() });
     bus.db.updateRun('run-14-1', { state: 'pr_opened' });
-    rmSync(leaseOf(join(repoPath, '.worktrees', '14'))); // released on terminal states by the transition wiring
+    // no pr_opened writer exists yet: run the shared transition hook the writers use
+    await afterRunTransition(
+      { log: { logLine: () => undefined } },
+      {
+        repoPath,
+        worktreePath: join(repoPath, '.worktrees', '14'),
+        state: 'pr_opened',
+      },
+    );
     const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
     expect(result.isError).toBeFalsy();
     expect(JSON.parse(textOf(result)).runId).toBe('run-14-2');

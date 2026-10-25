@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { requireRole } from '../auth.js';
 import type { ToolContext } from '../context.js';
+import { afterRunTransition } from '../run-lease.js';
 import { type Finding, type Review, ReviewSchema, type Severity } from '../schemas.js';
 import { isBlocking, transition } from '../state-machine.js';
 import { errorResult, jsonResult, logAndWake } from './util.js';
@@ -87,6 +88,7 @@ export function registerReviewTools(server: McpServer, ctx: ToolContext): void {
         });
         return { moved, out: { to: 'orchestrator', type: 'notice' } as const };
       });
+      await afterRunTransition(ctx, { ...run, state: next.state });
       try {
         ctx.log.logLine('REVIEW', countLine(runId, review));
         ctx.log.logLine('STATE', `${runId} ${next.state} (round ${next.round})`);

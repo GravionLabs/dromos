@@ -5,7 +5,8 @@ import { requireRole } from '../auth.js';
 import type { ToolContext } from '../context.js';
 import type { Run } from '../db.js';
 import { resolveGateCommands, runGate } from '../gate.js';
-import type { GateResult, MessageType, Role } from '../schemas.js';
+import { afterRunTransition } from '../run-lease.js';
+import type { GateResult, MessageType, Role, RunState } from '../schemas.js';
 import { transition } from '../state-machine.js';
 import { errorResult, jsonResult, logAndWake } from './util.js';
 
@@ -47,7 +48,7 @@ async function evaluateGate(ctx: ToolContext, run: Run): Promise<GateResult> {
 const shellArg = (value: string) =>
   /^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 
-type Outbound = { from: Role; to: Role; type: MessageType };
+type Outbound = { from: Role; to: Role; type: MessageType; state: RunState };
 
 /** Persists the gate outcome, state change and outgoing message atomically. */
 function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: GateResult): Outbound {
@@ -75,7 +76,7 @@ function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: Gate
         instructions: 'Review the diff read-only. Call submit_review.',
       },
     });
-    return { from: 'implementer', to: 'reviewer', type: 'review_request' };
+    return { from: 'implementer', to: 'reviewer', type: 'review_request', state: next.state };
   }
   if (next.state === 'blocked') {
     ctx.db.insertMessage({
@@ -85,7 +86,7 @@ function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: Gate
       runId,
       payload: { runId, reason: 'round limit reached', lastGate: gate },
     });
-    return { from: 'implementer', to: 'orchestrator', type: 'notice' };
+    return { from: 'implementer', to: 'orchestrator', type: 'notice', state: next.state };
   }
   // A red gate without steps still names a failed step and a non-zero exit code.
   const failed = gate.steps.find((step) => step.exitCode !== 0) ??
@@ -103,21 +104,22 @@ function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: Gate
       outputTail: failed.outputTail,
     },
   });
-  return { from: 'orchestrator', to: 'implementer', type: 'gate_result' };
+  return { from: 'orchestrator', to: 'implementer', type: 'gate_result', state: next.state };
 }
 
-function handleGateResult(
+async function handleGateResult(
   ctx: ToolContext,
   runId: string,
   summary: string,
   gate: GateResult,
-): void {
+): Promise<void> {
   const run = ctx.db.getRun(runId);
   if (run?.state !== 'gating') {
     ctx.log.logLine('ERROR', `${runId} gate result dropped: run is in state ${run?.state}`);
     return;
   }
   const out = ctx.db.transaction(() => applyGateResult(ctx, run, summary, gate));
+  await afterRunTransition(ctx, { ...run, state: out.state });
   // The outcome is committed: logging must not trigger the gate_failed fallback or skip the wake.
   try {
     const after = ctx.db.getRun(runId);
@@ -132,13 +134,13 @@ function handleGateResult(
 async function runInBackground(ctx: ToolContext, run: Run, summary: string): Promise<void> {
   try {
     const gate = await evaluateGate(ctx, run);
-    handleGateResult(ctx, run.id, summary, gate);
+    await handleGateResult(ctx, run.id, summary, gate);
   } catch (err) {
     // Spec: log every background error as ERROR and treat it as gate_failed, so the run
     // leaves gating (implementing with round + 1, or blocked on the last round).
     ctx.log.logLine('ERROR', `${run.id} gate handling failed: ${errorMessage(err)}`);
     try {
-      handleGateResult(
+      await handleGateResult(
         ctx,
         run.id,
         summary,
@@ -203,6 +205,7 @@ export function registerSubmitTools(server: McpServer, ctx: ToolContext): void {
       ctx.db.updateRun(runId, { state: next.state, round: next.round });
       // Start the gate right after the commit so a logging failure cannot strand the run in gating.
       pendingGates.set(runId, runInBackground(ctx, fresh, summary));
+      await afterRunTransition(ctx, { ...fresh, state: next.state });
       try {
         ctx.log.logLine('STATE', `${runId} ${next.state} (round ${next.round})`);
       } catch (err) {
