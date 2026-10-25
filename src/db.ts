@@ -283,12 +283,16 @@ export interface Db {
   listUnacked(role: Role, limit?: number, agentId?: string): Message[];
   /** Returns false when the message does not exist, is already acked, or is addressed to someone else. */
   ackMessage(id: number, role: Role, agentId?: string): boolean;
+  /** Unacked message count per addressed role for one run; roles without unacked messages are absent. */
+  countUnackedByRole(runId: string): Partial<Record<Role, number>>;
   insertRun(run: NewRun): Run;
   getRun(id: string): Run | undefined;
   listRuns(): Run[];
   updateRun(id: string, patch: RunPatch): Run | undefined;
   insertEvent(role: string, kind: string, data: unknown, context?: EventContext): EventRecord;
   listEvents(role?: string, limit?: number): EventRecord[];
+  /** Newest `hook:%` event of each role, ordered by role. */
+  lastHookEventPerRole(): EventRecord[];
   /** Events with id strictly greater than `afterId`, ascending, for stream replay. */
   listEventsSince(afterId: number, limit?: number): EventRecord[];
   /** Runs `fn` in one SQLite transaction; rolls back when it throws. */
@@ -329,6 +333,15 @@ export function openDb(file: string): Db {
     `SELECT * FROM messages
      WHERE acked_at IS NULL AND ((to_role = ? AND to_agent IS NULL) OR to_agent = ?)
      ORDER BY id LIMIT ?`,
+  );
+  const countUnackedByRole = db.prepare<[string], { to_role: Role; n: number }>(
+    `SELECT to_role, COUNT(*) AS n FROM messages
+     WHERE acked_at IS NULL AND run_id = ? GROUP BY to_role`,
+  );
+  const lastHookEventPerRole = db.prepare<[], EventRow>(
+    `SELECT * FROM events WHERE id IN (
+       SELECT MAX(id) FROM events WHERE kind LIKE 'hook:%' GROUP BY role
+     ) ORDER BY role`,
   );
   const ackMessage = db.prepare(
     `UPDATE messages SET acked_at = ? WHERE id = ? AND acked_at IS NULL
@@ -496,6 +509,14 @@ export function openDb(file: string): Db {
         context?.runId ?? null,
       );
       return toEvent(getEvent.get(info.lastInsertRowid) as EventRow);
+    },
+    countUnackedByRole(runId) {
+      const counts: Partial<Record<Role, number>> = {};
+      for (const row of countUnackedByRole.all(runId)) counts[row.to_role] = row.n;
+      return counts;
+    },
+    lastHookEventPerRole() {
+      return lastHookEventPerRole.all().map(toEvent);
     },
     listEvents(role, limit = 50) {
       return listEvents.all(role ?? null, role ?? null, limit).map(toEvent);

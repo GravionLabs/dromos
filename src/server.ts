@@ -5,6 +5,7 @@ import { registerMessagingTools } from './tools/messaging.js';
 import { registerPrTools } from './tools/pr.js';
 import { registerReviewTools } from './tools/review.js';
 import { registerRunTools } from './tools/runs.js';
+import { registerStatusTools } from './tools/status.js';
 import { registerSubmitTools } from './tools/submit.js';
 
 const text = (value: string) => ({ content: [{ type: 'text' as const, text: value }] });
@@ -29,6 +30,7 @@ export function createBusServer(ctx: ToolContext): McpServer {
   registerSubmitTools(server, ctx);
   registerReviewTools(server, ctx);
   registerPrTools(server, ctx);
+  registerStatusTools(server, ctx);
 
   return server;
 }

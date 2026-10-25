@@ -408,6 +408,21 @@ describe('db', () => {
       expect(db.listEvents(undefined, 1)).toHaveLength(1);
     });
 
+    it('returns the newest hook event per role, ignoring other kinds', () => {
+      db.insertEvent('implementer', 'hook:idle', { n: 1 });
+      db.insertEvent('implementer', 'hook:busy', { n: 2 });
+      db.insertEvent('implementer', 'task:done', { n: 3 });
+      db.insertEvent('reviewer', 'hook:idle', { n: 4 });
+      expect(db.lastHookEventPerRole().map((e) => [e.role, e.kind, e.data])).toEqual([
+        ['implementer', 'hook:busy', { n: 2 }],
+        ['reviewer', 'hook:idle', { n: 4 }],
+      ]);
+    });
+
+    it('returns no hook events on an empty table', () => {
+      expect(db.lastHookEventPerRole()).toEqual([]);
+    });
+
     it('lists events strictly after an id, ascending, honouring the limit', () => {
       const ids = ['a', 'b', 'c'].map((k) => db.insertEvent('implementer', `hook:${k}`, null).id);
       expect(db.listEventsSince(0).map((e) => e.kind)).toEqual(['hook:a', 'hook:b', 'hook:c']);
