@@ -169,13 +169,21 @@ describe('runGate', () => {
     expect(result.steps[0]?.outputTail).toContain(realpathSync(dir));
   });
 
-  it('keeps only the last 200 lines of combined stdout and stderr', async () => {
-    const script = 'for (let i=1;i<=300;i++) console.log("line"+i); console.error("err-last")';
+  it('keeps only the last 200 lines of stdout', async () => {
+    const script = 'for (let i=1;i<=300;i++) console.log("line"+i)';
     const result = await runGate([{ name: 'noisy', run: `node -e '${script}'` }], dir, 30);
     const lines = result.steps[0]?.outputTail.split('\n') ?? [];
     expect(lines).toHaveLength(200);
-    expect(lines[0]).toBe('line102');
-    expect(lines[199]).toBe('err-last');
+    expect(lines[0]).toBe('line101');
+    expect(lines[199]).toBe('line300');
+  });
+
+  it('includes stderr output in the tail', async () => {
+    const script = 'console.log("out-line"); console.error("err-line")';
+    const result = await runGate([{ name: 'mixed', run: `node -e '${script}'` }], dir, 30);
+    const tailText = result.steps[0]?.outputTail ?? '';
+    expect(tailText).toContain('out-line');
+    expect(tailText).toContain('err-line');
   });
 
   it('fails a step that exceeds the overall timeout', async () => {
