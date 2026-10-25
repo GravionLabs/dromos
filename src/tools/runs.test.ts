@@ -1,8 +1,18 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { leaseKey, stamp } from '../lease.js';
+import { afterRunTransition } from '../run-lease.js';
 import { startTestBus, type TestBus, textOf } from '../test-helpers.js';
 
 vi.mock('execa');
@@ -17,10 +27,21 @@ describe('start_run', () => {
   let bus: TestBus;
   let root: string;
   let repoPath: string;
+  let stateDir: string;
+  const leaseOf = (path: string) => join(stateDir, 'leases', `${leaseKey(path)}.json`);
+  const seedLease = (path: string, issue: number, heartbeat: string) => {
+    mkdirSync(join(stateDir, 'leases'), { recursive: true });
+    writeFileSync(
+      leaseOf(path),
+      `${JSON.stringify({ path, issue, branch: 'b', host: 'h', started: heartbeat, heartbeat })}\n`,
+    );
+  };
 
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), 'start-run-'));
     repoPath = join(root, 'repo');
+    stateDir = join(root, 'state');
+    vi.stubEnv('DROMOS_STATE_DIR', stateDir);
     mockExeca.mockReset();
     mockExeca.mockImplementation(async (cmd: string, args: string[]) => {
       if (args.includes('--show-toplevel')) return { stdout: `${toplevelOf(args)}\n` };
@@ -38,6 +59,7 @@ describe('start_run', () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await bus.close();
     rmSync(root, { recursive: true, force: true });
   });
@@ -278,6 +300,16 @@ describe('start_run', () => {
     const orchestrator = await bus.connect('orchestrator');
     await orchestrator.callTool({ name: 'start_run', arguments: args() });
     bus.db.updateRun('run-14-1', { state: 'pr_opened' });
+    // no pr_opened writer exists yet: run the shared transition hook the writers use
+    await afterRunTransition(
+      { log: { logLine: () => undefined } },
+      {
+        repoPath,
+        worktreePath: join(repoPath, '.worktrees', '14'),
+        issueNumber: 14,
+        state: 'pr_opened',
+      },
+    );
     const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
     expect(result.isError).toBeFalsy();
     expect(JSON.parse(textOf(result)).runId).toBe('run-14-2');
@@ -345,6 +377,7 @@ describe('start_run', () => {
     const orchestrator = await bus.connect('orchestrator');
     await orchestrator.callTool({ name: 'start_run', arguments: args() });
     const other = join(root, 'other');
+    vi.stubEnv('DROMOS_STATE_DIR', join(root, 'state-other')); // leases are per repository
     const result = await orchestrator.callTool({
       name: 'start_run',
       arguments: { repoPath: other, issue: 14 },
@@ -510,5 +543,123 @@ describe('start_run', () => {
     expect(result.isError).toBeFalsy();
     expect(textOf(result)).not.toContain('clean them up');
     expect(bus.db.listRuns()).toHaveLength(1);
+  });
+
+  describe('checkout lease', () => {
+    const wt = () => join(repoPath, '.worktrees', '14');
+    const noWorktreeAdd = () =>
+      mockExeca.mock.calls.every(([, a]) => !((a as string[]) ?? []).includes('worktree'));
+
+    it('writes an apm-hub lease for the worktree on a successful start', async () => {
+      const orchestrator = await bus.connect('orchestrator');
+      const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      expect(result.isError).toBeFalsy();
+      const lease = JSON.parse(readFileSync(leaseOf(wt()), 'utf8'));
+      expect(lease).toMatchObject({
+        path: wt(),
+        issue: 14,
+        branch: 'agent/14-add-start-run',
+        owner: 'dromos',
+      });
+      expect(lease.heartbeat).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+      expect(lease.started).toBe(lease.heartbeat);
+      expect(typeof lease.host).toBe('string');
+    });
+
+    it('refuses a foreign live lease on the same path before any git change', async () => {
+      seedLease(wt(), 99, stamp());
+      const orchestrator = await bus.connect('orchestrator');
+      const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain('nothing was created');
+      expect(textOf(result)).toContain('#99');
+      expect(noWorktreeAdd()).toBe(true);
+      expect(bus.db.listRuns()).toEqual([]);
+      expect(bus.db.listUnacked('implementer')).toEqual([]);
+    });
+
+    it('refuses a live lease of the same issue on another path', async () => {
+      const other = join(root, 'elsewhere', '.worktrees', '14');
+      seedLease(other, 14, stamp());
+      const orchestrator = await bus.connect('orchestrator');
+      const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain(other);
+      expect(noWorktreeAdd()).toBe(true);
+      expect(existsSync(leaseOf(wt()))).toBe(false);
+      expect(bus.db.listRuns()).toEqual([]);
+    });
+
+    it('takes over a stale lease on the same path', async () => {
+      seedLease(wt(), 99, '2020-01-01T00:00:00Z');
+      const orchestrator = await bus.connect('orchestrator');
+      const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      expect(result.isError).toBeFalsy();
+      expect(JSON.parse(readFileSync(leaseOf(wt()), 'utf8')).issue).toBe(14);
+    });
+
+    it('reports a non-conflict claim error and creates nothing', async () => {
+      const blocker = join(root, 'state-is-a-file');
+      writeFileSync(blocker, '');
+      vi.stubEnv('DROMOS_STATE_DIR', blocker);
+      const orchestrator = await bus.connect('orchestrator');
+      const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain('start_run failed');
+      expect(textOf(result)).not.toContain('nothing was created');
+      expect(noWorktreeAdd()).toBe(true);
+      expect(bus.db.listRuns()).toEqual([]);
+      expect(bus.db.listUnacked('implementer')).toEqual([]);
+    });
+
+    it('removes the lease when worktree add fails', async () => {
+      const base = mockExeca.getMockImplementation() as (
+        c: string,
+        a: string[],
+      ) => Promise<unknown>;
+      mockExeca.mockImplementation(async (cmd: string, a: string[]) => {
+        if (a.includes('worktree')) throw new Error('fatal: add failed');
+        return base(cmd, a);
+      });
+      const orchestrator = await bus.connect('orchestrator');
+      const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      expect(result.isError).toBe(true);
+      expect(existsSync(leaseOf(wt()))).toBe(false);
+    });
+
+    it('removes the lease when the DB write fails', async () => {
+      const orchestrator = await bus.connect('orchestrator');
+      const spy = vi.spyOn(bus.db, 'insertMessage').mockImplementation(() => {
+        throw new Error('disk full');
+      });
+      const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      spy.mockRestore();
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain('disk full');
+      expect(existsSync(leaseOf(wt()))).toBe(false);
+    });
+
+    it('logs a failing release and keeps the original start_run error', async () => {
+      const orchestrator = await bus.connect('orchestrator');
+      const spy = vi.spyOn(bus.db, 'insertMessage').mockImplementation(() => {
+        throw new Error('disk full');
+      });
+      // make the release itself fail: replace the leases dir by a file after the claim
+      const origInsert = bus.db.insertRun.bind(bus.db);
+      const insertSpy = vi.spyOn(bus.db, 'insertRun').mockImplementation((r) => {
+        rmSync(join(stateDir, 'leases'), { recursive: true, force: true });
+        writeFileSync(join(stateDir, 'leases'), '');
+        return origInsert(r);
+      });
+      let result: Awaited<ReturnType<typeof orchestrator.callTool>>;
+      try {
+        result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      } finally {
+        spy.mockRestore();
+        insertSpy.mockRestore();
+      }
+      expect(textOf(result)).toContain('start_run failed: disk full');
+      expect(bus.readLog()).toContain('lease release failed');
+    });
   });
 });

@@ -1,8 +1,17 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveGateCommands, runGate } from '../gate.js';
+import { claimLease, leaseFile } from '../lease.js';
 import type { GateResult } from '../schemas.js';
 import { startTestBus, type TestBus, textOf } from '../test-helpers.js';
 import { pendingGates } from './submit.js';
@@ -690,5 +699,118 @@ describe('submit_implementation against a real git worktree', () => {
     expect(JSON.parse(textOf(result))).toEqual({ status: 'gate_started' });
     await Promise.all([...pendingGates.values()]);
     expect(bus.db.getRun('run-1-1')?.state).toBe('reviewing');
+  });
+});
+
+describe('run lease on transitions', () => {
+  let bus: TestBus;
+  let state: string;
+  const leaseDir = () => join(state, 'leases');
+  const file = () => leaseFile(leaseDir(), '/wt');
+  const OLD = '2020-01-01T00:00:00Z';
+  const heartbeat = () => JSON.parse(readFileSync(file(), 'utf8')).heartbeat;
+  const age = () => {
+    const lease = JSON.parse(readFileSync(file(), 'utf8'));
+    writeFileSync(file(), `${JSON.stringify({ ...lease, heartbeat: OLD })}\n`);
+  };
+  const addRun = (round = 1) =>
+    bus.db.insertRun({
+      id: 'run-1-1',
+      repo: 'o/r',
+      repoPath: '/repo',
+      issueNumber: 1,
+      issueTitle: 'Title',
+      baseBranch: 'main',
+      branch: 'agent/1-title',
+      worktreePath: '/wt',
+      state: 'implementing',
+      round,
+    });
+  const claim = () => {
+    mkdirSync(leaseDir(), { recursive: true });
+    return claimLease(leaseDir(), { path: '/wt', issue: 1, branch: 'agent/1-title' });
+  };
+  const submit = async () => {
+    const client = await bus.connect('implementer');
+    return client.callTool({
+      name: 'submit_implementation',
+      arguments: { runId: 'run-1-1', summary: 'Did it' },
+    });
+  };
+  const settle = () => Promise.all([...pendingGates.values()]);
+
+  beforeEach(async () => {
+    state = mkdtempSync(join(tmpdir(), 'submit-lease-'));
+    vi.stubEnv('DROMOS_STATE_DIR', state);
+    mockRunGate.mockReset();
+    mockExeca.mockReset();
+    mockExeca.mockImplementation(async (_cmd: string, args: string[]) => ({
+      stdout: args.includes('status') ? '' : args.includes('rev-list') ? '2' : '',
+    }));
+    bus = await startTestBus();
+  });
+  afterEach(async () => {
+    for (const release of held.splice(0)) release(green);
+    await settle();
+    await bus.close();
+    vi.unstubAllEnvs();
+    rmSync(state, { recursive: true, force: true });
+  });
+
+  it('renews the heartbeat on implementation_submitted and again on a passing gate', async () => {
+    addRun();
+    await claim();
+    age();
+    const gate = deferred();
+    mockRunGate.mockReturnValue(gate.promise);
+    await submit();
+    expect(bus.db.getRun('run-1-1')?.state).toBe('gating');
+    await vi.waitFor(() => expect(heartbeat()).not.toBe(OLD));
+    age();
+    gate.resolve(green);
+    await settle();
+    expect(bus.db.getRun('run-1-1')?.state).toBe('reviewing');
+    await vi.waitFor(() => expect(heartbeat()).not.toBe(OLD));
+  });
+
+  it('renews the heartbeat when a red gate sends the run back to implementing', async () => {
+    addRun();
+    await claim();
+    age();
+    const gate = deferred();
+    mockRunGate.mockReturnValue(gate.promise);
+    await submit();
+    await vi.waitFor(() => expect(heartbeat()).not.toBe(OLD)); // submit-time renew is done
+    age(); // only the gate-failed renew can move the heartbeat from here on
+    gate.resolve(red);
+    await settle();
+    expect(bus.db.getRun('run-1-1')?.state).toBe('implementing');
+    await vi.waitFor(() => expect(heartbeat()).not.toBe(OLD));
+  });
+
+  it('removes the lease when the gate blocks the run on the last round', async () => {
+    addRun(bus.config.maxRounds);
+    await claim();
+    mockRunGate.mockResolvedValue(red);
+    await submit();
+    await settle();
+    expect(bus.db.getRun('run-1-1')?.state).toBe('blocked');
+    await vi.waitFor(() => expect(existsSync(file())).toBe(false));
+  });
+
+  it('keeps the new state and logs when the lease cannot be renewed or released', async () => {
+    addRun(bus.config.maxRounds);
+    const real = join(state, 'real');
+    mkdirSync(real);
+    symlinkSync(real, leaseDir());
+    mockRunGate.mockResolvedValue(red);
+    const result = await submit();
+    await settle();
+    expect(result.isError).toBeFalsy();
+    expect(bus.db.getRun('run-1-1')?.state).toBe('blocked');
+    await vi.waitFor(() => {
+      expect(bus.readLog()).toContain('lease renew failed');
+      expect(bus.readLog()).toContain('lease release failed');
+    });
   });
 });

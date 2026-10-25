@@ -11,6 +11,7 @@ import type { Db } from './db.js';
 import { EventValidationError, recordEvent } from './event-store.js';
 import { createEventStream, createHostGuard } from './event-stream.js';
 import { type BusEvent, BusEventSchema, INGEST_TYPES, isIngestType } from './events/schema.js';
+import { startLeaseRenewal } from './run-lease.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
 
@@ -595,11 +596,13 @@ export async function startHttp({
   });
 
   const address = server.address() as AddressInfo;
+  const stopLeaseRenewal = await startLeaseRenewal(db, log);
 
   return {
     server,
     url: `http://${host}:${address.port}`,
     async close() {
+      stopLeaseRenewal();
       await Promise.all([...sessions.values()].map((s) => s.transport.close()));
       sessions.clear();
       server.closeAllConnections();

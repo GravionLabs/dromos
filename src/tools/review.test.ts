@@ -1,4 +1,16 @@
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { claimLease, leaseFile } from '../lease.js';
 import type { Finding, Review } from '../schemas.js';
 import { startTestBus, type TestBus, textOf } from '../test-helpers.js';
 
@@ -207,5 +219,86 @@ describe('submit_review', () => {
     expect(bus.db.listUnacked('orchestrator')).toHaveLength(0);
     expect(bus.db.listUnacked('implementer')).toHaveLength(0);
     expect(bus.db.getRun('run-1-1')?.state).toBe('reviewing');
+  });
+});
+
+describe('submit_review lease', () => {
+  let bus: TestBus;
+  let state: string;
+  const leaseDir = () => join(state, 'leases');
+  const file = () => leaseFile(leaseDir(), '/wt');
+  const OLD = '2020-01-01T00:00:00Z';
+  const heartbeat = () => JSON.parse(readFileSync(file(), 'utf8')).heartbeat;
+  const age = () => {
+    const lease = JSON.parse(readFileSync(file(), 'utf8'));
+    writeFileSync(file(), `${JSON.stringify({ ...lease, heartbeat: OLD })}\n`);
+  };
+  const addRun = (round = 1) =>
+    bus.db.insertRun({
+      id: 'run-1-1',
+      repo: 'o/r',
+      repoPath: '/repo',
+      issueNumber: 1,
+      issueTitle: 'Title',
+      baseBranch: 'main',
+      branch: 'agent/1-title',
+      worktreePath: '/wt',
+      state: 'reviewing',
+      round,
+    });
+  const claim = () => {
+    mkdirSync(leaseDir(), { recursive: true });
+    return claimLease(leaseDir(), { path: '/wt', issue: 1, branch: 'agent/1-title' });
+  };
+  const changes: Review = {
+    verdict: 'changes',
+    summary: 's',
+    findings: [finding('critical', 'bug')],
+  };
+  const approve: Review = { verdict: 'approve', summary: 's', findings: [] };
+  const submit = async (review: Review) => {
+    const client = await bus.connect('reviewer');
+    return client.callTool({ name: 'submit_review', arguments: { runId: 'run-1-1', review } });
+  };
+
+  beforeEach(async () => {
+    state = mkdtempSync(join(tmpdir(), 'review-lease-'));
+    vi.stubEnv('DROMOS_STATE_DIR', state);
+    bus = await startTestBus();
+  });
+  afterEach(async () => {
+    await bus.close();
+    vi.unstubAllEnvs();
+    rmSync(state, { recursive: true, force: true });
+  });
+
+  it.each([
+    ['changes', changes],
+    ['approve', approve],
+  ] as const)('renews the heartbeat on a %s review', async (_name, review) => {
+    addRun();
+    await claim();
+    age();
+    await submit(review);
+    await vi.waitFor(() => expect(heartbeat()).not.toBe(OLD));
+  });
+
+  it('removes the lease when the review blocks the run', async () => {
+    addRun(bus.config.maxRounds);
+    await claim();
+    const result = await submit(changes);
+    expect(JSON.parse(textOf(result)).status).toBe('blocked');
+    await vi.waitFor(() => expect(existsSync(file())).toBe(false));
+  });
+
+  it('keeps the new state and logs when the lease cannot be released', async () => {
+    addRun(bus.config.maxRounds);
+    const real = join(state, 'real');
+    mkdirSync(real);
+    symlinkSync(real, leaseDir());
+    const result = await submit(changes);
+    expect(result.isError).toBeFalsy();
+    expect(bus.db.getRun('run-1-1')?.state).toBe('blocked');
+    await vi.waitFor(() => expect(bus.readLog()).toContain('lease release failed'));
   });
 });

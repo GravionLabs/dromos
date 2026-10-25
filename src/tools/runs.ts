@@ -6,6 +6,8 @@ import { requireRole } from '../auth.js';
 import { hasDotDot } from '../config.js';
 import type { ToolContext } from '../context.js';
 import { repoFromPath, viewIssue } from '../github.js';
+import { LeaseConflictError } from '../lease.js';
+import { claimRunLease, releaseRunLease } from '../run-lease.js';
 import { isTerminal } from '../state-machine.js';
 import {
   assertWorktreeDirIgnored,
@@ -70,6 +72,7 @@ export function registerRunTools(server: McpServer, ctx: ToolContext): void {
         );
       }
       inFlight.add(key);
+      let leasePath: string | undefined;
       let created: { branch: string; worktreePath: string } | undefined;
       let started: { runId: string; branch: string; worktreePath: string } | undefined;
       try {
@@ -79,6 +82,15 @@ export function registerRunTools(server: McpServer, ctx: ToolContext): void {
         const slug = slugify(info.title);
         const branch = slug ? `agent/${issue}-${slug}` : `agent/${issue}`;
         const worktreePath = join(repoPath, ctx.config.worktreeDir, String(issue));
+        try {
+          await claimRunLease({ repoPath, issue, branch, worktreePath });
+          leasePath = worktreePath;
+        } catch (e) {
+          if (e instanceof LeaseConflictError) {
+            return errorResult(`${e.message}; nothing was created`);
+          }
+          throw e;
+        }
         await createWorktree(repoPath, base, branch, worktreePath, () =>
           ensureWorktreeParent(repoPath, worktreePath),
         );
@@ -120,6 +132,11 @@ export function registerRunTools(server: McpServer, ctx: ToolContext): void {
         started = { runId, branch, worktreePath };
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
+        if (leasePath) {
+          await releaseRunLease({ repoPath, worktreePath: leasePath, issueNumber: issue }, (m) =>
+            ctx.log.logLine('ERROR', m),
+          );
+        }
         const cleanup = created
           ? ` The branch ${created.branch} and worktree ${created.worktreePath} were created and ` +
             'not removed; clean them up manually if unwanted.'
