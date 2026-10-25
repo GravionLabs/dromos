@@ -32,6 +32,12 @@ describe('dromos server', () => {
     expect(tools.map((t) => t.name)).toContain('ping');
   });
 
+  it('lists the open_pr tool', async () => {
+    const client = await bus.connect('orchestrator');
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toContain('open_pr');
+  });
+
   it('serves /health', async () => {
     const res = await fetch(`${bus.http.url}/health`);
     expect(res.status).toBe(200);
