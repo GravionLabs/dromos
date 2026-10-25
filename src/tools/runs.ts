@@ -133,7 +133,7 @@ export function registerRunTools(server: McpServer, ctx: ToolContext): void {
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
         if (leasePath) {
-          await releaseRunLease({ repoPath, worktreePath: leasePath }, (m) =>
+          await releaseRunLease({ repoPath, worktreePath: leasePath, issueNumber: issue }, (m) =>
             ctx.log.logLine('ERROR', m),
           );
         }

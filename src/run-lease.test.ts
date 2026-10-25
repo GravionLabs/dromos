@@ -53,28 +53,36 @@ describe('run lease', () => {
     expect(existsSync(leaseFile(leaseDir, WT))).toBe(false);
   });
 
-  it('drops a stale lease of the same issue at another path and keeps unrelated ones', async () => {
+  it('leaves a stale lease of the same issue at another path alone', async () => {
     const old = seed('/other/.worktrees/7', 7, '2020-01-01T00:00:00Z');
-    const unrelated = seed('/other/.worktrees/9', 9, '2020-01-01T00:00:00Z');
     await claim();
-    expect(existsSync(old)).toBe(false);
-    expect(existsSync(unrelated)).toBe(true);
+    expect(existsSync(old)).toBe(true);
     expect(existsSync(leaseFile(leaseDir, WT))).toBe(true);
+  });
+
+  it('neither renews nor releases a lease another owner holds at the slot', async () => {
+    const foreign = seed(WT, 7, '2020-01-01T00:00:00Z');
+    await renewRunLease({ repoPath: '/repo', worktreePath: WT, issueNumber: 7 });
+    expect(JSON.parse(readFileSync(foreign, 'utf8')).heartbeat).toBe('2020-01-01T00:00:00Z');
+    await releaseRunLease({ repoPath: '/repo', worktreePath: WT, issueNumber: 7 });
+    expect(existsSync(foreign)).toBe(true);
   });
 
   it('renews the heartbeat of a claimed lease', async () => {
     const file = await claim();
     const old = JSON.parse(readFileSync(file, 'utf8'));
     writeFileSync(file, `${JSON.stringify({ ...old, heartbeat: '2020-01-01T00:00:00Z' })}\n`);
-    await renewRunLease({ repoPath: '/repo', worktreePath: WT });
+    await renewRunLease({ repoPath: '/repo', worktreePath: WT, issueNumber: 7 });
     expect(JSON.parse(readFileSync(file, 'utf8')).heartbeat).not.toBe('2020-01-01T00:00:00Z');
   });
 
   it('releases the lease and tolerates a missing one', async () => {
     const file = await claim();
-    await releaseRunLease({ repoPath: '/repo', worktreePath: WT });
+    await releaseRunLease({ repoPath: '/repo', worktreePath: WT, issueNumber: 7 });
     expect(existsSync(file)).toBe(false);
-    await expect(releaseRunLease({ repoPath: '/repo', worktreePath: WT })).resolves.toBeUndefined();
+    await expect(
+      releaseRunLease({ repoPath: '/repo', worktreePath: WT, issueNumber: 7 }),
+    ).resolves.toBeUndefined();
   });
 
   it('reports instead of throwing when the lease dir is unusable', async () => {
@@ -82,8 +90,12 @@ describe('run lease', () => {
     // a state dir that is a file makes mkdir of leases fail
     writeFileSync(join(state, 'blocker'), '');
     vi.stubEnv('DROMOS_STATE_DIR', join(state, 'blocker'));
-    await releaseRunLease({ repoPath: '/repo', worktreePath: WT }, (m) => msgs.push(m));
-    await renewRunLease({ repoPath: '/repo', worktreePath: WT }, (m) => msgs.push(m));
+    await releaseRunLease({ repoPath: '/repo', worktreePath: WT, issueNumber: 7 }, (m) =>
+      msgs.push(m),
+    );
+    await renewRunLease({ repoPath: '/repo', worktreePath: WT, issueNumber: 7 }, (m) =>
+      msgs.push(m),
+    );
     expect(msgs).toHaveLength(2);
     expect(msgs[0]).toContain('lease release failed');
     expect(msgs[1]).toContain('lease renew failed');
@@ -96,7 +108,12 @@ const age = (file: string) => {
   const old = JSON.parse(readFileSync(file, 'utf8'));
   writeFileSync(file, `${JSON.stringify({ ...old, heartbeat: OLD })}\n`);
 };
-const ref = (state: RunState, worktreePath = WT) => ({ repoPath: '/repo', worktreePath, state });
+const ref = (state: RunState, worktreePath = WT, issueNumber = 7) => ({
+  repoPath: '/repo',
+  worktreePath,
+  issueNumber,
+  state,
+});
 
 describe('afterRunTransition', () => {
   it.each(['implementing', 'gating', 'reviewing', 'approved'] as const)(
@@ -149,7 +166,7 @@ describe('lease renewal timer', () => {
     const b = await claim({ issue: 2, worktreePath: B });
     age(a);
     age(b);
-    await renewActiveRunLeases(runs(ref('implementing', A), ref('blocked', B)), {
+    await renewActiveRunLeases(runs(ref('implementing', A, 1), ref('blocked', B, 2)), {
       logLine: vi.fn(),
     });
     expect(heartbeatOf(a)).not.toBe(OLD);
@@ -160,7 +177,7 @@ describe('lease renewal timer', () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     const a = await claim({ issue: 1, worktreePath: A });
     age(a);
-    const stop = await startLeaseRenewal(runs(ref('reviewing', A)), { logLine: vi.fn() });
+    const stop = await startLeaseRenewal(runs(ref('reviewing', A, 1)), { logLine: vi.fn() });
     expect(heartbeatOf(a)).not.toBe(OLD); // at start
     age(a);
     await vi.advanceTimersByTimeAsync(29 * 60_000);
@@ -191,6 +208,21 @@ describe('lease renewal timer', () => {
     };
     await expect(renewActiveRunLeases(db, { logLine })).resolves.toBeUndefined();
     expect(logLine).toHaveBeenCalledWith('ERROR', expect.stringContaining('db closed'));
-    await renewActiveRunLeases(runs(ref('implementing', C)), { logLine });
+    await renewActiveRunLeases(runs(ref('implementing', C, 3)), { logLine });
+  });
+
+  it('stops sweeping the remaining runs once stopped (db closed)', async () => {
+    const a = await claim({ issue: 1, worktreePath: A });
+    const b = await claim({ issue: 2, worktreePath: B });
+    age(a);
+    age(b);
+    let checks = 0;
+    await renewActiveRunLeases(
+      runs(ref('implementing', A, 1), ref('implementing', B, 2)),
+      { logLine: vi.fn() },
+      () => checks++ >= 1,
+    );
+    expect(heartbeatOf(a)).not.toBe(OLD);
+    expect(heartbeatOf(b)).toBe(OLD);
   });
 });

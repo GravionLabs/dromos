@@ -306,6 +306,7 @@ describe('start_run', () => {
       {
         repoPath,
         worktreePath: join(repoPath, '.worktrees', '14'),
+        issueNumber: 14,
         state: 'pr_opened',
       },
     );
@@ -597,6 +598,20 @@ describe('start_run', () => {
       expect(JSON.parse(readFileSync(leaseOf(wt()), 'utf8')).issue).toBe(14);
     });
 
+    it('reports a non-conflict claim error and creates nothing', async () => {
+      const blocker = join(root, 'state-is-a-file');
+      writeFileSync(blocker, '');
+      vi.stubEnv('DROMOS_STATE_DIR', blocker);
+      const orchestrator = await bus.connect('orchestrator');
+      const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain('start_run failed');
+      expect(textOf(result)).not.toContain('nothing was created');
+      expect(noWorktreeAdd()).toBe(true);
+      expect(bus.db.listRuns()).toEqual([]);
+      expect(bus.db.listUnacked('implementer')).toEqual([]);
+    });
+
     it('removes the lease when worktree add fails', async () => {
       const base = mockExeca.getMockImplementation() as (
         c: string,
@@ -631,13 +646,18 @@ describe('start_run', () => {
       });
       // make the release itself fail: replace the leases dir by a file after the claim
       const origInsert = bus.db.insertRun.bind(bus.db);
-      vi.spyOn(bus.db, 'insertRun').mockImplementation((r) => {
+      const insertSpy = vi.spyOn(bus.db, 'insertRun').mockImplementation((r) => {
         rmSync(join(stateDir, 'leases'), { recursive: true, force: true });
         writeFileSync(join(stateDir, 'leases'), '');
         return origInsert(r);
       });
-      const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
-      spy.mockRestore();
+      let result: Awaited<ReturnType<typeof orchestrator.callTool>>;
+      try {
+        result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      } finally {
+        spy.mockRestore();
+        insertSpy.mockRestore();
+      }
       expect(textOf(result)).toContain('start_run failed: disk full');
       expect(bus.readLog()).toContain('lease release failed');
     });

@@ -765,25 +765,27 @@ describe('run lease on transitions', () => {
     mockRunGate.mockReturnValue(gate.promise);
     await submit();
     expect(bus.db.getRun('run-1-1')?.state).toBe('gating');
-    expect(heartbeat()).not.toBe(OLD);
+    await vi.waitFor(() => expect(heartbeat()).not.toBe(OLD));
     age();
     gate.resolve(green);
     await settle();
     expect(bus.db.getRun('run-1-1')?.state).toBe('reviewing');
-    expect(heartbeat()).not.toBe(OLD);
+    await vi.waitFor(() => expect(heartbeat()).not.toBe(OLD));
   });
 
   it('renews the heartbeat when a red gate sends the run back to implementing', async () => {
     addRun();
     await claim();
-    mockRunGate.mockImplementation(async () => {
-      age();
-      return red;
-    });
+    age();
+    const gate = deferred();
+    mockRunGate.mockReturnValue(gate.promise);
     await submit();
+    await vi.waitFor(() => expect(heartbeat()).not.toBe(OLD)); // submit-time renew is done
+    age(); // only the gate-failed renew can move the heartbeat from here on
+    gate.resolve(red);
     await settle();
     expect(bus.db.getRun('run-1-1')?.state).toBe('implementing');
-    expect(heartbeat()).not.toBe(OLD);
+    await vi.waitFor(() => expect(heartbeat()).not.toBe(OLD));
   });
 
   it('removes the lease when the gate blocks the run on the last round', async () => {
@@ -793,7 +795,7 @@ describe('run lease on transitions', () => {
     await submit();
     await settle();
     expect(bus.db.getRun('run-1-1')?.state).toBe('blocked');
-    expect(existsSync(file())).toBe(false);
+    await vi.waitFor(() => expect(existsSync(file())).toBe(false));
   });
 
   it('keeps the new state and logs when the lease cannot be renewed or released', async () => {
@@ -806,7 +808,9 @@ describe('run lease on transitions', () => {
     await settle();
     expect(result.isError).toBeFalsy();
     expect(bus.db.getRun('run-1-1')?.state).toBe('blocked');
-    expect(bus.readLog()).toContain('lease renew failed');
-    expect(bus.readLog()).toContain('lease release failed');
+    await vi.waitFor(() => {
+      expect(bus.readLog()).toContain('lease renew failed');
+      expect(bus.readLog()).toContain('lease release failed');
+    });
   });
 });

@@ -9,7 +9,6 @@ import {
   readFileSync,
   renameSync,
   rmSync,
-  writeFileSync,
   writeSync,
 } from 'node:fs';
 import { hostname } from 'node:os';
@@ -99,6 +98,17 @@ function samePath(a: string, b: string): boolean {
   return process.platform === 'win32' ? x.toLowerCase() === y.toLowerCase() : x === y;
 }
 
+/** Lease files are foreign input: no control characters, bounded length in messages. */
+function clean(value: unknown): string {
+  const text = String(value).slice(0, 200);
+  let out = '';
+  for (const ch of text) {
+    const code = ch.charCodeAt(0);
+    out += code < 0x20 || code === 0x7f ? '?' : ch;
+  }
+  return out;
+}
+
 function parseLease(raw: string): Lease | null {
   const o: unknown = JSON.parse(raw);
   if (typeof o !== 'object' || o === null) return null;
@@ -170,8 +180,9 @@ export async function claimLease(
           (samePath(l.lease.path, req.path) || String(l.lease.issue) === String(req.issue)),
       );
       if (conflict) {
+        const c = conflict.lease;
         throw new LeaseConflictError(
-          `Checkout ${conflict.lease.path} is leased by issue #${conflict.lease.issue} (${conflict.lease.owner ?? 'apm-hub'}, host ${conflict.lease.host}, heartbeat ${conflict.lease.heartbeat})`,
+          `Checkout ${clean(c.path)} is leased by issue #${clean(c.issue)} (${clean(c.owner ?? 'apm-hub')}, host ${clean(c.host)}, heartbeat ${clean(c.heartbeat)})`,
         );
       }
       const previous = leases.find((l) => l.file === file);
@@ -238,26 +249,43 @@ export async function claimLease(
   }
 }
 
-export function renewLease(
-  leaseDir: string,
-  checkoutPath: string,
-  now: Date = new Date(),
-): boolean {
-  const file = leaseFile(leaseDir, checkoutPath);
+/** The lease at the checkout's slot, only when this checkout and (if given) issue own it. */
+function ownLease(file: string, checkoutPath: string, issue?: number): Lease | null {
   if (isSymlink(file)) throw new Error(`Refusing symlinked path: ${file}`);
   const raw = readOrNull(file);
-  if (raw === null) return false;
+  if (raw === null) return null;
   let lease: Lease | null;
   try {
     lease = parseLease(raw);
   } catch {
-    lease = null;
+    return null;
   }
+  if (!lease || lease.owner !== LEASE_OWNER || !samePath(String(lease.path), checkoutPath)) {
+    return null;
+  }
+  if (issue !== undefined && String(lease.issue) !== String(issue)) return null;
+  return lease;
+}
+
+/** Refreshes the heartbeat of our own lease; false when absent or held by someone else. */
+export function renewLease(
+  leaseDir: string,
+  checkoutPath: string,
+  now: Date = new Date(),
+  issue?: number,
+): boolean {
+  const file = leaseFile(leaseDir, checkoutPath);
+  const lease = ownLease(file, checkoutPath, issue);
   if (!lease) return false;
   const tmp = `${file}.${process.pid}.tmp`;
-  if (isSymlink(tmp)) throw new Error(`Refusing symlinked path: ${tmp}`);
+  rmSync(tmp, { force: true }); // unlinks a planted symlink itself, never follows it
   try {
-    writeFileSync(tmp, serialize({ ...lease, heartbeat: stamp(now) }));
+    const fd = openSync(tmp, 'wx'); // O_EXCL: no write through a link created after the rm
+    try {
+      writeSync(fd, serialize({ ...lease, heartbeat: stamp(now) }));
+    } finally {
+      closeSync(fd);
+    }
     renameSync(tmp, file);
   } finally {
     rmSync(tmp, { force: true });
@@ -265,6 +293,9 @@ export function renewLease(
   return true;
 }
 
-export function releaseLease(leaseDir: string, checkoutPath: string): void {
-  rmSync(leaseFile(leaseDir, checkoutPath), { force: true });
+/** Removes our own lease; a lease held by someone else (e.g. after a TTL takeover) stays. */
+export function releaseLease(leaseDir: string, checkoutPath: string, issue?: number): void {
+  const file = leaseFile(leaseDir, checkoutPath);
+  if (!ownLease(file, checkoutPath, issue)) return;
+  rmSync(file, { force: true });
 }

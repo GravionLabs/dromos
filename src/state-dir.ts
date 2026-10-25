@@ -1,5 +1,5 @@
-import { lstatSync, mkdirSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { lstatSync, mkdirSync, realpathSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { execa } from 'execa';
 
 function trimTrailingSeparators(p: string): string {
@@ -45,14 +45,16 @@ export async function resolveLeaseDir(
   cwd: string = process.cwd(),
 ): Promise<string> {
   const stateDir = await resolveStateDir(repoPath, env, cwd);
-  const leaseDir = resolve(stateDir, 'leases');
-  const rel = relative(stateDir, leaseDir);
-  if (rel.startsWith('..') || isAbsolute(rel)) {
-    throw new Error(`Refusing path outside state directory: ${leaseDir}`);
-  }
+  const leaseDir = join(stateDir, 'leases');
+  // state dir and leases dir must be real directories, not links; created private (0700)
   for (const p of [stateDir, leaseDir]) {
     if (isSymlink(p)) throw new Error(`Refusing symlinked path: ${p}`);
+    mkdirSync(p, { recursive: true, mode: 0o700 });
+    if (isSymlink(p)) throw new Error(`Refusing symlinked path: ${p}`);
   }
-  mkdirSync(leaseDir, { recursive: true });
+  // no link anywhere in the resolved location, e.g. a symlinked parent of the state dir
+  if (realpathSync(leaseDir) !== join(realpathSync(stateDir), 'leases')) {
+    throw new Error(`Refusing path outside state directory: ${leaseDir}`);
+  }
   return leaseDir;
 }

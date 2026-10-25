@@ -119,7 +119,7 @@ async function handleGateResult(
     return;
   }
   const out = ctx.db.transaction(() => applyGateResult(ctx, run, summary, gate));
-  await afterRunTransition(ctx, { ...run, state: out.state });
+  void afterRunTransition(ctx, { ...run, state: out.state });
   // The outcome is committed: logging must not trigger the gate_failed fallback or skip the wake.
   try {
     const after = ctx.db.getRun(runId);
@@ -205,7 +205,7 @@ export function registerSubmitTools(server: McpServer, ctx: ToolContext): void {
       ctx.db.updateRun(runId, { state: next.state, round: next.round });
       // Start the gate right after the commit so a logging failure cannot strand the run in gating.
       pendingGates.set(runId, runInBackground(ctx, fresh, summary));
-      await afterRunTransition(ctx, { ...fresh, state: next.state });
+      void afterRunTransition(ctx, { ...fresh, state: next.state });
       try {
         ctx.log.logLine('STATE', `${runId} ${next.state} (round ${next.round})`);
       } catch (err) {

@@ -280,7 +280,7 @@ describe('submit_review lease', () => {
     await claim();
     age();
     await submit(review);
-    expect(heartbeat()).not.toBe(OLD);
+    await vi.waitFor(() => expect(heartbeat()).not.toBe(OLD));
   });
 
   it('removes the lease when the review blocks the run', async () => {
@@ -288,7 +288,7 @@ describe('submit_review lease', () => {
     await claim();
     const result = await submit(changes);
     expect(JSON.parse(textOf(result)).status).toBe('blocked');
-    expect(existsSync(file())).toBe(false);
+    await vi.waitFor(() => expect(existsSync(file())).toBe(false));
   });
 
   it('keeps the new state and logs when the lease cannot be released', async () => {
@@ -299,6 +299,6 @@ describe('submit_review lease', () => {
     const result = await submit(changes);
     expect(result.isError).toBeFalsy();
     expect(bus.db.getRun('run-1-1')?.state).toBe('blocked');
-    expect(bus.readLog()).toContain('lease release failed');
+    await vi.waitFor(() => expect(bus.readLog()).toContain('lease release failed'));
   });
 });

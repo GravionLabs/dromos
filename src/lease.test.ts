@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   claimLease,
@@ -129,6 +129,27 @@ describe('claimLease', () => {
     expect(fs.readFileSync(file, 'utf8')).toContain('"issue":99');
   });
 
+  it('strips control characters and bounds foreign fields in the conflict message', async () => {
+    fs.writeFileSync(
+      leaseFile(dir, CHECKOUT),
+      JSON.stringify({
+        path: CHECKOUT,
+        issue: 99,
+        branch: 'b',
+        host: `evil\nINJECT${'x'.repeat(500)}`,
+        started: '2026-10-25T11:00:00Z',
+        heartbeat: '2026-10-25T11:00:00Z',
+      }),
+    );
+    const err = await claimLease(
+      dir,
+      { path: CHECKOUT, issue: 126, branch: 'b' },
+      { now: at },
+    ).catch((e: unknown) => e);
+    expect((err as Error).message).not.toContain('\n');
+    expect((err as Error).message.length).toBeLessThan(500);
+  });
+
   it('refuses a live lease of the same issue on another path', async () => {
     writeApmHubLease('/tmp/repo', 126, '2026-10-25T11:00:00Z');
     await expect(
@@ -252,11 +273,53 @@ describe('renewLease', () => {
     expect(fs.readdirSync(dir)).toEqual([]);
   });
 
-  it('refuses a symlinked lease file or tmp path', async () => {
+  it('replaces a planted tmp symlink without writing through it', async () => {
     const file = await claimLease(dir, { path: CHECKOUT, issue: 126, branch: 'b' });
-    fs.symlinkSync(join(dir, 'elsewhere'), `${file}.${process.pid}.tmp`);
-    expect(() => renewLease(dir, CHECKOUT)).toThrow('Refusing symlinked path');
-    fs.rmSync(`${file}.${process.pid}.tmp`);
+    const target = join(dir, 'elsewhere');
+    fs.writeFileSync(target, 'untouched');
+    fs.symlinkSync(target, `${file}.${process.pid}.tmp`);
+    expect(renewLease(dir, CHECKOUT)).toBe(true);
+    expect(fs.readFileSync(target, 'utf8')).toBe('untouched');
+    expect(leftovers()).toEqual([]);
+  });
+
+  it('returns false and writes nothing for a corrupt lease or garbage heartbeat', () => {
+    const file = leaseFile(dir, CHECKOUT);
+    for (const raw of ['not json', '{"path":"x"}', '{"heartbeat":"garbage","owner":"dromos"}']) {
+      fs.writeFileSync(file, raw);
+      expect(renewLease(dir, CHECKOUT, NOW)).toBe(false);
+      expect(fs.readFileSync(file, 'utf8')).toBe(raw);
+    }
+    expect(fs.readdirSync(dir)).toEqual([basename(file)]);
+  });
+
+  it('leaves a lease of another owner, path or issue untouched', () => {
+    const file = leaseFile(dir, CHECKOUT);
+    const base = {
+      path: CHECKOUT,
+      issue: 126,
+      branch: 'b',
+      host: 'h',
+      started: '2020-01-01T00:00:00Z',
+      heartbeat: '2020-01-01T00:00:00Z',
+    };
+    const cases: [object, number | undefined][] = [
+      [base, undefined], // apm-hub lease: no owner
+      [{ ...base, owner: 'someone' }, undefined],
+      [{ ...base, owner: 'dromos', path: '/other' }, undefined],
+      [{ ...base, owner: 'dromos' }, 7],
+    ];
+    for (const [lease, issue] of cases) {
+      const raw = `${JSON.stringify(lease)}\n`;
+      fs.writeFileSync(file, raw);
+      expect(renewLease(dir, CHECKOUT, NOW, issue)).toBe(false);
+      releaseLease(dir, CHECKOUT, issue);
+      expect(fs.readFileSync(file, 'utf8')).toBe(raw);
+    }
+  });
+
+  it('refuses a symlinked lease file', async () => {
+    const file = await claimLease(dir, { path: CHECKOUT, issue: 126, branch: 'b' });
     fs.rmSync(file);
     fs.symlinkSync(join(dir, 'elsewhere'), file);
     expect(() => renewLease(dir, CHECKOUT)).toThrow('Refusing symlinked path');

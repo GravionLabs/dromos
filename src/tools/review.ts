@@ -88,7 +88,7 @@ export function registerReviewTools(server: McpServer, ctx: ToolContext): void {
         });
         return { moved, out: { to: 'orchestrator', type: 'notice' } as const };
       });
-      await afterRunTransition(ctx, { ...run, state: next.state });
+      void afterRunTransition(ctx, { ...run, state: next.state });
       try {
         ctx.log.logLine('REVIEW', countLine(runId, review));
         ctx.log.logLine('STATE', `${runId} ${next.state} (round ${next.round})`);
