@@ -408,6 +408,55 @@ describe('db', () => {
       expect(db.listEvents(undefined, 1)).toHaveLength(1);
     });
 
+    it('counts unacked messages per addressed role for one run only', () => {
+      db.insertRun({
+        id: 'r1',
+        repo: 'o/r',
+        repoPath: '/r',
+        issueNumber: 1,
+        issueTitle: 't',
+        baseBranch: 'main',
+        branch: 'b1',
+        worktreePath: '/w1',
+      });
+      db.insertRun({
+        id: 'r2',
+        repo: 'o/r',
+        repoPath: '/r',
+        issueNumber: 2,
+        issueTitle: 't',
+        baseBranch: 'main',
+        branch: 'b2',
+        worktreePath: '/w2',
+      });
+      const send = (to: 'implementer' | 'reviewer', runId: string | null) =>
+        db.insertMessage({ from: 'orchestrator', to, type: 'task', runId, payload: {} });
+      send('implementer', 'r1');
+      send('implementer', 'r1');
+      const acked = send('reviewer', 'r1');
+      db.ackMessage(acked.id, 'reviewer');
+      send('reviewer', 'r2');
+      send('reviewer', null);
+      expect(db.countUnackedByRole('r1')).toEqual({ implementer: 2 });
+      expect(db.countUnackedByRole('r2')).toEqual({ reviewer: 1 });
+      expect(db.countUnackedByRole('missing')).toEqual({});
+    });
+
+    it('returns the newest hook event per role, ignoring other kinds', () => {
+      db.insertEvent('implementer', 'hook:idle', { n: 1 });
+      db.insertEvent('implementer', 'hook:busy', { n: 2 });
+      db.insertEvent('implementer', 'task:done', { n: 3 });
+      db.insertEvent('reviewer', 'hook:idle', { n: 4 });
+      expect(db.lastHookEventPerRole().map((e) => [e.role, e.kind, e.data])).toEqual([
+        ['implementer', 'hook:busy', { n: 2 }],
+        ['reviewer', 'hook:idle', { n: 4 }],
+      ]);
+    });
+
+    it('returns no hook events on an empty table', () => {
+      expect(db.lastHookEventPerRole()).toEqual([]);
+    });
+
     it('lists events strictly after an id, ascending, honouring the limit', () => {
       const ids = ['a', 'b', 'c'].map((k) => db.insertEvent('implementer', `hook:${k}`, null).id);
       expect(db.listEventsSince(0).map((e) => e.kind)).toEqual(['hook:a', 'hook:b', 'hook:c']);
