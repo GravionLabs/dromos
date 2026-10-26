@@ -296,7 +296,7 @@ describe('GET /events/stream', () => {
       expect(s.events.map((e) => [e.kind, e.data])).toEqual(
         expect.arrayContaining([
           ['agent.registered', expect.objectContaining({ role: 'implementer' })],
-          ['agent.state', { state: 'busy' }],
+          ['agent.state', { state: 'busy', lastOutputAt: expect.any(String) }],
         ]),
       ),
     );

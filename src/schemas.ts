@@ -16,6 +16,7 @@ export const AgentSchema = z.object({
   state: AgentStateSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
+  lastOutputAt: z.string().nullable(),
 });
 export type Agent = z.infer<typeof AgentSchema>;
 
@@ -95,5 +96,7 @@ export const HookEventSchema = z.object({
   /** Free text, passed through from the CLI launcher; never validated against a model list. */
   model: z.string().min(1).optional(),
   sessionId: z.string().optional(),
+  /** When the CLI last produced output; the bus uses the receive time when absent. */
+  lastOutputAt: z.iso.datetime().optional(),
 });
 export type HookEvent = z.infer<typeof HookEventSchema>;

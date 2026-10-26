@@ -392,7 +392,11 @@ export async function startHttp({
       return;
     }
     const updated = db.updateAgentState(agentId, state) ?? agent;
-    emitAgentEvent(updated, 'agent.state', { state });
+    emitAgentEvent(
+      updated,
+      'agent.state',
+      updated.lastOutputAt ? { state, lastOutputAt: updated.lastOutputAt } : { state },
+    );
     log.logLine('STATE', `${agentId} ${state}`);
   }
 
@@ -484,15 +488,21 @@ export async function startHttp({
     const { role, cli, state, model } = parsed.data;
     // The instance a hook belongs to is resolved first; null when ambiguous or unknown.
     const agentId = hookAgentId(req, role) ?? null;
+    const receivedAt = new Date().toISOString();
+    // A producer clock ahead of the bus would pin the value forward, so it is capped at receipt.
+    const lastOutputAt =
+      parsed.data.lastOutputAt && new Date(parsed.data.lastOutputAt).toISOString() < receivedAt
+        ? new Date(parsed.data.lastOutputAt).toISOString()
+        : receivedAt;
     const envelope = {
       id: 0,
       type: `hook:${state}`,
-      at: new Date().toISOString(),
+      at: receivedAt,
       source: `hook/${cli}`,
       agentId,
       issue: null,
       runId: null,
-      data: parsed.data,
+      data: { ...parsed.data, lastOutputAt },
     };
     // Validate before any side effect, so a later failure never leaves a stored row to retry.
     const checked = BusEventSchema.safeParse(envelope);
@@ -508,6 +518,7 @@ export async function startHttp({
     // Only a subscriber throwing on the hook row itself leaves it stored with a 500.
     try {
       if (agentId) {
+        db.touchAgentOutput(agentId, lastOutputAt);
         setAgentState(agentId, state);
       }
       recordEvent(db, events, role, envelope);

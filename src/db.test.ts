@@ -45,8 +45,8 @@ describe('db', () => {
         raw.close();
 
         const migrated = openDb(file);
-        expect(MIGRATIONS).toHaveLength(7);
-        expect(migrated.schemaVersion()).toBe(7);
+        expect(MIGRATIONS).toHaveLength(8);
+        expect(migrated.schemaVersion()).toBe(8);
         expect(migrated.queryEvents({ issue: 7, limit: 10 }).events).toHaveLength(1);
         migrated.close();
 
@@ -653,7 +653,7 @@ describe('db', () => {
           .run();
         raw.close();
         const migrated = openDb(file);
-        expect(migrated.schemaVersion()).toBe(7);
+        expect(migrated.schemaVersion()).toBe(8);
         expect(migrated.listAttention({ limit: 10 })).toEqual([]);
         expect(migrated.queryEvents({ issue: 7, limit: 10 }).events).toHaveLength(1);
         migrated.close();

@@ -104,6 +104,9 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE messages ADD COLUMN attention_raised_at TEXT;
   `,
+  `
+  ALTER TABLE agents ADD COLUMN last_output_at TEXT;
+  `,
 ];
 
 export interface Run {
@@ -360,6 +363,7 @@ interface AgentRow {
   state: AgentState;
   created_at: string;
   updated_at: string;
+  last_output_at: string | null;
 }
 
 function toAgent(row: AgentRow): Agent {
@@ -373,6 +377,7 @@ function toAgent(row: AgentRow): Agent {
     state: row.state,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    lastOutputAt: row.last_output_at,
   };
 }
 
@@ -382,6 +387,8 @@ export interface Db {
   getAgent(id: string): Agent | undefined;
   /** Returns undefined when the agent does not exist. */
   updateAgentState(id: string, state: AgentState): Agent | undefined;
+  /** Moves `last_output_at` forward to `at` (ISO); an equal or older value is ignored. */
+  touchAgentOutput(id: string, at: string): void;
   /** Sets the agent's run_id only when it has none yet (first run wins). Returns the agent, or undefined when unknown. */
   setAgentRun(id: string, runId: string): Agent | undefined;
   listAgents(filter?: AgentFilter): Agent[];
@@ -503,6 +510,9 @@ export function openDb(file: string): Db {
   );
   const getAgent = db.prepare<[string], AgentRow>('SELECT * FROM agents WHERE id = ?');
   const updateAgentState = db.prepare('UPDATE agents SET state = ?, updated_at = ? WHERE id = ?');
+  const touchAgentOutput = db.prepare(
+    'UPDATE agents SET last_output_at = ? WHERE id = ? AND (last_output_at IS NULL OR last_output_at < ?)',
+  );
   const setAgentRun = db.prepare(
     'UPDATE agents SET run_id = ?, updated_at = ? WHERE id = ? AND run_id IS NULL',
   );
@@ -688,6 +698,9 @@ export function openDb(file: string): Db {
         return undefined;
       }
       return toAgent(getAgent.get(id) as AgentRow);
+    },
+    touchAgentOutput(id, at) {
+      touchAgentOutput.run(at, id, at);
     },
     setAgentRun(id, runId) {
       setAgentRun.run(runId, now(), id);
