@@ -7,7 +7,8 @@ import { HookEventSchema, ReviewSchema, RunStateSchema } from '../schemas.js';
 // Unicode version and equals `is_forbidden_char` in the Rust crate; `schema/parity.json` checks
 // both. The check is a refinement, so it is not part of the exported JSON Schema.
 // Zod 4 `min`/`max` count code points, like the JSON Schema `maxLength` and the Rust types.
-const FORBIDDEN_CHARS = /[\p{Cc}\u061C\u200B-\u200F\u2028-\u202E\u2060-\u2064\u2066-\u206F\uFEFF]/u;
+export const FORBIDDEN_CHARS =
+  /[\p{Cc}\u061C\u200B-\u200F\u2028-\u202E\u2060-\u2064\u2066-\u206F\uFEFF]/u;
 const noForbiddenChars = (s: string) => !FORBIDDEN_CHARS.test(s);
 const FORBIDDEN_MSG = 'control or invisible formatting characters are not allowed';
 const text = (min: number, max: number) =>
