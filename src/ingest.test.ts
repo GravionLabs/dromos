@@ -110,7 +110,9 @@ describe('POST /ingest', () => {
     const data = { line: 'wave 2', agent: 'orchestrator', kind: 'wave', fields: { n: 2, x: null } };
     const res = await post(progress({ data }));
     expect(res.status).toBeLessThan(300);
-    expect(bus.db.listEvents()).toHaveLength(1);
+    const rows = bus.db.listEvents();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.data).toMatchObject({ kind: 'wave', fields: { n: 2, x: null } });
   });
 
   it('rejects a progress event with an unknown kind with 400 and stores nothing', async () => {

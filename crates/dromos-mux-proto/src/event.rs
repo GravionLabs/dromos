@@ -168,6 +168,12 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
         Progress { data, .. } => {
             texts.push(("data.line", data.line.as_str()));
             texts.push(("data.agent", data.agent.as_str()));
+            if data.fields.len() > 32 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.fields",
+                    rule: "at most 32 entries",
+                });
+            }
             for (key, value) in &data.fields {
                 texts.push(("data.fields", key.as_str()));
                 if let ProgressDataFieldsValue::String(v) = value {

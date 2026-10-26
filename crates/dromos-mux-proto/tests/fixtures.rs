@@ -237,7 +237,8 @@ fn progress_kind_fixtures_parse_with_their_kind() {
         };
         let wire = serde_json::to_value(data.kind.expect("kind set")).unwrap();
         assert_eq!(wire, json!(kind));
-        assert_eq!(data.fields.len(), 3);
+        let fields = serde_json::to_value(&data.fields).unwrap();
+        assert_eq!(fields, json!({"ref": "#97", "count": 3.5, "note": null}));
     }
 }
 
@@ -270,6 +271,25 @@ fn rejects_invalid_progress_data() {
         "data.fields",
         Edit::Set(json!({"a": "x".repeat(1001)})),
     );
+    assert_field_rejected(
+        p,
+        "long field key",
+        "data.fields",
+        Edit::Set(json!({"k".repeat(65): "x"})),
+    );
+    assert_rejected(p, "33 field entries", "at most 32", |e| {
+        let map: serde_json::Map<String, Value> =
+            (0..33).map(|i| (format!("k{i}"), json!(i))).collect();
+        e["data"]["fields"] = Value::Object(map);
+    });
+    assert_accepted(p, "32 field entries", |e| {
+        let map: serde_json::Map<String, Value> =
+            (0..32).map(|i| (format!("k{i}"), json!(i))).collect();
+        e["data"]["fields"] = Value::Object(map);
+    });
+    assert_accepted(p, "empty value and empty map", |e| {
+        e["data"]["fields"] = json!({"a": ""});
+    });
     assert_rejected(p, "escape in field value", "data.fields", |e| {
         e["data"]["fields"] = json!({"a": "x\u{1b}[31m"});
     });

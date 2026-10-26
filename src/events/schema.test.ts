@@ -66,6 +66,13 @@ describe('progress kind and fields', () => {
     expect(ok({ fields: { 'a\u200bb': 'x' } })).toBe(false);
   });
 
+  it('caps fields at 32 entries', () => {
+    const n = (count: number) =>
+      Object.fromEntries(Array.from({ length: count }, (_, i) => [`k${i}`, i]));
+    expect(ok({ fields: n(32) })).toBe(true);
+    expect(ok({ fields: n(33) })).toBe(false);
+  });
+
   it('rejects an extra key in data', () => {
     expect(ok({ extra: 1 })).toBe(false);
   });
