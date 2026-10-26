@@ -114,23 +114,16 @@ describe('agent.state events', () => {
   it('caps a future producer timestamp at the receive time', async () => {
     await bus.connect('implementer', 'impl-1');
     const future = new Date(Date.now() + 3_600_000).toISOString();
+    const before = Date.now();
     await hookAt('busy', future);
-    expect(Date.parse(bus.db.getAgent('impl-1')?.lastOutputAt ?? '')).toBeLessThan(
-      Date.parse(future),
-    );
+    const stored = Date.parse(bus.db.getAgent('impl-1')?.lastOutputAt ?? '');
+    expect(stored).toBeGreaterThanOrEqual(before);
+    expect(stored).toBeLessThanOrEqual(Date.now());
   });
 
   it('rejects a malformed lastOutputAt', async () => {
     await bus.connect('implementer', 'impl-1');
     expect((await hookAt('busy', 'yesterday')).status).toBe(400);
-    expect(bus.db.getAgent('impl-1')?.lastOutputAt).toBeNull();
-  });
-
-  it('omits lastOutputAt on agent.state when no hook has arrived', async () => {
-    await bus.connect('implementer', 'impl-1');
-    const agent = bus.db.getAgent('impl-1');
-    expect(agent?.lastOutputAt).toBeNull();
-    bus.db.updateAgentState('impl-1', 'busy');
     expect(bus.db.getAgent('impl-1')?.lastOutputAt).toBeNull();
   });
 
@@ -170,6 +163,13 @@ describe('agent.state events', () => {
     await openAndClose('impl-1');
     await expect.poll(() => bus.db.getAgent('impl-1')?.state, { timeout: 2000 }).toBe('exited');
     expect(stateEvents()).toEqual([{ state: 'exited' }]);
+  });
+
+  it('omits lastOutputAt on the agent.state event when no hook has arrived', async () => {
+    await openAndClose('impl-1');
+    await expect.poll(() => bus.db.getAgent('impl-1')?.state, { timeout: 2000 }).toBe('exited');
+    expect(bus.db.getAgent('impl-1')?.lastOutputAt).toBeNull();
+    expect(lastStateData()).toStrictEqual({ state: 'exited' });
   });
 
   it('does not target an exited agent from a role-only hook', async () => {

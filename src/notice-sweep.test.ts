@@ -77,6 +77,61 @@ describe('notice sweep', () => {
     expect(questions()).toHaveLength(0);
   });
 
+  it('does not raise for a notice the orchestrator addressed to itself', async () => {
+    const m = db.insertMessage({
+      from: 'orchestrator',
+      to: 'orchestrator',
+      type: 'notice',
+      runId: 'run-7',
+      payload: { event: 'pr_opened' },
+    });
+    await sweepNotices(db, events, log, { now: at(m, 90_000) });
+    expect(db.listAttention({ limit: 50 })).toHaveLength(0);
+  });
+
+  it('raises a QUESTION without issue for a notice without a run', async () => {
+    const m = db.insertMessage({
+      from: 'implementer',
+      to: 'orchestrator',
+      type: 'notice',
+      payload: { reason: 'no run' },
+    });
+    await sweepNotices(db, events, log, { now: at(m, 61_000) });
+    expect(questions()).toHaveLength(1);
+    expect(questions()[0]).toMatchObject({ issue: null, runId: null, summary: 'no run' });
+  });
+
+  it('still raises when the run only has a QUESTION attention', async () => {
+    const first = notice();
+    await sweepNotices(db, events, log, { now: at(first, 61_000) });
+    const second = notice('orchestrator', { reason: 'again' });
+    await sweepNotices(db, events, log, { now: at(second, 61_000) });
+    expect(questions().map((q) => q.summary)).toEqual(['needs input', 'again']);
+  });
+
+  it('ignores messages of other types', async () => {
+    const m = db.insertMessage({
+      from: 'implementer',
+      to: 'orchestrator',
+      type: 'gate_result',
+      runId: 'run-7',
+      payload: {},
+    });
+    await sweepNotices(db, events, log, { now: at(m, 90_000) });
+    expect(db.listAttention({ limit: 50 })).toHaveLength(0);
+  });
+
+  it('stops mid-sweep when isStopped turns true', async () => {
+    const m = notice();
+    notice();
+    let calls = 0;
+    await sweepNotices(db, events, log, {
+      now: at(m, 90_000),
+      isStopped: () => ++calls > 1,
+    });
+    expect(questions()).toHaveLength(1);
+  });
+
   it('uses the event name when there is no reason and strips forbidden characters', async () => {
     const m = notice('orchestrator', { event: 'appr\u0000oved' });
     await sweepNotices(db, events, log, { now: at(m, 61_000) });

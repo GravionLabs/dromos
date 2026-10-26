@@ -82,7 +82,10 @@ export function recordRunEvent(
  * `implementing`. Every event is validated against BusEvent before it is inserted; an invalid one
  * throws EventValidationError. Call it inside the `db.transaction` that changes the run row so
  * both commit or roll back together, and publish the returned rows with `publishRows` only after
- * the transaction committed.
+ * the transaction committed. Order within one transition: `run.state` first, then
+ * `attempt.settled`, then the next `attempt.started` (ids ascend in that order). A run without an
+ * `attempt.started` (created before attempts were recorded) emits no `attempt.settled`; its next
+ * attempt is numbered after its round.
  */
 export function recordRunTransition(
   db: Db,

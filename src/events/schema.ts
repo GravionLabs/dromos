@@ -275,7 +275,7 @@ export const RunStateEventSchema = z
   .meta({ id: 'RunStateEvent' });
 
 /** Step cap of `gate.result.data.steps`; the Rust `check_constraints` enforces the same number. */
-const MAX_GATE_STEPS = 32;
+export const MAX_GATE_STEPS = 32;
 
 /** Server-owned: result of one gate run. Step output stays out of events (free text). */
 export const GateResultEventSchema = z

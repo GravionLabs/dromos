@@ -398,7 +398,8 @@ export interface Db {
   /** Returns false when the message does not exist, is already acked, or is addressed to someone else. */
   ackMessage(id: number, role: Role, agentId?: string): boolean;
   /**
-   * Orchestrator notices created at or before `cutoff` (ISO) that are unacked, have no
+   * Notices from other roles to the orchestrator (not the orchestrator's own bookkeeping, such
+   * as pr_opened) created at or before `cutoff` (ISO) that are unacked, have no
    * `attention_raised_at` and whose run has no attention other than a QUESTION; ascending id.
    * Notices without a run qualify.
    */
@@ -476,7 +477,8 @@ export function openDb(file: string): Db {
   );
   const listStaleNotices = db.prepare<[string, number], MessageRow>(
     `SELECT m.* FROM messages m
-     WHERE m.type = 'notice' AND m.to_role = 'orchestrator' AND m.acked_at IS NULL
+     WHERE m.type = 'notice' AND m.to_role = 'orchestrator' AND m.from_role <> 'orchestrator'
+       AND m.acked_at IS NULL
        AND m.attention_raised_at IS NULL AND m.created_at <= ?
        AND (m.run_id IS NULL OR NOT EXISTS (
          SELECT 1 FROM attention a WHERE a.run_id = m.run_id AND a.kind <> 'QUESTION'))

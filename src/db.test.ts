@@ -28,6 +28,82 @@ describe('db', () => {
     db.close();
   });
 
+  describe('migrations 7 and 8', () => {
+    it('add attention_raised_at and last_output_at to a version-6 database and keep its rows', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'dromos-db-'));
+      try {
+        const file = join(dir, 'bus.db');
+        const raw = new Database(file);
+        for (const sql of MIGRATIONS.slice(0, 6)) raw.exec(sql);
+        raw.pragma('user_version = 6');
+        raw
+          .prepare(
+            `INSERT INTO agents (id, role, cli, state, created_at, updated_at)
+             VALUES ('a1', 'implementer', 'claude', 'idle', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
+          )
+          .run();
+        raw.close();
+        const migrated = openDb(file);
+        expect(migrated.schemaVersion()).toBe(8);
+        expect(migrated.getAgent('a1')?.lastOutputAt).toBeNull();
+        migrated.close();
+        const check = new Database(file, { readonly: true });
+        const cols = (table: string) =>
+          (check.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(
+            (c) => c.name,
+          );
+        expect(cols('messages')).toContain('attention_raised_at');
+        expect(cols('agents')).toContain('last_output_at');
+        check.close();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('touchAgentOutput', () => {
+    it('moves last_output_at forward only', () => {
+      db.insertAgent({ id: 'a1', role: 'implementer', cli: 'claude' });
+      db.touchAgentOutput('a1', '2026-01-02T00:00:00.000Z');
+      db.touchAgentOutput('a1', '2026-01-01T00:00:00.000Z');
+      expect(db.getAgent('a1')?.lastOutputAt).toBe('2026-01-02T00:00:00.000Z');
+      db.touchAgentOutput('a1', '2026-01-03T00:00:00.000Z');
+      expect(db.getAgent('a1')?.lastOutputAt).toBe('2026-01-03T00:00:00.000Z');
+    });
+  });
+
+  describe('stale orchestrator notices', () => {
+    const notice = (
+      over: { from?: 'implementer' | 'orchestrator'; to?: 'orchestrator' | 'reviewer' } = {},
+    ) =>
+      db.insertMessage({
+        from: over.from ?? 'implementer',
+        to: over.to ?? 'orchestrator',
+        type: 'notice',
+        payload: {},
+      });
+    const future = '9999-01-01T00:00:00.000Z';
+
+    it('lists unacked notices to the orchestrator up to the cutoff, oldest first', () => {
+      const a = notice();
+      const b = notice();
+      expect(db.listStaleOrchestratorNotices('2000-01-01T00:00:00.000Z')).toEqual([]);
+      expect(db.listStaleOrchestratorNotices(future).map((m) => m.id)).toEqual([a.id, b.id]);
+      expect(db.listStaleOrchestratorNotices(future, 1).map((m) => m.id)).toEqual([a.id]);
+    });
+
+    it('excludes acked, marked, self-addressed and other-role notices', () => {
+      const acked = notice();
+      db.ackMessage(acked.id, 'orchestrator');
+      const marked = notice();
+      expect(db.markNoticeAttentionRaised(marked.id)).toBe(true);
+      expect(db.markNoticeAttentionRaised(marked.id)).toBe(false);
+      notice({ from: 'orchestrator' });
+      notice({ to: 'reviewer' });
+      expect(db.listStaleOrchestratorNotices(future)).toEqual([]);
+    });
+  });
+
   describe('migration 5', () => {
     it('adds both event indexes to a version-4 database and keeps its rows', () => {
       const dir = mkdtempSync(join(tmpdir(), 'dromos-db-'));

@@ -778,6 +778,44 @@ describe('submit_implementation', () => {
       ]);
     });
 
+    it('keeps a passing gate with 40 steps and odd names green', async () => {
+      addRun();
+      const steps = Array.from({ length: 40 }, (_, i) => ({
+        name: i === 0 ? `${'n'.repeat(200)}\u0000` : `s${i}`,
+        command: 'x',
+        exitCode: 0,
+        durationMs: 1,
+        outputTail: '',
+      }));
+      mockRunGate.mockResolvedValue({ passed: true, steps });
+      await submit();
+      await settle();
+      expect(bus.db.getRun('run-1-1')?.state).toBe('reviewing');
+      const [data] = ofKind('gate.result') as {
+        passed: boolean;
+        durationMs: number;
+        failedStep: string | null;
+        steps: { name: string }[];
+      }[];
+      expect(data).toMatchObject({ passed: true, durationMs: 40, failedStep: null });
+      expect(data?.steps).toHaveLength(32);
+      expect(data?.steps[0]?.name).toBe('n'.repeat(128));
+    });
+
+    it('names an empty failing step so the red gate is still recorded', async () => {
+      addRun();
+      startAttempt();
+      mockRunGate.mockResolvedValue({
+        passed: false,
+        steps: [{ name: ' ', command: 'x', exitCode: 1, durationMs: 0, outputTail: '' }],
+      });
+      await submit();
+      await settle();
+      expect(ofKind('gate.result')).toMatchObject([
+        { failedStep: 'step', steps: [{ name: 'step' }] },
+      ]);
+    });
+
     it('rolls the gate outcome back when the gate.result insert fails', async () => {
       addRun();
       mockRunGate.mockResolvedValue(green);

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireRole } from '../auth.js';
 import type { ToolContext } from '../context.js';
 import type { EventRecord, Run } from '../db.js';
+import { FORBIDDEN_CHARS, MAX_GATE_STEPS } from '../events/schema.js';
 import { resolveGateCommands, runGate } from '../gate.js';
 import {
   publishRows,
@@ -63,6 +64,33 @@ type Outbound = {
   rows: EventRecord[];
 };
 
+const FORBIDDEN_GLOBAL = new RegExp(FORBIDDEN_CHARS.source, 'gu');
+const MAX_STEP_NAME = 128;
+
+/**
+ * The gate.result payload for a gate. The event schema is stricter than the gate config (at most
+ * 32 steps, names of 1-128 characters without control characters), so names are cleaned and
+ * truncated and surplus steps are dropped; the verdict, total duration and failed step still
+ * come from the full result, so an oversized passing gate is never recorded as red.
+ */
+function gateResultData(round: number, gate: GateResult) {
+  const name = (raw: string) =>
+    raw.replace(FORBIDDEN_GLOBAL, ' ').trim().slice(0, MAX_STEP_NAME).trim() || 'step';
+  const failed = gate.steps.find((step) => step.exitCode !== 0);
+  return {
+    passed: gate.passed,
+    round,
+    evidence: 'verified',
+    durationMs: gate.steps.reduce((sum, step) => sum + step.durationMs, 0),
+    failedStep: failed ? name(failed.name) : null,
+    steps: gate.steps.slice(0, MAX_GATE_STEPS).map((step) => ({
+      name: name(step.name),
+      exitCode: step.exitCode,
+      durationMs: step.durationMs,
+    })),
+  };
+}
+
 /** Persists the gate outcome, state change and outgoing message atomically. */
 function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: GateResult): Outbound {
   const next = transition(
@@ -73,14 +101,7 @@ function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: Gate
   ctx.db.updateRun(run.id, { lastGate: gate, state: next.state, round: next.round });
   // The bus ran the gate itself, so its result and a red gate's outcome are verified. The
   // gate.result row goes first so the sequence reads gate.result -> run.state.
-  const result = recordRunEvent(ctx.db, run, 'gate.result', {
-    passed: gate.passed,
-    round: run.round,
-    evidence: 'verified',
-    durationMs: gate.steps.reduce((sum, step) => sum + step.durationMs, 0),
-    failedStep: gate.steps.find((step) => step.exitCode !== 0)?.name ?? null,
-    steps: gate.steps.map(({ name, exitCode, durationMs }) => ({ name, exitCode, durationMs })),
-  });
+  const result = recordRunEvent(ctx.db, run, 'gate.result', gateResultData(run.round, gate));
   const rows = recordRunTransition(
     ctx.db,
     run,
