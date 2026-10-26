@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Db, MIGRATIONS, type NewRun, openDb } from './db.js';
 
 const newRun = (overrides: Partial<NewRun> = {}): NewRun => ({
@@ -28,6 +28,43 @@ describe('db', () => {
     db.close();
   });
 
+  describe('migration 5', () => {
+    it('adds both event indexes to a version-4 database and keeps its rows', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'dromos-db-'));
+      try {
+        const file = join(dir, 'bus.db');
+        const raw = new Database(file);
+        for (const sql of MIGRATIONS.slice(0, 4)) raw.exec(sql);
+        raw.pragma('user_version = 4');
+        raw
+          .prepare(
+            `INSERT INTO events (role, kind, data_json, created_at, issue)
+             VALUES ('implementer', 'hook:idle', '{}', '2026-01-01T00:00:00Z', 7)`,
+          )
+          .run();
+        raw.close();
+
+        const migrated = openDb(file);
+        expect(MIGRATIONS).toHaveLength(5);
+        expect(migrated.schemaVersion()).toBe(5);
+        expect(migrated.queryEvents({ issue: 7, limit: 10 }).events).toHaveLength(1);
+        migrated.close();
+
+        const check = new Database(file, { readonly: true });
+        const names = (
+          check.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as {
+            name: string;
+          }[]
+        ).map((r) => r.name);
+        check.close();
+        expect(names).toContain('idx_events_issue_id');
+        expect(names).toContain('idx_events_kind_id');
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe('migration 4', () => {
     it('adds last_summary and keeps version-3 runs with a null summary', () => {
       const dir = mkdtempSync(join(tmpdir(), 'dromos-db-'));
@@ -47,8 +84,7 @@ describe('db', () => {
         raw.close();
 
         const migrated = openDb(file);
-        expect(MIGRATIONS).toHaveLength(4);
-        expect(migrated.schemaVersion()).toBe(4);
+        expect(migrated.schemaVersion()).toBe(MIGRATIONS.length);
         expect(migrated.getRun('old')?.lastSummary).toBeNull();
         expect(migrated.updateRun('old', { lastSummary: 'x' })?.lastSummary).toBe('x');
         expect(migrated.getRun('old')?.lastSummary).toBe('x');
@@ -479,6 +515,117 @@ describe('db', () => {
 
     it('returns an empty list for an empty table', () => {
       expect(db.listEventsSince(0)).toEqual([]);
+    });
+  });
+  describe('queryEvents', () => {
+    const ids = (page: { events: { id: number }[] }) => page.events.map((e) => e.id);
+    const insertAt = (createdAt: string) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(createdAt));
+      try {
+        return db.insertEvent('s', 'k', {});
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+
+    it('returns everything in id order for an empty filter', () => {
+      const a = db.insertEvent('s', 'a', {});
+      const b = db.insertEvent('s', 'b', {});
+      expect(db.queryEvents({ limit: 10 })).toMatchObject({
+        events: [{ id: a.id }, { id: b.id }],
+        next: null,
+      });
+    });
+
+    it('filters by issue and by a type list', () => {
+      const e1 = db.insertEvent('s', 'x', {}, { issue: 1 });
+      db.insertEvent('s', 'x', {}, { issue: 2 });
+      const e3 = db.insertEvent('s', 'y', {}, { issue: 1 });
+      db.insertEvent('s', 'z', {}, { issue: 1 });
+      expect(ids(db.queryEvents({ issue: 1, types: ['x', 'y'], limit: 10 }))).toEqual([
+        e1.id,
+        e3.id,
+      ]);
+      expect(ids(db.queryEvents({ types: ['nope'], limit: 10 }))).toEqual([]);
+    });
+
+    it('filters by source and agentId', () => {
+      const a = db.insertEvent('impl', 'k', {}, { agentId: 'a1' });
+      db.insertEvent('rev', 'k', {}, { agentId: 'a1' });
+      db.insertEvent('impl', 'k', {}, { agentId: 'a2' });
+      expect(ids(db.queryEvents({ sources: ['impl'], agentId: 'a1', limit: 10 }))).toEqual([a.id]);
+      expect(db.queryEvents({ sources: ['impl', 'rev'], limit: 10 }).events).toHaveLength(3);
+    });
+
+    it('treats since as inclusive and until as exclusive on created_at', () => {
+      const t = [
+        '2026-01-01T00:00:00.000Z',
+        '2026-01-02T00:00:00.000Z',
+        '2026-01-03T00:00:00.000Z',
+      ];
+      const ev = t.map((c) => insertAt(c));
+      expect(ids(db.queryEvents({ since: t[1], limit: 10 }))).toEqual([ev[1]?.id, ev[2]?.id]);
+      expect(ids(db.queryEvents({ until: t[1], limit: 10 }))).toEqual([ev[0]?.id]);
+      expect(ids(db.queryEvents({ since: t[1], until: t[2], limit: 10 }))).toEqual([ev[1]?.id]);
+    });
+
+    it('pages 2500 matching events as 1000+1000+500 without repeats or gaps', () => {
+      const all: number[] = [];
+      db.transaction(() => {
+        for (let i = 0; i < 2500; i++) {
+          all.push(db.insertEvent('s', 'k', {}, { issue: 5 }).id);
+          db.insertEvent('s', 'other', {}, { issue: 6 });
+        }
+      });
+      const seen: number[] = [];
+      const sizes: number[] = [];
+      let after: number | undefined;
+      for (;;) {
+        const page = db.queryEvents({ issue: 5, limit: 1000, after });
+        sizes.push(page.events.length);
+        seen.push(...ids(page));
+        if (page.next === null) break;
+        after = page.next;
+      }
+      expect(sizes).toEqual([1000, 1000, 500]);
+      expect(seen).toEqual(all);
+    });
+
+    it('returns next null when exactly limit rows match', () => {
+      db.insertEvent('s', 'k', {});
+      db.insertEvent('s', 'k', {});
+      const page = db.queryEvents({ limit: 2 });
+      expect(page.events).toHaveLength(2);
+      expect(page.next).toBeNull();
+    });
+
+    it('does not repeat or skip matching events inserted between pages', () => {
+      const first = [1, 2, 3].map(() => db.insertEvent('s', 'k', {}, { issue: 9 }).id);
+      const p1 = db.queryEvents({ issue: 9, limit: 2 });
+      expect(p1.next).toBe(first[1]);
+      const late = db.insertEvent('s', 'k', {}, { issue: 9 });
+      db.insertEvent('s', 'k', {}, { issue: 8 });
+      const p2 = db.queryEvents({ issue: 9, limit: 2, after: p1.next as number });
+      expect([...ids(p1), ...ids(p2)]).toEqual([...first, late.id]);
+      expect(p2.next).toBeNull();
+    });
+
+    it('treats filter values as data, not SQL', () => {
+      db.insertEvent('s', 'k', {});
+      expect(db.queryEvents({ types: ["k' OR '1'='1"], limit: 10 }).events).toEqual([]);
+    });
+
+    it('uses idx_events_issue_id for an issue filter', () => {
+      const raw = new Database(':memory:');
+      for (const sql of MIGRATIONS) raw.exec(sql);
+      const plan = raw
+        .prepare(
+          'EXPLAIN QUERY PLAN SELECT * FROM events WHERE issue = ? AND id > ? ORDER BY id ASC LIMIT ?',
+        )
+        .all(1, 0, 11) as { detail: string }[];
+      raw.close();
+      expect(plan.map((p) => p.detail).join('\n')).toContain('idx_events_issue_id');
     });
   });
 });

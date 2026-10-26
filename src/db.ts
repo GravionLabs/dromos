@@ -75,6 +75,10 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE runs ADD COLUMN last_summary TEXT;
   `,
+  `
+  CREATE INDEX idx_events_issue_id ON events(issue, id);
+  CREATE INDEX idx_events_kind_id ON events(kind, id);
+  `,
 ];
 
 export interface Run {
@@ -137,6 +141,29 @@ export interface EventRecord {
   issue: number | null;
   /** Orchestrator run the event belongs to; null when none. */
   runId: string | null;
+}
+
+/** Filters for `Db.queryEvents`; absent filters match everything. */
+export interface EventQuery {
+  issue?: number;
+  /** Matches `kind` (the API's `type`). */
+  types?: string[];
+  /** Matches `role` (the API's `source`). */
+  sources?: string[];
+  agentId?: string;
+  /** Inclusive lower bound on `created_at`, normalized ISO UTC. */
+  since?: string;
+  /** Exclusive upper bound on `created_at`, normalized ISO UTC. */
+  until?: string;
+  /** Keyset cursor: only events with id greater than this. */
+  after?: number;
+  limit: number;
+}
+
+export interface EventPage {
+  events: EventRecord[];
+  /** Id to pass as `after` for the next page; null on the last page. */
+  next: number | null;
 }
 
 /** Optional envelope fields stored next to an event; omitted fields are stored as NULL. */
@@ -295,6 +322,8 @@ export interface Db {
   lastHookEventPerRole(): EventRecord[];
   /** Events with id strictly greater than `afterId`, ascending, for stream replay. */
   listEventsSince(afterId: number, limit?: number): EventRecord[];
+  /** Matching events in ascending id order, at most `limit`, with a keyset cursor. */
+  queryEvents(query: EventQuery): EventPage;
   /** Runs `fn` in one SQLite transaction; rolls back when it throws. */
   transaction<T>(fn: () => T): T;
   schemaVersion(): number;
@@ -523,6 +552,43 @@ export function openDb(file: string): Db {
     },
     listEventsSince(afterId, limit = 1000) {
       return listEventsSince.all(afterId, limit).map(toEvent);
+    },
+    queryEvents(query) {
+      const where: string[] = [];
+      const params: (string | number)[] = [];
+      if (query.issue !== undefined) {
+        where.push('issue = ?');
+        params.push(query.issue);
+      }
+      if (query.types !== undefined) {
+        where.push(`kind IN (${query.types.map(() => '?').join(', ')})`);
+        params.push(...query.types);
+      }
+      if (query.sources !== undefined) {
+        where.push(`role IN (${query.sources.map(() => '?').join(', ')})`);
+        params.push(...query.sources);
+      }
+      if (query.agentId !== undefined) {
+        where.push('agent_id = ?');
+        params.push(query.agentId);
+      }
+      if (query.since !== undefined) {
+        where.push('created_at >= ?');
+        params.push(query.since);
+      }
+      if (query.until !== undefined) {
+        where.push('created_at < ?');
+        params.push(query.until);
+      }
+      if (query.after !== undefined) {
+        where.push('id > ?');
+        params.push(query.after);
+      }
+      const sql = `SELECT * FROM events${where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY id ASC LIMIT ?`;
+      const rows = db.prepare<(string | number)[], EventRow>(sql).all(...params, query.limit + 1);
+      const page = rows.slice(0, query.limit).map(toEvent);
+      const last = page[page.length - 1];
+      return { events: page, next: rows.length > query.limit && last ? last.id : null };
     },
     transaction(fn) {
       return db.transaction(fn)();
