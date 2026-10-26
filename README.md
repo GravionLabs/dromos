@@ -95,6 +95,14 @@ curl 'http://127.0.0.1:4777/events?issue=135&type=progress,usage&limit=500'
 - `400 { error }` names the parameter: unknown or repeated parameters, a non-integer `issue`, `after` or `limit`, `limit` outside 1..1000, empty list entries or empty `agentId`, an invalid `since` or `until`.
 - `403 { error }` for a `Host` or `Origin` that is not loopback or the configured bind host. Binds to 127.0.0.1; no authentication. Methods other than `GET` and `POST` answer 405 (`POST /events` is unchanged).
 
+## GET /runs/{issue}/metrics and GET /runs/metrics
+
+`GET /runs/{issue}/metrics?since=&until=` returns the `RunMetrics` of one issue (event counts, durations, usage, per-agent counts). An issue without events answers `200` with empty metrics. `GET /runs/metrics?issues=1,2,3` or `?since=[&until=]` returns `{ runs, aggregate }`: one object per issue plus sums and means. With `since` and no `issues`, the issues are the distinct issues of events in the window.
+
+- `since` is inclusive and `until` exclusive, both ISO-8601 as for `GET /events`. `issues` is a comma-separated list of non-negative integers, at most 100. The multi route needs `issues` or `since`.
+- Missing usage is reported as `usd: null, measured: false`, never estimated.
+- `400 { error }` names the unknown, repeated or invalid parameter; `403` for a foreign `Host` or `Origin`; `405` for methods other than `GET`.
+
 Latency (opt-in, 10k events for one issue plus noise, p99 must stay under 50 ms):
 
 ```sh
