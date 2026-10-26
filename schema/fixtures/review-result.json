@@ -1,0 +1,16 @@
+{
+  "id": 63,
+  "type": "review.result",
+  "at": "2026-10-26T10:00:00.000Z",
+  "source": "dromos",
+  "agentId": null,
+  "issue": 44,
+  "runId": "run-44",
+  "data": {
+    "verdict": "changes",
+    "round": 1,
+    "blockingFindings": 1,
+    "findings": 3,
+    "evidence": "reported"
+  }
+}

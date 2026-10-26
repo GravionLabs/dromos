@@ -1,0 +1,14 @@
+{
+  "id": 64,
+  "type": "attempt.started",
+  "at": "2026-10-26T10:00:00.000Z",
+  "source": "dromos",
+  "agentId": null,
+  "issue": 44,
+  "runId": "run-44",
+  "data": {
+    "n": 2,
+    "cause": "gate_failed",
+    "startedAt": "2026-10-26T10:00:00.000Z"
+  }
+}

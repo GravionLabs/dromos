@@ -1,0 +1,13 @@
+{
+  "id": 66,
+  "type": "agent.state",
+  "at": "2026-10-26T10:00:05.000Z",
+  "source": "implementer",
+  "agentId": "implementer-1",
+  "issue": 44,
+  "runId": "run-44",
+  "data": {
+    "state": "busy",
+    "lastOutputAt": "2026-10-26T10:00:04.000Z"
+  }
+}

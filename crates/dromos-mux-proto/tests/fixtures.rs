@@ -109,6 +109,144 @@ fn external_fixtures_map_to_their_variants() {
         BusEvent::QueueItem { .. }
     ));
     assert!(matches!(load("agent-run.json"), BusEvent::AgentRun { .. }));
+    assert!(matches!(load("run-state.json"), BusEvent::RunState { .. }));
+    assert!(matches!(
+        load("gate-result.json"),
+        BusEvent::GateResult { .. }
+    ));
+    assert!(matches!(
+        load("gate-result-failed.json"),
+        BusEvent::GateResult { .. }
+    ));
+    assert!(matches!(
+        load("review-result.json"),
+        BusEvent::ReviewResult { .. }
+    ));
+    assert!(matches!(
+        load("attempt-started.json"),
+        BusEvent::AttemptStarted { .. }
+    ));
+    assert!(matches!(
+        load("attempt-settled.json"),
+        BusEvent::AttemptSettled { .. }
+    ));
+    assert!(matches!(
+        load("agent-state-last-output.json"),
+        BusEvent::AgentState { .. }
+    ));
+}
+
+#[test]
+fn workflow_fixtures_carry_their_values() {
+    let BusEvent::GateResult { data, .. } = parse(fixture("gate-result-failed.json")).unwrap()
+    else {
+        panic!("gate-result-failed.json did not map to BusEvent::GateResult");
+    };
+    assert!(!data.passed);
+    assert_eq!(
+        data.failed_step.as_deref().map(String::as_str),
+        Some("test")
+    );
+    assert_eq!(data.steps.len(), 2);
+    assert_eq!(data.steps[1].exit_code, 1);
+    assert_eq!(
+        serde_json::to_value(data.evidence).unwrap(),
+        json!("verified")
+    );
+
+    let BusEvent::AgentState { data, .. } = parse(fixture("agent-state-last-output.json")).unwrap()
+    else {
+        panic!("agent-state-last-output.json did not map to BusEvent::AgentState");
+    };
+    assert_eq!(
+        data.last_output_at.as_deref().map(String::as_str),
+        Some("2026-10-26T10:00:04.000Z")
+    );
+}
+
+#[test]
+fn rejects_invalid_workflow_event_data() {
+    let g = "gate-result.json";
+    assert_rejected(g, "negative duration", "data.durationMs", |e| {
+        e["data"]["durationMs"] = json!(-1);
+    });
+    assert_rejected(g, "negative step duration", "data.steps.durationMs", |e| {
+        e["data"]["steps"][0]["durationMs"] = json!(-1);
+    });
+    assert_rejected(g, "33 steps", "at most 32", |e| {
+        e["data"]["steps"] = (0..33)
+            .map(|i| json!({"name": format!("s{i}"), "exitCode": 0, "durationMs": 1}))
+            .collect();
+    });
+    assert_accepted(g, "32 steps", |e| {
+        e["data"]["steps"] = (0..32)
+            .map(|i| json!({"name": format!("s{i}"), "exitCode": 0, "durationMs": 1}))
+            .collect();
+    });
+    assert_rejected(g, "escape in step name", "data.steps.name", |e| {
+        e["data"]["steps"][0]["name"] = json!("a\u{1b}[31m");
+    });
+    assert_rejected(g, "bidi in failedStep", "data.failedStep", |e| {
+        e["data"]["failedStep"] = json!("a\u{202e}");
+    });
+    assert_field_rejected(g, "round 0", "data.round", Edit::Set(json!(0)));
+    assert_field_rejected(
+        g,
+        "unknown tier",
+        "data.evidence",
+        Edit::Set(json!("guessed")),
+    );
+    assert_field_rejected(g, "extra key", "data.extra", Edit::Set(json!(1)));
+    assert_field_rejected(
+        g,
+        "long failedStep",
+        "data.failedStep",
+        Edit::Set(json!("x".repeat(129))),
+    );
+
+    let r = "review-result.json";
+    assert_rejected(r, "negative findings", "data.findings", |e| {
+        e["data"]["findings"] = json!(-1);
+    });
+    assert_rejected(r, "negative blocking", "data.blockingFindings", |e| {
+        e["data"]["blockingFindings"] = json!(-1);
+    });
+    assert_field_rejected(
+        r,
+        "verdict reject",
+        "data.verdict",
+        Edit::Set(json!("reject")),
+    );
+
+    let s = "run-state.json";
+    assert_field_rejected(s, "unknown state", "data.state", Edit::Set(json!("done")));
+    assert_accepted(s, "null previous", |e| e["data"]["previous"] = Value::Null);
+
+    assert_field_rejected(
+        "attempt-started.json",
+        "unknown cause",
+        "data.cause",
+        Edit::Set(json!("retry")),
+    );
+    assert_field_rejected("attempt-started.json", "n 0", "data.n", Edit::Set(json!(0)));
+    assert_field_rejected(
+        "attempt-settled.json",
+        "unknown outcome",
+        "data.outcome",
+        Edit::Set(json!("initial")),
+    );
+    assert_field_rejected(
+        "attempt-settled.json",
+        "missing evidence",
+        "data.evidence",
+        Edit::Remove,
+    );
+    assert_field_rejected(
+        "agent-state.json",
+        "date-only lastOutputAt",
+        "data.lastOutputAt",
+        Edit::Set(json!("2026-10-26")),
+    );
 }
 
 #[test]
@@ -834,7 +972,12 @@ mod event_wrapper {
                 "queue.item",
                 "agent.registered",
                 "agent.state",
-                "agent.run"
+                "agent.run",
+                "run.state",
+                "gate.result",
+                "review.result",
+                "attempt.started",
+                "attempt.settled"
             ]
         );
     }

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { HookEventSchema } from '../schemas.js';
+import { HookEventSchema, ReviewSchema, RunStateSchema } from '../schemas.js';
 
 // Free text from external producers must not carry characters that break or spoof rendering:
 // control characters (`Cc`, incl. ESC, DEL, C1), bidi controls, zero-width characters, line and
@@ -13,6 +13,14 @@ const FORBIDDEN_MSG = 'control or invisible formatting characters are not allowe
 const text = (min: number, max: number) =>
   z.string().min(min).max(max).refine(noForbiddenChars, FORBIDDEN_MSG);
 
+/**
+ * How an outcome was established, strongest first: `verified` (the bus ran the check itself),
+ * `reported` (a tool reported a result), `heuristic` (inferred) and `asserted` (an agent's claim).
+ * An optional `evidence` field that is absent means `asserted`.
+ */
+export const EVIDENCE_TIERS = ['verified', 'reported', 'heuristic', 'asserted'] as const;
+const evidence = z.enum(EVIDENCE_TIERS);
+
 // Strict objects: unknown keys are rejected, matching `additionalProperties: false` in the exported
 // JSON Schema and `deny_unknown_fields` in the generated Rust types.
 const hookData = z
@@ -20,6 +28,9 @@ const hookData = z
     ...HookEventSchema.shape,
     model: z.string().min(1).refine(noForbiddenChars, FORBIDDEN_MSG).optional(),
     sessionId: z.string().refine(noForbiddenChars, FORBIDDEN_MSG).optional(),
+    /** Time of the agent's last terminal output, for liveness. */
+    lastOutputAt: z.iso.datetime().optional(),
+    evidence: evidence.optional(),
   })
   .meta({ id: 'HookEvent' });
 
@@ -85,6 +96,7 @@ export const ProgressEventSchema = z
           .refine((o) => Object.keys(o).length <= MAX_PROGRESS_FIELDS, 'at most 32 entries')
           .meta({ maxProperties: MAX_PROGRESS_FIELDS })
           .optional(),
+        evidence: evidence.optional(),
       })
       .meta({ id: 'ProgressData' }),
   })
@@ -209,6 +221,8 @@ export const AgentStateEventSchema = z
     data: z
       .strictObject({
         state: z.enum(['busy', 'idle', 'exited']),
+        /** Time of the agent's last terminal output, for liveness. */
+        lastOutputAt: z.iso.datetime().optional(),
       })
       .meta({ id: 'AgentStateData' }),
   })
@@ -241,6 +255,113 @@ export const AgentRunEventSchema = z
   })
   .meta({ id: 'AgentRunEvent' });
 
+/** Workflow round of a run, 1-based. */
+const round = z.number().int().min(1);
+
+/** Server-owned: a run changed its workflow state. `previous` is null for the first state. */
+export const RunStateEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('run.state'),
+    data: z
+      .strictObject({
+        state: RunStateSchema,
+        round,
+        previous: RunStateSchema.nullable(),
+      })
+      .meta({ id: 'RunStateData' }),
+  })
+  .meta({ id: 'RunStateEvent' });
+
+/** Step cap of `gate.result.data.steps`; the Rust `check_constraints` enforces the same number. */
+const MAX_GATE_STEPS = 32;
+
+/** Server-owned: result of one gate run. Step output stays out of events (free text). */
+export const GateResultEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('gate.result'),
+    data: z
+      .strictObject({
+        passed: z.boolean(),
+        round,
+        evidence,
+        durationMs: z.number().int().min(0),
+        failedStep: text(1, 128).nullable(),
+        steps: z
+          .array(
+            z
+              .strictObject({
+                name: text(1, 128),
+                exitCode: z.number().int(),
+                durationMs: z.number().int().min(0),
+              })
+              .meta({ id: 'GateResultStep' }),
+          )
+          .max(MAX_GATE_STEPS)
+          .meta({ maxItems: MAX_GATE_STEPS }),
+      })
+      .meta({ id: 'GateResultData' }),
+  })
+  .meta({ id: 'GateResultEvent' });
+
+/** Server-owned: verdict of one review round. Counts only; finding text stays out of events. */
+export const ReviewResultEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('review.result'),
+    data: z
+      .strictObject({
+        verdict: ReviewSchema.shape.verdict,
+        round,
+        blockingFindings: z.number().int().min(0),
+        findings: z.number().int().min(0),
+        evidence,
+      })
+      .meta({ id: 'ReviewResultData' }),
+  })
+  .meta({ id: 'ReviewResultEvent' });
+
+/** Why an attempt started: the first one, after a failed gate or after a review sent it back. */
+export const ATTEMPT_CAUSES = ['initial', 'gate_failed', 'sent_back'] as const;
+/** How an attempt ended. */
+export const ATTEMPT_OUTCOMES = ['gate_failed', 'sent_back', 'approved', 'blocked'] as const;
+/** Attempt number, 1-based. */
+const attemptN = z.number().int().min(1);
+
+/** Server-owned: an implementation attempt of a run started. */
+export const AttemptStartedEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('attempt.started'),
+    data: z
+      .strictObject({
+        n: attemptN,
+        cause: z.enum(ATTEMPT_CAUSES),
+        startedAt: z.iso.datetime(),
+      })
+      .meta({ id: 'AttemptStartedData' }),
+  })
+  .meta({ id: 'AttemptStartedEvent' });
+
+/** Server-owned: an implementation attempt of a run ended. */
+export const AttemptSettledEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('attempt.settled'),
+    data: z
+      .strictObject({
+        n: attemptN,
+        cause: z.enum(ATTEMPT_CAUSES),
+        startedAt: z.iso.datetime(),
+        endedAt: z.iso.datetime(),
+        outcome: z.enum(ATTEMPT_OUTCOMES),
+        evidence,
+      })
+      .meta({ id: 'AttemptSettledData' }),
+  })
+  .meta({ id: 'AttemptSettledEvent' });
+
 export const BusEventSchema = z
   .discriminatedUnion('type', [
     HookIdleEventSchema,
@@ -254,6 +375,11 @@ export const BusEventSchema = z
     AgentRegisteredEventSchema,
     AgentStateEventSchema,
     AgentRunEventSchema,
+    RunStateEventSchema,
+    GateResultEventSchema,
+    ReviewResultEventSchema,
+    AttemptStartedEventSchema,
+    AttemptSettledEventSchema,
   ])
   .meta({ id: 'BusEvent' });
 export type BusEvent = z.infer<typeof BusEventSchema>;
@@ -270,10 +396,16 @@ export const BUS_EVENT_TYPES = [
   'agent.registered',
   'agent.state',
   'agent.run',
+  'run.state',
+  'gate.result',
+  'review.result',
+  'attempt.started',
+  'attempt.settled',
 ] as const satisfies readonly BusEvent['type'][];
 
 /**
- * Event types an external producer may post to `POST /ingest`. Extend this list to open a new type
+ * Event types an external producer may post to `POST /ingest`. Server-owned types (`attention.*`,
+ * `run.state`, `gate.result`, `review.result`, `attempt.*`) stay out. Extend this list to open a new type
  * to ingest; every entry must be a `BusEvent['type']`.
  */
 export const INGEST_TYPES = [
