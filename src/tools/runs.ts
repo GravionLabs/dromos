@@ -5,8 +5,10 @@ import { z } from 'zod';
 import { requireRole } from '../auth.js';
 import { hasDotDot } from '../config.js';
 import type { ToolContext } from '../context.js';
+import type { EventRecord } from '../db.js';
 import { repoFromPath, viewIssue } from '../github.js';
 import { LeaseConflictError } from '../lease.js';
+import { publishRows, recordRunTransition } from '../run-events.js';
 import { claimRunLease, releaseRunLease } from '../run-lease.js';
 import { isTerminal } from '../state-machine.js';
 import {
@@ -84,6 +86,7 @@ export function registerRunTools(server: McpServer, ctx: ToolContext): void {
       let leasePath: string | undefined;
       let created: { branch: string; worktreePath: string } | undefined;
       let started: { runId: string; branch: string; worktreePath: string } | undefined;
+      let startedRows: EventRecord[] = [];
       try {
         await assertWorktreeDirIgnored(repoPath, ctx.config.worktreeDir);
         const repo = await repoFromPath(repoPath);
@@ -112,7 +115,7 @@ export function registerRunTools(server: McpServer, ctx: ToolContext): void {
         );
         created = { branch, worktreePath };
 
-        const runId = ctx.db.transaction(() => {
+        const { runId, rows } = ctx.db.transaction(() => {
           const id = `run-${issue}-${ctx.db.listRuns().filter((r) => r.issueNumber === issue).length + 1}`;
           ctx.db.insertRun({
             id,
@@ -143,9 +146,14 @@ export function registerRunTools(server: McpServer, ctx: ToolContext): void {
           });
           // First run tool call of this agent pins its run_id; later calls keep it.
           ctx.db.setAgentRun(ctx.agentId, id);
-          return id;
+          const events = recordRunTransition(ctx.db, { id, issueNumber: issue }, null, {
+            state: 'implementing',
+            round: 1,
+          });
+          return { runId: id, rows: events };
         });
         started = { runId, branch, worktreePath };
+        startedRows = rows;
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
         if (leasePath) {
@@ -163,6 +171,11 @@ export function registerRunTools(server: McpServer, ctx: ToolContext): void {
       }
       if (!started) return errorResult('start_run failed: run was not created');
       // The run is committed; notification problems must not turn it into a failure.
+      try {
+        publishRows(ctx.events, startedRows);
+      } catch {
+        // best effort: the events are stored and replayable
+      }
       try {
         ctx.log.logLine(
           'STATE',

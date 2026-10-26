@@ -115,15 +115,16 @@ impl fmt::Display for ConstraintError {
 
 impl std::error::Error for ConstraintError {}
 
-/// Checks what the generated types cannot express: numeric ranges, forbidden characters in free
-/// text and the `queue.item` state/result coupling. Mirrors `src/events/schema.ts`.
+/// Checks what the generated types cannot express: numeric ranges, entry caps, forbidden characters
+/// in free text and the `queue.item` state/result coupling. Mirrors `src/events/schema.ts`.
 ///
 /// [`Event`] calls this after parsing. A bare [`BusEvent`] deserialised with serde is **not**
 /// checked; call this on it, or deserialise through [`Event`] instead.
 pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
     use BusEvent::{
-        AgentRegistered, AgentRun, AgentState, Attention, AttentionAcked, AttentionAnswered,
-        HookBusy, HookIdle, Progress, QueueItem, Usage,
+        AgentRegistered, AgentRun, AgentState, AttemptSettled, AttemptStarted, Attention,
+        AttentionAcked, AttentionAnswered, GateResult, HookBusy, HookIdle, Progress, QueueItem,
+        ReviewResult, RunState, Usage,
     };
     let (agent_id, run_id) = match event {
         HookIdle {
@@ -157,6 +158,21 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
             agent_id, run_id, ..
         }
         | AgentRun {
+            agent_id, run_id, ..
+        }
+        | RunState {
+            agent_id, run_id, ..
+        }
+        | GateResult {
+            agent_id, run_id, ..
+        }
+        | ReviewResult {
+            agent_id, run_id, ..
+        }
+        | AttemptStarted {
+            agent_id, run_id, ..
+        }
+        | AttemptSettled {
             agent_id, run_id, ..
         } => (
             agent_id.as_ref().map(|v| v.as_str()),
@@ -239,8 +255,50 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
             texts.push(("data.cli", data.cli.as_str()));
             texts.extend(data.model.as_ref().map(|v| ("data.model", v.as_str())));
         }
-        // Closed enum, nothing free-form to check.
-        AgentState { .. } => {}
+        // Closed enums, timestamps and `NonZeroU64` counters: nothing free-form to check.
+        AgentState { .. } | RunState { .. } | AttemptStarted { .. } | AttemptSettled { .. } => {}
+        GateResult { data, .. } => {
+            if data.duration_ms < 0 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.durationMs",
+                    rule: ">= 0",
+                });
+            }
+            if data.steps.len() > 32 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.steps",
+                    rule: "at most 32 entries",
+                });
+            }
+            if data.steps.iter().any(|step| step.duration_ms < 0) {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.steps.durationMs",
+                    rule: ">= 0",
+                });
+            }
+            texts.extend(
+                data.failed_step
+                    .as_ref()
+                    .map(|v| ("data.failedStep", v.as_str())),
+            );
+            for step in &data.steps {
+                texts.push(("data.steps.name", step.name.as_str()));
+            }
+        }
+        ReviewResult { data, .. } => {
+            if data.blocking_findings < 0 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.blockingFindings",
+                    rule: ">= 0",
+                });
+            }
+            if data.findings < 0 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.findings",
+                    rule: ">= 0",
+                });
+            }
+        }
         AgentRun { data, .. } => {
             if data.depth.get() > 8 {
                 return Err(ConstraintError::OutOfRange {

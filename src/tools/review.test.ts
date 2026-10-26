@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { claimLease, leaseFile } from '../lease.js';
+import { recordRunTransition } from '../run-events.js';
 import type { Finding, Review } from '../schemas.js';
 import { startTestBus, type TestBus, textOf } from '../test-helpers.js';
 
@@ -219,6 +220,203 @@ describe('submit_review', () => {
     expect(bus.db.listUnacked('orchestrator')).toHaveLength(0);
     expect(bus.db.listUnacked('implementer')).toHaveLength(0);
     expect(bus.db.getRun('run-1-1')?.state).toBe('reviewing');
+  });
+});
+
+describe('submit_review run events', () => {
+  let bus: TestBus;
+  const addRun = (id = 'run-1-1', round = 1) =>
+    bus.db.insertRun({
+      id,
+      repo: 'o/r',
+      repoPath: '/repo',
+      issueNumber: 1,
+      issueTitle: 'Title',
+      baseBranch: 'main',
+      branch: 'agent/1-title',
+      worktreePath: '/wt',
+      state: 'reviewing',
+      round,
+    });
+  const submit = async (review: Review, runId = 'run-1-1') => {
+    const client = await bus.connect('reviewer');
+    return client.callTool({ name: 'submit_review', arguments: { runId, review } });
+  };
+  const ofKind = (kind: string) =>
+    bus.db
+      .listEventsSince(0)
+      .filter((e) => e.role === 'dromos' && e.kind === kind)
+      .map((e) => e.data);
+  const changes: Review = {
+    verdict: 'changes',
+    summary: 'Fix it',
+    findings: [finding('important', 'bug')],
+  };
+
+  beforeEach(async () => {
+    bus = await startTestBus();
+  });
+  afterEach(async () => {
+    await bus.close();
+  });
+
+  it('settles the attempt as sent_back with reported evidence and starts the next one', async () => {
+    addRun();
+    recordRunTransition(bus.db, { id: 'run-1-1', issueNumber: 1 }, null, {
+      state: 'implementing',
+      round: 1,
+    });
+    await submit(changes);
+    expect(ofKind('run.state').at(-1)).toEqual({
+      state: 'implementing',
+      round: 2,
+      previous: 'reviewing',
+    });
+    expect(ofKind('attempt.settled')).toEqual([
+      expect.objectContaining({
+        n: 1,
+        cause: 'initial',
+        outcome: 'sent_back',
+        evidence: 'reported',
+      }),
+    ]);
+    expect(ofKind('attempt.started').at(-1)).toMatchObject({ n: 2, cause: 'sent_back' });
+  });
+
+  it('settles the attempt as approved without starting a new one', async () => {
+    addRun();
+    recordRunTransition(bus.db, { id: 'run-1-1', issueNumber: 1 }, null, {
+      state: 'implementing',
+      round: 1,
+    });
+    await submit({ verdict: 'approve', summary: 'ok', findings: [] });
+    expect(ofKind('run.state').at(-1)).toEqual({
+      state: 'approved',
+      round: 1,
+      previous: 'reviewing',
+    });
+    expect(ofKind('attempt.settled')).toEqual([
+      expect.objectContaining({ n: 1, outcome: 'approved', evidence: 'reported' }),
+    ]);
+    expect(ofKind('attempt.started')).toHaveLength(1);
+  });
+
+  it('settles the attempt as blocked on the last round', async () => {
+    addRun('run-1-1', bus.config.maxRounds);
+    recordRunTransition(bus.db, { id: 'run-1-1', issueNumber: 1 }, null, {
+      state: 'implementing',
+      round: 1,
+    });
+    await submit(changes);
+    expect(ofKind('attempt.settled')).toEqual([
+      expect.objectContaining({ outcome: 'blocked', evidence: 'reported' }),
+    ]);
+    expect(ofKind('attempt.started')).toHaveLength(1);
+  });
+
+  it('stores one BLOCKED attention and an open row when the review blocks the run', async () => {
+    addRun('run-1-1', bus.config.maxRounds);
+    await submit(changes);
+    const events = bus.db.listEventsSince(0).filter((e) => e.kind === 'attention');
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ role: 'dromos', issue: 1, runId: 'run-1-1', agentId: null });
+    expect(events[0]?.data).toEqual({
+      kind: 'BLOCKED',
+      summary: `round limit reached after ${bus.config.maxRounds} rounds (review)`,
+      pr: null,
+      checkout: '/wt',
+    });
+    expect(bus.db.listAttention({ state: 'open', limit: 10 })).toEqual([
+      expect.objectContaining({ id: events[0]?.id, runId: 'run-1-1', state: 'open' }),
+    ]);
+  });
+
+  it('stores no attention for a send-back or an approval', async () => {
+    addRun();
+    await submit(changes);
+    expect(bus.db.listEventsSince(0).filter((e) => e.kind === 'attention')).toEqual([]);
+    expect(bus.db.listAttention({ limit: 10 })).toEqual([]);
+  });
+
+  it('keeps the run reviewing and stores no message when the attention insert fails', async () => {
+    addRun('run-1-1', bus.config.maxRounds);
+    const insert = bus.db.insertEvent.bind(bus.db);
+    const spy = vi.spyOn(bus.db, 'insertEvent').mockImplementation((role, kind, data, c) => {
+      if (kind === 'attention') throw new Error('events full');
+      return insert(role, kind, data, c);
+    });
+    const result = await submit(changes);
+    spy.mockRestore();
+    expect(result.isError).toBe(true);
+    expect(bus.db.getRun('run-1-1')?.state).toBe('reviewing');
+    expect(bus.db.listAttention({ limit: 10 })).toEqual([]);
+    expect(ofKind('run.state')).toEqual([]);
+  });
+
+  it('stores review.result before run.state for a changes verdict', async () => {
+    addRun();
+    await submit({
+      verdict: 'changes',
+      summary: 'Fix it',
+      findings: [finding('important', 'bug'), finding('suggestion', 'nit')],
+    });
+    expect(ofKind('review.result')).toEqual([
+      { verdict: 'changes', round: 1, blockingFindings: 1, findings: 2, evidence: 'reported' },
+    ]);
+    const kinds = bus.db
+      .listEventsSince(0)
+      .filter((e) => e.role === 'dromos')
+      .map((e) => e.kind);
+    expect(kinds.indexOf('review.result')).toBeLessThan(kinds.indexOf('run.state'));
+  });
+
+  it('stores review.result for an approval with only suggestions', async () => {
+    addRun();
+    await submit({ verdict: 'approve', summary: 'ok', findings: [finding('suggestion', 'nit')] });
+    expect(ofKind('review.result')).toEqual([
+      { verdict: 'approve', round: 1, blockingFindings: 0, findings: 1, evidence: 'reported' },
+    ]);
+  });
+
+  it('keeps the run in reviewing when the review.result insert fails', async () => {
+    addRun();
+    const insert = bus.db.insertEvent.bind(bus.db);
+    const spy = vi.spyOn(bus.db, 'insertEvent').mockImplementation((role, kind, data, c) => {
+      if (kind === 'review.result') throw new Error('events full');
+      return insert(role, kind, data, c);
+    });
+    const result = await submit(changes);
+    spy.mockRestore();
+    expect(result.isError).toBe(true);
+    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'reviewing', lastReview: null });
+    expect(ofKind('run.state')).toEqual([]);
+  });
+
+  it('publishes the stored events after commit', async () => {
+    addRun();
+    const published: number[] = [];
+    bus.events.onEvent((e) => {
+      if (e.role === 'dromos') published.push(e.id);
+    });
+    await submit(changes);
+    const stored = bus.db.listEventsSince(0).filter((e) => e.role === 'dromos');
+    expect(stored.length).toBeGreaterThan(0);
+    expect(published).toEqual(stored.map((e) => e.id));
+  });
+
+  it('keeps the run in reviewing and publishes nothing when an event fails validation', async () => {
+    const id = `run-${'x'.repeat(130)}`;
+    addRun(id);
+    const published: number[] = [];
+    bus.events.onEvent((e) => {
+      if (e.role === 'dromos') published.push(e.id);
+    });
+    const result = await submit(changes, id);
+    expect(result.isError).toBe(true);
+    expect(bus.db.getRun(id)).toMatchObject({ state: 'reviewing', round: 1, lastReview: null });
+    expect(bus.db.listUnacked('implementer')).toEqual([]);
+    expect(ofKind('run.state')).toEqual([]);
+    expect(published).toEqual([]);
   });
 });
 

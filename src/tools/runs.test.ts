@@ -463,6 +463,57 @@ describe('start_run', () => {
     expect(destructive()).toEqual([]);
   });
 
+  describe('run events', () => {
+    const dromosEvents = () => bus.db.listEventsSince(0).filter((e) => e.role === 'dromos');
+
+    it('emits run.state implementing and the initial attempt, then publishes them', async () => {
+      const published: string[] = [];
+      bus.events.onEvent((e) => {
+        if (e.role === 'dromos') published.push(e.kind);
+      });
+      const orchestrator = await bus.connect('orchestrator');
+      await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      const events = dromosEvents();
+      expect(events.map((e) => [e.kind, e.data])).toEqual([
+        ['run.state', { state: 'implementing', round: 1, previous: null }],
+        ['attempt.started', { n: 1, cause: 'initial', startedAt: expect.any(String) }],
+      ]);
+      expect(events.every((e) => e.runId === 'run-14-1' && e.issue === 14)).toBe(true);
+      expect(published).toEqual(['run.state', 'attempt.started']);
+    });
+
+    it('stores and publishes no run event when the run insert rolls back', async () => {
+      const published: string[] = [];
+      bus.events.onEvent((e) => {
+        if (e.role === 'dromos') published.push(e.kind);
+      });
+      const orchestrator = await bus.connect('orchestrator');
+      const spy = vi.spyOn(bus.db, 'setAgentRun').mockImplementation(() => {
+        throw new Error('disk full');
+      });
+      const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      spy.mockRestore();
+      expect(result.isError).toBe(true);
+      expect(bus.db.listRuns()).toEqual([]);
+      expect(dromosEvents()).toEqual([]);
+      expect(published).toEqual([]);
+    });
+
+    it('rolls back the run when an event insert fails', async () => {
+      const orchestrator = await bus.connect('orchestrator');
+      const insert = bus.db.insertEvent.bind(bus.db);
+      const spy = vi.spyOn(bus.db, 'insertEvent').mockImplementation((role, kind, data, c) => {
+        if (kind === 'attempt.started') throw new Error('events full');
+        return insert(role, kind, data, c);
+      });
+      const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      spy.mockRestore();
+      expect(result.isError).toBe(true);
+      expect(bus.db.listRuns()).toEqual([]);
+      expect(dromosEvents()).toEqual([]);
+    });
+  });
+
   describe('branch type', () => {
     const withIssue = (title: string, labels: string[]) => {
       const base = mockExeca.getMockImplementation() as (

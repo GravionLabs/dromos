@@ -1,0 +1,14 @@
+{
+  "id": 60,
+  "type": "run.state",
+  "at": "2026-10-26T10:00:00.000Z",
+  "source": "dromos",
+  "agentId": null,
+  "issue": 44,
+  "runId": "run-44",
+  "data": {
+    "state": "reviewing",
+    "round": 2,
+    "previous": "gating"
+  }
+}

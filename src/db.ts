@@ -101,6 +101,12 @@ export const MIGRATIONS: readonly string[] = [
   CREATE INDEX idx_attention_state_id ON attention(state, id);
   CREATE INDEX idx_attention_issue_id ON attention(issue, id);
   `,
+  `
+  ALTER TABLE messages ADD COLUMN attention_raised_at TEXT;
+  `,
+  `
+  ALTER TABLE agents ADD COLUMN last_output_at TEXT;
+  `,
 ];
 
 export interface Run {
@@ -260,6 +266,7 @@ interface MessageRow {
   payload_json: string;
   created_at: string;
   acked_at: string | null;
+  attention_raised_at: string | null;
 }
 
 interface EventRow {
@@ -356,6 +363,7 @@ interface AgentRow {
   state: AgentState;
   created_at: string;
   updated_at: string;
+  last_output_at: string | null;
 }
 
 function toAgent(row: AgentRow): Agent {
@@ -369,6 +377,7 @@ function toAgent(row: AgentRow): Agent {
     state: row.state,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    lastOutputAt: row.last_output_at,
   };
 }
 
@@ -378,6 +387,8 @@ export interface Db {
   getAgent(id: string): Agent | undefined;
   /** Returns undefined when the agent does not exist. */
   updateAgentState(id: string, state: AgentState): Agent | undefined;
+  /** Moves `last_output_at` forward to `at` (ISO); an equal or older value is ignored. */
+  touchAgentOutput(id: string, at: string): void;
   /** Sets the agent's run_id only when it has none yet (first run wins). Returns the agent, or undefined when unknown. */
   setAgentRun(id: string, runId: string): Agent | undefined;
   listAgents(filter?: AgentFilter): Agent[];
@@ -386,6 +397,15 @@ export interface Db {
   listUnacked(role: Role, limit?: number, agentId?: string): Message[];
   /** Returns false when the message does not exist, is already acked, or is addressed to someone else. */
   ackMessage(id: number, role: Role, agentId?: string): boolean;
+  /**
+   * Notices from other roles to the orchestrator (not the orchestrator's own bookkeeping, such
+   * as pr_opened) created at or before `cutoff` (ISO) that are unacked, have no
+   * `attention_raised_at` and whose run has no attention other than a QUESTION; ascending id.
+   * Notices without a run qualify.
+   */
+  listStaleOrchestratorNotices(cutoff: string, limit?: number): Message[];
+  /** Marks the notice as having raised its attention; false when it was already marked. */
+  markNoticeAttentionRaised(id: number): boolean;
   /** Unacked message count per addressed role for one run; roles without unacked messages are absent. */
   countUnackedByRole(runId: string): Partial<Record<Role, number>>;
   insertRun(run: NewRun): Run;
@@ -455,6 +475,18 @@ export function openDb(file: string): Db {
     `SELECT to_role, COUNT(*) AS n FROM messages
      WHERE acked_at IS NULL AND run_id = ? GROUP BY to_role`,
   );
+  const listStaleNotices = db.prepare<[string, number], MessageRow>(
+    `SELECT m.* FROM messages m
+     WHERE m.type = 'notice' AND m.to_role = 'orchestrator' AND m.from_role <> 'orchestrator'
+       AND m.acked_at IS NULL
+       AND m.attention_raised_at IS NULL AND m.created_at <= ?
+       AND (m.run_id IS NULL OR NOT EXISTS (
+         SELECT 1 FROM attention a WHERE a.run_id = m.run_id AND a.kind <> 'QUESTION'))
+     ORDER BY m.id LIMIT ?`,
+  );
+  const markNoticeRaised = db.prepare(
+    'UPDATE messages SET attention_raised_at = ? WHERE id = ? AND attention_raised_at IS NULL',
+  );
   const lastHookEventPerRole = db.prepare<[], EventRow>(
     `SELECT * FROM events WHERE id IN (
        SELECT MAX(id) FROM events WHERE kind LIKE 'hook:%' GROUP BY role
@@ -480,6 +512,9 @@ export function openDb(file: string): Db {
   );
   const getAgent = db.prepare<[string], AgentRow>('SELECT * FROM agents WHERE id = ?');
   const updateAgentState = db.prepare('UPDATE agents SET state = ?, updated_at = ? WHERE id = ?');
+  const touchAgentOutput = db.prepare(
+    'UPDATE agents SET last_output_at = ? WHERE id = ? AND (last_output_at IS NULL OR last_output_at < ?)',
+  );
   const setAgentRun = db.prepare(
     'UPDATE agents SET run_id = ?, updated_at = ? WHERE id = ? AND run_id IS NULL',
   );
@@ -584,6 +619,12 @@ export function openDb(file: string): Db {
     listUnacked(role, limit = 20, agentId) {
       return listUnacked.all(role, agentId ?? null, limit).map(toMessage);
     },
+    listStaleOrchestratorNotices(cutoff, limit = 100) {
+      return listStaleNotices.all(cutoff, limit).map(toMessage);
+    },
+    markNoticeAttentionRaised(id) {
+      return markNoticeRaised.run(now(), id).changes > 0;
+    },
     ackMessage(id, role, agentId) {
       return ackMessage.run(now(), id, role, agentId ?? null).changes > 0;
     },
@@ -659,6 +700,9 @@ export function openDb(file: string): Db {
         return undefined;
       }
       return toAgent(getAgent.get(id) as AgentRow);
+    },
+    touchAgentOutput(id, at) {
+      touchAgentOutput.run(at, id, at);
     },
     setAgentRun(id, runId) {
       setAgentRun.run(runId, now(), id);

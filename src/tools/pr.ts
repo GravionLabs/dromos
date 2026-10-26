@@ -3,7 +3,9 @@ import { execa } from 'execa';
 import { z } from 'zod';
 import { requireRole } from '../auth.js';
 import type { ToolContext } from '../context.js';
+import type { EventRecord } from '../db.js';
 import { buildPrBody } from '../pr-body.js';
+import { publishRows, recordRunTransition } from '../run-events.js';
 import { afterRunTransition } from '../run-lease.js';
 import { transition } from '../state-machine.js';
 import { errorResult, jsonResult, logAndWake } from './util.js';
@@ -198,10 +200,12 @@ export function registerPrTools(server: McpServer, ctx: ToolContext): void {
           );
         }
         let moved: ReturnType<typeof transition>;
+        let rows: EventRecord[];
         try {
-          moved = ctx.db.transaction(() => {
+          [moved, rows] = ctx.db.transaction(() => {
             const next = transition(current, { type: 'pr_opened' }, ctx.config.maxRounds);
             ctx.db.updateRun(runId, { prUrl, state: next.state });
+            const stored = recordRunTransition(ctx.db, current, current, next);
             ctx.db.insertMessage({
               from: 'orchestrator',
               to: 'orchestrator',
@@ -209,7 +213,7 @@ export function registerPrTools(server: McpServer, ctx: ToolContext): void {
               runId,
               payload: { runId, event: 'pr_opened', prUrl },
             });
-            return next;
+            return [next, stored] as const;
           });
         } catch (err) {
           // Recovery is intentionally manual (no gh pr view lookup): a retry fails with gh's
@@ -220,6 +224,11 @@ export function registerPrTools(server: McpServer, ctx: ToolContext): void {
             `PR ${prUrl} was created but recording it failed: ${reason}; run stays approved, ` +
               'record the PR manually (a retry fails because the PR already exists)',
           );
+        }
+        try {
+          publishRows(ctx.events, rows);
+        } catch {
+          // Best effort: the events are committed and replayable from the store.
         }
         void afterRunTransition(ctx, { ...current, state: moved.state });
         try {

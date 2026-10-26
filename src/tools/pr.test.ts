@@ -368,6 +368,34 @@ describe('open_pr', () => {
     expect(bus.db.listUnacked('orchestrator')).toEqual([]);
   });
 
+  it('emits run.state pr_opened and publishes it after commit', async () => {
+    addRun();
+    const published: string[] = [];
+    bus.events.onEvent((e) => {
+      if (e.role === 'dromos') published.push(e.kind);
+    });
+    await call();
+    const events = bus.db.listEventsSince(0).filter((e) => e.role === 'dromos');
+    expect(events.map((e) => [e.kind, e.data, e.runId, e.issue])).toEqual([
+      ['run.state', { state: 'pr_opened', round: 2, previous: 'approved' }, 'run-1-1', 1],
+    ]);
+    expect(published).toEqual(['run.state']);
+  });
+
+  it('stores and publishes no run event when the notice insert rolls back', async () => {
+    addRun();
+    const published: string[] = [];
+    bus.events.onEvent((e) => published.push(e.kind));
+    const spy = vi.spyOn(bus.db, 'insertMessage').mockImplementation(() => {
+      throw new Error('db down');
+    });
+    await call();
+    spy.mockRestore();
+    expect(bus.db.getRun('run-1-1')?.state).toBe('approved');
+    expect(bus.db.listEventsSince(0).filter((e) => e.role === 'dromos')).toEqual([]);
+    expect(published).not.toContain('run.state');
+  });
+
   it('releases the lease via afterRunTransition exactly once on success', async () => {
     addRun();
     await call();

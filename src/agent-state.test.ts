@@ -24,13 +24,23 @@ describe('agent.state events', () => {
     bus.db
       .listEvents(role)
       .filter((e) => e.kind === 'agent.state')
-      .map((e) => e.data);
+      .map((e) => ({ ...(e.data as object), lastOutputAt: undefined }));
+  const hookAt = (state: string, lastOutputAt: string) =>
+    fetch(`${bus.http.url}/events`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ role: 'implementer', cli: 'claude', state, lastOutputAt }),
+    });
+  const lastStateData = () =>
+    bus.db.listEvents('implementer').find((e) => e.kind === 'agent.state')?.data as
+      | Record<string, unknown>
+      | undefined;
 
   it('maps a busy hook to busy and emits agent.state', async () => {
     await bus.connect('implementer', 'impl-1');
     expect((await hook('busy')).status).toBe(204);
     expect(bus.db.getAgent('impl-1')?.state).toBe('busy');
-    expect(stateEvents()).toEqual([{ state: 'busy' }]);
+    expect(stateEvents()).toEqual([{ state: 'busy', lastOutputAt: undefined }]);
   });
 
   it('maps an idle hook back to idle', async () => {
@@ -38,7 +48,10 @@ describe('agent.state events', () => {
     await hook('busy');
     await hook('idle');
     expect(bus.db.getAgent('impl-1')?.state).toBe('idle');
-    expect(stateEvents()).toEqual([{ state: 'idle' }, { state: 'busy' }]); // newest first
+    expect(stateEvents()).toEqual([
+      { state: 'idle', lastOutputAt: undefined },
+      { state: 'busy', lastOutputAt: undefined },
+    ]); // newest first
   });
 
   it('emits nothing when the state does not change', async () => {
@@ -46,7 +59,7 @@ describe('agent.state events', () => {
     await hook('idle');
     await hook('busy');
     await hook('busy');
-    expect(stateEvents()).toEqual([{ state: 'busy' }]);
+    expect(stateEvents()).toEqual([{ state: 'busy', lastOutputAt: undefined }]);
   });
 
   it('targets the agent named by X-Agent-Id', async () => {
@@ -67,6 +80,51 @@ describe('agent.state events', () => {
   it('still accepts a hook when no agent is registered for the role', async () => {
     expect((await hook('busy')).status).toBe(204);
     expect(stateEvents()).toEqual([]);
+  });
+
+  it('stores the producer lastOutputAt and carries it on the next agent.state', async () => {
+    await bus.connect('implementer', 'impl-1');
+    const at = new Date(Date.now() - 60_000).toISOString();
+    expect((await hookAt('busy', at)).status).toBe(204);
+    expect(bus.db.getAgent('impl-1')?.lastOutputAt).toBe(at);
+    expect(lastStateData()).toEqual({ state: 'busy', lastOutputAt: at });
+    const hookRow = bus.db.listEvents('implementer').find((e) => e.kind === 'hook:busy');
+    expect(hookRow?.data).toMatchObject({ lastOutputAt: at });
+  });
+
+  it('uses the receive time when the hook has no lastOutputAt', async () => {
+    await bus.connect('implementer', 'impl-1');
+    const before = Date.now();
+    await hook('busy');
+    const stored = bus.db.getAgent('impl-1')?.lastOutputAt;
+    expect(Date.parse(stored ?? '')).toBeGreaterThanOrEqual(before);
+    expect(lastStateData()?.lastOutputAt).toBe(stored);
+  });
+
+  it('never moves lastOutputAt backward', async () => {
+    await bus.connect('implementer', 'impl-1');
+    const newer = new Date(Date.now() - 1_000).toISOString();
+    const older = new Date(Date.now() - 600_000).toISOString();
+    await hookAt('busy', newer);
+    expect((await hookAt('idle', older)).status).toBe(204);
+    expect(bus.db.getAgent('impl-1')?.lastOutputAt).toBe(newer);
+    expect(lastStateData()).toEqual({ state: 'idle', lastOutputAt: newer });
+  });
+
+  it('caps a future producer timestamp at the receive time', async () => {
+    await bus.connect('implementer', 'impl-1');
+    const future = new Date(Date.now() + 3_600_000).toISOString();
+    const before = Date.now();
+    await hookAt('busy', future);
+    const stored = Date.parse(bus.db.getAgent('impl-1')?.lastOutputAt ?? '');
+    expect(stored).toBeGreaterThanOrEqual(before);
+    expect(stored).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('rejects a malformed lastOutputAt', async () => {
+    await bus.connect('implementer', 'impl-1');
+    expect((await hookAt('busy', 'yesterday')).status).toBe(400);
+    expect(bus.db.getAgent('impl-1')?.lastOutputAt).toBeNull();
   });
 
   /** Opens a raw MCP session for the agent and returns its session id. */
@@ -105,6 +163,13 @@ describe('agent.state events', () => {
     await openAndClose('impl-1');
     await expect.poll(() => bus.db.getAgent('impl-1')?.state, { timeout: 2000 }).toBe('exited');
     expect(stateEvents()).toEqual([{ state: 'exited' }]);
+  });
+
+  it('omits lastOutputAt on the agent.state event when no hook has arrived', async () => {
+    await openAndClose('impl-1');
+    await expect.poll(() => bus.db.getAgent('impl-1')?.state, { timeout: 2000 }).toBe('exited');
+    expect(bus.db.getAgent('impl-1')?.lastOutputAt).toBeNull();
+    expect(lastStateData()).toStrictEqual({ state: 'exited' });
   });
 
   it('does not target an exited agent from a role-only hook', async () => {

@@ -670,7 +670,76 @@ impl<'de> ::serde::Deserialize<'de> for AgentRunDataToolUseId {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct AgentStateData {
+    #[serde(
+        rename = "lastOutputAt",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub last_output_at: ::std::option::Option<AgentStateDataLastOutputAt>,
     pub state: AgentStateDataState,
+}
+///`AgentStateDataLastOutputAt`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AgentStateDataLastOutputAt(::std::string::String);
+impl ::std::ops::Deref for AgentStateDataLastOutputAt {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AgentStateDataLastOutputAt> for ::std::string::String {
+    fn from(value: AgentStateDataLastOutputAt) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AgentStateDataLastOutputAt {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(||
+        {
+            ::regress::Regex::new(
+                    "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                )
+                .unwrap()
+        });
+        if PATTERN.find(value).is_none() {
+            return Err(
+                "doesn't match pattern \"^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$\""
+                    .into(),
+            );
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AgentStateDataLastOutputAt {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AgentStateDataLastOutputAt {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AgentStateDataLastOutputAt {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
 }
 ///`AgentStateDataState`
 #[derive(
@@ -729,6 +798,464 @@ impl ::std::convert::TryFrom<::std::string::String> for AgentStateDataState {
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
+    }
+}
+///`AttemptSettledData`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AttemptSettledData {
+    pub cause: AttemptSettledDataCause,
+    #[serde(rename = "endedAt")]
+    pub ended_at: AttemptSettledDataEndedAt,
+    pub evidence: AttemptSettledDataEvidence,
+    pub n: ::std::num::NonZeroU64,
+    pub outcome: AttemptSettledDataOutcome,
+    #[serde(rename = "startedAt")]
+    pub started_at: AttemptSettledDataStartedAt,
+}
+///`AttemptSettledDataCause`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum AttemptSettledDataCause {
+    #[serde(rename = "initial")]
+    Initial,
+    #[serde(rename = "gate_failed")]
+    GateFailed,
+    #[serde(rename = "sent_back")]
+    SentBack,
+}
+impl ::std::fmt::Display for AttemptSettledDataCause {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Initial => f.write_str("initial"),
+            Self::GateFailed => f.write_str("gate_failed"),
+            Self::SentBack => f.write_str("sent_back"),
+        }
+    }
+}
+impl ::std::str::FromStr for AttemptSettledDataCause {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "initial" => Ok(Self::Initial),
+            "gate_failed" => Ok(Self::GateFailed),
+            "sent_back" => Ok(Self::SentBack),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AttemptSettledDataCause {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AttemptSettledDataCause {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AttemptSettledDataEndedAt`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AttemptSettledDataEndedAt(::std::string::String);
+impl ::std::ops::Deref for AttemptSettledDataEndedAt {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AttemptSettledDataEndedAt> for ::std::string::String {
+    fn from(value: AttemptSettledDataEndedAt) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AttemptSettledDataEndedAt {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(||
+        {
+            ::regress::Regex::new(
+                    "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                )
+                .unwrap()
+        });
+        if PATTERN.find(value).is_none() {
+            return Err(
+                "doesn't match pattern \"^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$\""
+                    .into(),
+            );
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AttemptSettledDataEndedAt {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AttemptSettledDataEndedAt {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AttemptSettledDataEndedAt {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AttemptSettledDataEvidence`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum AttemptSettledDataEvidence {
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "reported")]
+    Reported,
+    #[serde(rename = "heuristic")]
+    Heuristic,
+    #[serde(rename = "asserted")]
+    Asserted,
+}
+impl ::std::fmt::Display for AttemptSettledDataEvidence {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Verified => f.write_str("verified"),
+            Self::Reported => f.write_str("reported"),
+            Self::Heuristic => f.write_str("heuristic"),
+            Self::Asserted => f.write_str("asserted"),
+        }
+    }
+}
+impl ::std::str::FromStr for AttemptSettledDataEvidence {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "verified" => Ok(Self::Verified),
+            "reported" => Ok(Self::Reported),
+            "heuristic" => Ok(Self::Heuristic),
+            "asserted" => Ok(Self::Asserted),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AttemptSettledDataEvidence {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AttemptSettledDataEvidence {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AttemptSettledDataOutcome`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum AttemptSettledDataOutcome {
+    #[serde(rename = "gate_failed")]
+    GateFailed,
+    #[serde(rename = "sent_back")]
+    SentBack,
+    #[serde(rename = "approved")]
+    Approved,
+    #[serde(rename = "blocked")]
+    Blocked,
+}
+impl ::std::fmt::Display for AttemptSettledDataOutcome {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::GateFailed => f.write_str("gate_failed"),
+            Self::SentBack => f.write_str("sent_back"),
+            Self::Approved => f.write_str("approved"),
+            Self::Blocked => f.write_str("blocked"),
+        }
+    }
+}
+impl ::std::str::FromStr for AttemptSettledDataOutcome {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "gate_failed" => Ok(Self::GateFailed),
+            "sent_back" => Ok(Self::SentBack),
+            "approved" => Ok(Self::Approved),
+            "blocked" => Ok(Self::Blocked),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AttemptSettledDataOutcome {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AttemptSettledDataOutcome {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AttemptSettledDataStartedAt`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AttemptSettledDataStartedAt(::std::string::String);
+impl ::std::ops::Deref for AttemptSettledDataStartedAt {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AttemptSettledDataStartedAt> for ::std::string::String {
+    fn from(value: AttemptSettledDataStartedAt) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AttemptSettledDataStartedAt {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(||
+        {
+            ::regress::Regex::new(
+                    "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                )
+                .unwrap()
+        });
+        if PATTERN.find(value).is_none() {
+            return Err(
+                "doesn't match pattern \"^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$\""
+                    .into(),
+            );
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AttemptSettledDataStartedAt {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AttemptSettledDataStartedAt {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AttemptSettledDataStartedAt {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AttemptStartedData`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AttemptStartedData {
+    pub cause: AttemptStartedDataCause,
+    pub n: ::std::num::NonZeroU64,
+    #[serde(rename = "startedAt")]
+    pub started_at: AttemptStartedDataStartedAt,
+}
+///`AttemptStartedDataCause`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum AttemptStartedDataCause {
+    #[serde(rename = "initial")]
+    Initial,
+    #[serde(rename = "gate_failed")]
+    GateFailed,
+    #[serde(rename = "sent_back")]
+    SentBack,
+}
+impl ::std::fmt::Display for AttemptStartedDataCause {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Initial => f.write_str("initial"),
+            Self::GateFailed => f.write_str("gate_failed"),
+            Self::SentBack => f.write_str("sent_back"),
+        }
+    }
+}
+impl ::std::str::FromStr for AttemptStartedDataCause {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "initial" => Ok(Self::Initial),
+            "gate_failed" => Ok(Self::GateFailed),
+            "sent_back" => Ok(Self::SentBack),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AttemptStartedDataCause {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AttemptStartedDataCause {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`AttemptStartedDataStartedAt`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AttemptStartedDataStartedAt(::std::string::String);
+impl ::std::ops::Deref for AttemptStartedDataStartedAt {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AttemptStartedDataStartedAt> for ::std::string::String {
+    fn from(value: AttemptStartedDataStartedAt) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AttemptStartedDataStartedAt {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(||
+        {
+            ::regress::Regex::new(
+                    "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                )
+                .unwrap()
+        });
+        if PATTERN.find(value).is_none() {
+            return Err(
+                "doesn't match pattern \"^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$\""
+                    .into(),
+            );
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AttemptStartedDataStartedAt {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for AttemptStartedDataStartedAt {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AttemptStartedDataStartedAt {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
     }
 }
 ///`AttentionAckedData`
@@ -1431,6 +1958,101 @@ pub enum BusEvent {
         run_id: ::std::option::Option<BusEventRunId>,
         source: BusEventSource,
     },
+    #[serde(rename = "run.state")]
+    RunState {
+        #[serde(
+            rename = "agentId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        agent_id: ::std::option::Option<BusEventAgentId>,
+        at: BusEventAt,
+        data: RunStateData,
+        id: i64,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        issue: ::std::option::Option<i64>,
+        #[serde(
+            rename = "runId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        run_id: ::std::option::Option<BusEventRunId>,
+        source: BusEventSource,
+    },
+    #[serde(rename = "gate.result")]
+    GateResult {
+        #[serde(
+            rename = "agentId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        agent_id: ::std::option::Option<BusEventAgentId>,
+        at: BusEventAt,
+        data: GateResultData,
+        id: i64,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        issue: ::std::option::Option<i64>,
+        #[serde(
+            rename = "runId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        run_id: ::std::option::Option<BusEventRunId>,
+        source: BusEventSource,
+    },
+    #[serde(rename = "review.result")]
+    ReviewResult {
+        #[serde(
+            rename = "agentId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        agent_id: ::std::option::Option<BusEventAgentId>,
+        at: BusEventAt,
+        data: ReviewResultData,
+        id: i64,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        issue: ::std::option::Option<i64>,
+        #[serde(
+            rename = "runId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        run_id: ::std::option::Option<BusEventRunId>,
+        source: BusEventSource,
+    },
+    #[serde(rename = "attempt.started")]
+    AttemptStarted {
+        #[serde(
+            rename = "agentId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        agent_id: ::std::option::Option<BusEventAgentId>,
+        at: BusEventAt,
+        data: AttemptStartedData,
+        id: i64,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        issue: ::std::option::Option<i64>,
+        #[serde(
+            rename = "runId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        run_id: ::std::option::Option<BusEventRunId>,
+        source: BusEventSource,
+    },
+    #[serde(rename = "attempt.settled")]
+    AttemptSettled {
+        #[serde(
+            rename = "agentId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        agent_id: ::std::option::Option<BusEventAgentId>,
+        at: BusEventAt,
+        data: AttemptSettledData,
+        id: i64,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        issue: ::std::option::Option<i64>,
+        #[serde(
+            rename = "runId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        run_id: ::std::option::Option<BusEventRunId>,
+        source: BusEventSource,
+    },
 }
 ///`BusEventAgentId`
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -1672,11 +2294,221 @@ impl<'de> ::serde::Deserialize<'de> for BusEventSource {
             })
     }
 }
+///`GateResultData`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct GateResultData {
+    #[serde(rename = "durationMs")]
+    pub duration_ms: i64,
+    pub evidence: GateResultDataEvidence,
+    #[serde(
+        rename = "failedStep",
+        deserialize_with = "::std::option::Option::deserialize"
+    )]
+    pub failed_step: ::std::option::Option<GateResultDataFailedStep>,
+    pub passed: bool,
+    pub round: ::std::num::NonZeroU64,
+    pub steps: ::std::vec::Vec<GateResultStep>,
+}
+///`GateResultDataEvidence`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum GateResultDataEvidence {
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "reported")]
+    Reported,
+    #[serde(rename = "heuristic")]
+    Heuristic,
+    #[serde(rename = "asserted")]
+    Asserted,
+}
+impl ::std::fmt::Display for GateResultDataEvidence {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Verified => f.write_str("verified"),
+            Self::Reported => f.write_str("reported"),
+            Self::Heuristic => f.write_str("heuristic"),
+            Self::Asserted => f.write_str("asserted"),
+        }
+    }
+}
+impl ::std::str::FromStr for GateResultDataEvidence {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "verified" => Ok(Self::Verified),
+            "reported" => Ok(Self::Reported),
+            "heuristic" => Ok(Self::Heuristic),
+            "asserted" => Ok(Self::Asserted),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for GateResultDataEvidence {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for GateResultDataEvidence {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`GateResultDataFailedStep`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct GateResultDataFailedStep(::std::string::String);
+impl ::std::ops::Deref for GateResultDataFailedStep {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<GateResultDataFailedStep> for ::std::string::String {
+    fn from(value: GateResultDataFailedStep) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for GateResultDataFailedStep {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for GateResultDataFailedStep {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for GateResultDataFailedStep {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for GateResultDataFailedStep {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`GateResultStep`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct GateResultStep {
+    #[serde(rename = "durationMs")]
+    pub duration_ms: i64,
+    #[serde(rename = "exitCode")]
+    pub exit_code: i64,
+    pub name: GateResultStepName,
+}
+///`GateResultStepName`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct GateResultStepName(::std::string::String);
+impl ::std::ops::Deref for GateResultStepName {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<GateResultStepName> for ::std::string::String {
+    fn from(value: GateResultStepName) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for GateResultStepName {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for GateResultStepName {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for GateResultStepName {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for GateResultStepName {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`HookEvent`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct HookEvent {
     pub cli: HookEventCli,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub evidence: ::std::option::Option<HookEventEvidence>,
+    #[serde(
+        rename = "lastOutputAt",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub last_output_at: ::std::option::Option<HookEventLastOutputAt>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub model: ::std::option::Option<HookEventModel>,
     pub role: HookEventRole,
@@ -1740,6 +2572,133 @@ impl ::std::convert::TryFrom<::std::string::String> for HookEventCli {
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
+    }
+}
+///`HookEventEvidence`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum HookEventEvidence {
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "reported")]
+    Reported,
+    #[serde(rename = "heuristic")]
+    Heuristic,
+    #[serde(rename = "asserted")]
+    Asserted,
+}
+impl ::std::fmt::Display for HookEventEvidence {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Verified => f.write_str("verified"),
+            Self::Reported => f.write_str("reported"),
+            Self::Heuristic => f.write_str("heuristic"),
+            Self::Asserted => f.write_str("asserted"),
+        }
+    }
+}
+impl ::std::str::FromStr for HookEventEvidence {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "verified" => Ok(Self::Verified),
+            "reported" => Ok(Self::Reported),
+            "heuristic" => Ok(Self::Heuristic),
+            "asserted" => Ok(Self::Asserted),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for HookEventEvidence {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for HookEventEvidence {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`HookEventLastOutputAt`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct HookEventLastOutputAt(::std::string::String);
+impl ::std::ops::Deref for HookEventLastOutputAt {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<HookEventLastOutputAt> for ::std::string::String {
+    fn from(value: HookEventLastOutputAt) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for HookEventLastOutputAt {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(||
+        {
+            ::regress::Regex::new(
+                    "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                )
+                .unwrap()
+        });
+        if PATTERN.find(value).is_none() {
+            return Err(
+                "doesn't match pattern \"^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$\""
+                    .into(),
+            );
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for HookEventLastOutputAt {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for HookEventLastOutputAt {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for HookEventLastOutputAt {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
     }
 }
 ///`HookEventModel`
@@ -1915,6 +2874,8 @@ impl ::std::convert::TryFrom<::std::string::String> for HookEventState {
 #[serde(deny_unknown_fields)]
 pub struct ProgressData {
     pub agent: ProgressDataAgent,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub evidence: ::std::option::Option<ProgressDataEvidence>,
     #[serde(default, skip_serializing_if = ":: std :: collections :: HashMap::is_empty")]
     pub fields: ::std::collections::HashMap<
         ProgressDataFieldsKey,
@@ -1979,6 +2940,69 @@ impl<'de> ::serde::Deserialize<'de> for ProgressDataAgent {
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+///`ProgressDataEvidence`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum ProgressDataEvidence {
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "reported")]
+    Reported,
+    #[serde(rename = "heuristic")]
+    Heuristic,
+    #[serde(rename = "asserted")]
+    Asserted,
+}
+impl ::std::fmt::Display for ProgressDataEvidence {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Verified => f.write_str("verified"),
+            Self::Reported => f.write_str("reported"),
+            Self::Heuristic => f.write_str("heuristic"),
+            Self::Asserted => f.write_str("asserted"),
+        }
+    }
+}
+impl ::std::str::FromStr for ProgressDataEvidence {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "verified" => Ok(Self::Verified),
+            "reported" => Ok(Self::Reported),
+            "heuristic" => Ok(Self::Heuristic),
+            "asserted" => Ok(Self::Asserted),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProgressDataEvidence {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ProgressDataEvidence {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`ProgressDataFieldsKey`
@@ -2387,6 +3411,286 @@ impl ::std::convert::TryFrom<::std::string::String> for QueueItemDataState {
         value.parse()
     }
 }
+///`ReviewResultData`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewResultData {
+    #[serde(rename = "blockingFindings")]
+    pub blocking_findings: i64,
+    pub evidence: ReviewResultDataEvidence,
+    pub findings: i64,
+    pub round: ::std::num::NonZeroU64,
+    pub verdict: ReviewResultDataVerdict,
+}
+///`ReviewResultDataEvidence`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum ReviewResultDataEvidence {
+    #[serde(rename = "verified")]
+    Verified,
+    #[serde(rename = "reported")]
+    Reported,
+    #[serde(rename = "heuristic")]
+    Heuristic,
+    #[serde(rename = "asserted")]
+    Asserted,
+}
+impl ::std::fmt::Display for ReviewResultDataEvidence {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Verified => f.write_str("verified"),
+            Self::Reported => f.write_str("reported"),
+            Self::Heuristic => f.write_str("heuristic"),
+            Self::Asserted => f.write_str("asserted"),
+        }
+    }
+}
+impl ::std::str::FromStr for ReviewResultDataEvidence {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "verified" => Ok(Self::Verified),
+            "reported" => Ok(Self::Reported),
+            "heuristic" => Ok(Self::Heuristic),
+            "asserted" => Ok(Self::Asserted),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ReviewResultDataEvidence {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ReviewResultDataEvidence {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`ReviewResultDataVerdict`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum ReviewResultDataVerdict {
+    #[serde(rename = "approve")]
+    Approve,
+    #[serde(rename = "changes")]
+    Changes,
+}
+impl ::std::fmt::Display for ReviewResultDataVerdict {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Approve => f.write_str("approve"),
+            Self::Changes => f.write_str("changes"),
+        }
+    }
+}
+impl ::std::str::FromStr for ReviewResultDataVerdict {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "approve" => Ok(Self::Approve),
+            "changes" => Ok(Self::Changes),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ReviewResultDataVerdict {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ReviewResultDataVerdict {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`RunStateData`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct RunStateData {
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub previous: ::std::option::Option<RunStateDataPrevious>,
+    pub round: ::std::num::NonZeroU64,
+    pub state: RunStateDataState,
+}
+///`RunStateDataPrevious`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum RunStateDataPrevious {
+    #[serde(rename = "implementing")]
+    Implementing,
+    #[serde(rename = "gating")]
+    Gating,
+    #[serde(rename = "reviewing")]
+    Reviewing,
+    #[serde(rename = "approved")]
+    Approved,
+    #[serde(rename = "pr_opened")]
+    PrOpened,
+    #[serde(rename = "blocked")]
+    Blocked,
+}
+impl ::std::fmt::Display for RunStateDataPrevious {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Implementing => f.write_str("implementing"),
+            Self::Gating => f.write_str("gating"),
+            Self::Reviewing => f.write_str("reviewing"),
+            Self::Approved => f.write_str("approved"),
+            Self::PrOpened => f.write_str("pr_opened"),
+            Self::Blocked => f.write_str("blocked"),
+        }
+    }
+}
+impl ::std::str::FromStr for RunStateDataPrevious {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "implementing" => Ok(Self::Implementing),
+            "gating" => Ok(Self::Gating),
+            "reviewing" => Ok(Self::Reviewing),
+            "approved" => Ok(Self::Approved),
+            "pr_opened" => Ok(Self::PrOpened),
+            "blocked" => Ok(Self::Blocked),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunStateDataPrevious {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for RunStateDataPrevious {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`RunStateDataState`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum RunStateDataState {
+    #[serde(rename = "implementing")]
+    Implementing,
+    #[serde(rename = "gating")]
+    Gating,
+    #[serde(rename = "reviewing")]
+    Reviewing,
+    #[serde(rename = "approved")]
+    Approved,
+    #[serde(rename = "pr_opened")]
+    PrOpened,
+    #[serde(rename = "blocked")]
+    Blocked,
+}
+impl ::std::fmt::Display for RunStateDataState {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Implementing => f.write_str("implementing"),
+            Self::Gating => f.write_str("gating"),
+            Self::Reviewing => f.write_str("reviewing"),
+            Self::Approved => f.write_str("approved"),
+            Self::PrOpened => f.write_str("pr_opened"),
+            Self::Blocked => f.write_str("blocked"),
+        }
+    }
+}
+impl ::std::str::FromStr for RunStateDataState {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "implementing" => Ok(Self::Implementing),
+            "gating" => Ok(Self::Gating),
+            "reviewing" => Ok(Self::Reviewing),
+            "approved" => Ok(Self::Approved),
+            "pr_opened" => Ok(Self::PrOpened),
+            "blocked" => Ok(Self::Blocked),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunStateDataState {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for RunStateDataState {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 ///`UsageData`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -2500,4 +3804,9 @@ pub const BUS_EVENT_TYPES: &[&str] = &[
     "agent.registered",
     "agent.state",
     "agent.run",
+    "run.state",
+    "gate.result",
+    "review.result",
+    "attempt.started",
+    "attempt.settled",
 ];

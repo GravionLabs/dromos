@@ -1,0 +1,20 @@
+{
+  "id": 62,
+  "type": "gate.result",
+  "at": "2026-10-26T10:00:00.000Z",
+  "source": "dromos",
+  "agentId": null,
+  "issue": 44,
+  "runId": "run-44",
+  "data": {
+    "passed": false,
+    "round": 2,
+    "evidence": "verified",
+    "durationMs": 15400,
+    "failedStep": "test",
+    "steps": [
+      { "name": "build", "exitCode": 0, "durationMs": 11000 },
+      { "name": "test", "exitCode": 1, "durationMs": 4400 }
+    ]
+  }
+}

@@ -1696,6 +1696,751 @@
       "set": {
         "data.by": ""
       }
+    },
+    {
+      "name": "gate.result fixture as is",
+      "fixture": "gate-result.json",
+      "valid": true
+    },
+    {
+      "name": "gate.result failed fixture as is",
+      "fixture": "gate-result-failed.json",
+      "valid": true
+    },
+    {
+      "name": "gate.result data.steps.name rejects newline",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.steps": [
+          {
+            "name": "a\n",
+            "exitCode": 1,
+            "durationMs": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.steps.name rejects esc",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.steps": [
+          {
+            "name": "a\u001b[31m",
+            "exitCode": 1,
+            "durationMs": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.steps.name rejects del",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.steps": [
+          {
+            "name": "a",
+            "exitCode": 1,
+            "durationMs": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.steps.name rejects c1",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.steps": [
+          {
+            "name": "a",
+            "exitCode": 1,
+            "durationMs": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.steps.name rejects line-separator",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.steps": [
+          {
+            "name": "a ",
+            "exitCode": 1,
+            "durationMs": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.steps.name rejects paragraph-separator",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.steps": [
+          {
+            "name": "a ",
+            "exitCode": 1,
+            "durationMs": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.steps.name rejects rlo",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.steps": [
+          {
+            "name": "a‮",
+            "exitCode": 1,
+            "durationMs": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.steps.name rejects zero-width-space",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.steps": [
+          {
+            "name": "a​",
+            "exitCode": 1,
+            "durationMs": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.steps.name rejects bom",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.steps": [
+          {
+            "name": "a﻿",
+            "exitCode": 1,
+            "durationMs": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.steps.name rejects word-joiner",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.steps": [
+          {
+            "name": "a⁠",
+            "exitCode": 1,
+            "durationMs": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.steps.name rejects arabic-letter-mark",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.steps": [
+          {
+            "name": "a؜",
+            "exitCode": 1,
+            "durationMs": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.steps.name rejects isolate",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.steps": [
+          {
+            "name": "a⁦",
+            "exitCode": 1,
+            "durationMs": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.steps.name accepts plain unicode",
+      "fixture": "gate-result.json",
+      "valid": true,
+      "set": {
+        "data.steps": [
+          {
+            "name": "héllo ✓ 日本",
+            "exitCode": 1,
+            "durationMs": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.steps.name accepts 128 chars",
+      "fixture": "gate-result.json",
+      "valid": true,
+      "set": {
+        "data.steps": [
+          {
+            "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "exitCode": 1,
+            "durationMs": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.steps.name rejects 129 chars",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.steps": [
+          {
+            "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "exitCode": 1,
+            "durationMs": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.steps.name rejects empty",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.steps": [
+          {
+            "name": "",
+            "exitCode": 1,
+            "durationMs": 10
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.failedStep rejects esc",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.failedStep": "a\u001b[31m"
+      }
+    },
+    {
+      "name": "gate.result data.failedStep rejects 129 chars",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.failedStep": {
+          "repeat": ["x", 129]
+        }
+      }
+    },
+    {
+      "name": "gate.result data.steps.durationMs rejects negative",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.steps": [
+          {
+            "name": "t",
+            "exitCode": 0,
+            "durationMs": -1
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.durationMs rejects negative",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.durationMs": -1
+      }
+    },
+    {
+      "name": "gate.result data.round rejects 0",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.round": 0
+      }
+    },
+    {
+      "name": "gate.result data.evidence rejects unknown tier",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.evidence": "guessed"
+      }
+    },
+    {
+      "name": "gate.result data.steps rejects 33 entries",
+      "fixture": "gate-result.json",
+      "valid": false,
+      "set": {
+        "data.steps": [
+          {
+            "name": "s0",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s1",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s2",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s3",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s4",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s5",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s6",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s7",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s8",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s9",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s10",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s11",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s12",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s13",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s14",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s15",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s16",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s17",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s18",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s19",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s20",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s21",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s22",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s23",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s24",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s25",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s26",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s27",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s28",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s29",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s30",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s31",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s32",
+            "exitCode": 0,
+            "durationMs": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "gate.result data.steps accepts 32 entries",
+      "fixture": "gate-result.json",
+      "valid": true,
+      "set": {
+        "data.steps": [
+          {
+            "name": "s0",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s1",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s2",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s3",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s4",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s5",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s6",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s7",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s8",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s9",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s10",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s11",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s12",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s13",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s14",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s15",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s16",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s17",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s18",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s19",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s20",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s21",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s22",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s23",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s24",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s25",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s26",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s27",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s28",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s29",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s30",
+            "exitCode": 0,
+            "durationMs": 1
+          },
+          {
+            "name": "s31",
+            "exitCode": 0,
+            "durationMs": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "review.result data.findings rejects negative",
+      "fixture": "review-result.json",
+      "valid": false,
+      "set": {
+        "data.findings": -1
+      }
+    },
+    {
+      "name": "review.result data.blockingFindings rejects negative",
+      "fixture": "review-result.json",
+      "valid": false,
+      "set": {
+        "data.blockingFindings": -1
+      }
+    },
+    {
+      "name": "review.result data.verdict rejects unknown",
+      "fixture": "review-result.json",
+      "valid": false,
+      "set": {
+        "data.verdict": "reject"
+      }
+    },
+    {
+      "name": "run.state data.previous accepts null",
+      "fixture": "run-state.json",
+      "valid": true,
+      "set": {
+        "data.previous": null
+      }
+    },
+    {
+      "name": "run.state data.state rejects unknown",
+      "fixture": "run-state.json",
+      "valid": false,
+      "set": {
+        "data.state": "done"
+      }
+    },
+    {
+      "name": "attempt.started data.n rejects 0",
+      "fixture": "attempt-started.json",
+      "valid": false,
+      "set": {
+        "data.n": 0
+      }
+    },
+    {
+      "name": "attempt.started data.cause rejects unknown",
+      "fixture": "attempt-started.json",
+      "valid": false,
+      "set": {
+        "data.cause": "retry"
+      }
+    },
+    {
+      "name": "attempt.settled data.outcome rejects unknown",
+      "fixture": "attempt-settled.json",
+      "valid": false,
+      "set": {
+        "data.outcome": "initial"
+      }
+    },
+    {
+      "name": "attempt.settled data.endedAt rejects offset",
+      "fixture": "attempt-settled.json",
+      "valid": false,
+      "set": {
+        "data.endedAt": "2026-10-26T10:12:30+01:00"
+      }
+    },
+    {
+      "name": "agent.state data.lastOutputAt accepts ISO",
+      "fixture": "agent-state.json",
+      "valid": true,
+      "set": {
+        "data.lastOutputAt": "2026-10-26T10:00:04.000Z"
+      }
+    },
+    {
+      "name": "agent.state data.lastOutputAt rejects date only",
+      "fixture": "agent-state.json",
+      "valid": false,
+      "set": {
+        "data.lastOutputAt": "2026-10-26"
+      }
+    },
+    {
+      "name": "hook:idle data.evidence accepts heuristic",
+      "fixture": "hook-idle.json",
+      "valid": true,
+      "set": {
+        "data.evidence": "heuristic"
+      }
+    },
+    {
+      "name": "hook:idle data.lastOutputAt rejects date only",
+      "fixture": "hook-idle.json",
+      "valid": false,
+      "set": {
+        "data.lastOutputAt": "2026-10-26"
+      }
+    },
+    {
+      "name": "progress.json data.evidence rejects unknown tier",
+      "fixture": "progress.json",
+      "valid": false,
+      "set": {
+        "data.evidence": "proven"
+      }
     }
   ]
 }
