@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveGateCommands, runGate } from '../gate.js';
 import { claimLease, leaseFile } from '../lease.js';
+import { recordRunTransition } from '../run-events.js';
 import type { GateResult } from '../schemas.js';
 import { startTestBus, type TestBus, textOf } from '../test-helpers.js';
 import { pendingGates } from './submit.js';
@@ -602,6 +603,142 @@ describe('submit_implementation', () => {
     const result = await submit();
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain('unknown run: run-1-1');
+  });
+
+  describe('run events', () => {
+    const stored = () => bus.db.listEventsSince(0).filter((e) => e.role === 'dromos');
+    const ofKind = (kind: string) =>
+      stored()
+        .filter((e) => e.kind === kind)
+        .map((e) => e.data);
+    /** Seeds the run's first attempt the way start_run does. */
+    const startAttempt = () =>
+      recordRunTransition(bus.db, { id: 'run-1-1', issueNumber: 1 }, null, {
+        state: 'implementing',
+        round: 1,
+      });
+
+    it('emits run.state gating on submit and run.state reviewing on a green gate', async () => {
+      addRun();
+      mockRunGate.mockResolvedValue(green);
+      await submit();
+      await settle();
+      expect(ofKind('run.state')).toEqual([
+        { state: 'gating', round: 1, previous: 'implementing' },
+        { state: 'reviewing', round: 1, previous: 'gating' },
+      ]);
+      expect(ofKind('attempt.settled')).toEqual([]);
+      expect(stored().every((e) => e.runId === 'run-1-1' && e.issue === 1)).toBe(true);
+    });
+
+    it('records attempts 1..3 over two red gates and blocks the third with verified evidence', async () => {
+      addRun();
+      startAttempt();
+      mockRunGate.mockResolvedValue(red);
+      for (let i = 0; i < 3; i++) {
+        await submit();
+        await settle();
+      }
+      expect(bus.db.getRun('run-1-1')?.state).toBe('blocked');
+      expect(ofKind('attempt.started')).toEqual([
+        { n: 1, cause: 'initial', startedAt: expect.any(String) },
+        { n: 2, cause: 'gate_failed', startedAt: expect.any(String) },
+        { n: 3, cause: 'gate_failed', startedAt: expect.any(String) },
+      ]);
+      expect(ofKind('attempt.settled')).toEqual([
+        expect.objectContaining({ n: 1, outcome: 'gate_failed', evidence: 'verified' }),
+        expect.objectContaining({ n: 2, outcome: 'gate_failed', evidence: 'verified' }),
+        expect.objectContaining({ n: 3, outcome: 'blocked', evidence: 'verified' }),
+      ]);
+      expect(ofKind('run.state').at(-1)).toEqual({
+        state: 'blocked',
+        round: 4,
+        previous: 'gating',
+      });
+    });
+
+    it('emits the red-gate events when the background gate crashes', async () => {
+      addRun();
+      startAttempt();
+      mockRunGate.mockRejectedValue(new Error('spawn exploded'));
+      await submit();
+      await settle();
+      expect(ofKind('attempt.settled')).toEqual([
+        expect.objectContaining({ n: 1, outcome: 'gate_failed', evidence: 'verified' }),
+      ]);
+      expect(ofKind('attempt.started').at(-1)).toMatchObject({ n: 2, cause: 'gate_failed' });
+    });
+
+    it('publishes the events only after they are stored', async () => {
+      addRun();
+      mockRunGate.mockResolvedValue(red);
+      const published: number[] = [];
+      bus.events.onEvent((e) => {
+        if (e.role !== 'dromos') return;
+        expect(bus.db.listEventsSince(e.id - 1, 1)[0]?.id).toBe(e.id);
+        published.push(e.id);
+      });
+      await submit();
+      await settle();
+      expect(published).toEqual(stored().map((e) => e.id));
+    });
+
+    it('rolls the gate outcome back and publishes nothing when an event insert fails', async () => {
+      addRun();
+      startAttempt();
+      mockRunGate.mockResolvedValue(red);
+      const insert = bus.db.insertEvent.bind(bus.db);
+      const spy = vi.spyOn(bus.db, 'insertEvent').mockImplementation((role, kind, data, c) => {
+        if (kind === 'attempt.settled') throw new Error('events full');
+        return insert(role, kind, data, c);
+      });
+      const published: string[] = [];
+      bus.events.onEvent((e) => {
+        if (e.role === 'dromos') published.push(e.kind);
+      });
+      await submit();
+      await settle();
+      spy.mockRestore();
+      expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'gating', round: 1 });
+      expect(ofKind('run.state').at(-1)).toEqual({
+        state: 'gating',
+        round: 1,
+        previous: 'implementing',
+      });
+      expect(ofKind('attempt.settled')).toEqual([]);
+      expect(ofKind('attempt.started')).toHaveLength(1);
+      expect(published).toEqual(['run.state']);
+    });
+
+    it('leaves the run implementing when its run.state event fails validation', async () => {
+      const id = `run-${'x'.repeat(130)}`;
+      bus.db.insertRun({
+        id,
+        repo: 'o/r',
+        repoPath: '/repo',
+        issueNumber: 1,
+        issueTitle: 'Title',
+        baseBranch: 'main',
+        branch: 'agent/1-title',
+        worktreePath: '/wt',
+        state: 'implementing',
+        round: 1,
+      });
+      const published: number[] = [];
+      bus.events.onEvent((e) => {
+        if (e.role === 'dromos') published.push(e.id);
+      });
+      const client = await bus.connect('implementer');
+      const result = await client.callTool({
+        name: 'submit_implementation',
+        arguments: { runId: id, summary: 'x' },
+      });
+      expect(result.isError).toBe(true);
+      expect(bus.db.getRun(id)?.state).toBe('implementing');
+      expect(mockRunGate).not.toHaveBeenCalled();
+      expect(stored()).toEqual([]);
+      expect(published).toEqual([]);
+    });
   });
 
   it.each(['orchestrator', 'reviewer'] as const)('rejects role %s', async (role) => {

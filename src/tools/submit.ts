@@ -3,8 +3,9 @@ import { execa } from 'execa';
 import { z } from 'zod';
 import { requireRole } from '../auth.js';
 import type { ToolContext } from '../context.js';
-import type { Run } from '../db.js';
+import type { EventRecord, Run } from '../db.js';
 import { resolveGateCommands, runGate } from '../gate.js';
+import { publishRows, recordRunTransition } from '../run-events.js';
 import { afterRunTransition } from '../run-lease.js';
 import type { GateResult, MessageType, Role, RunState } from '../schemas.js';
 import { transition } from '../state-machine.js';
@@ -48,7 +49,14 @@ async function evaluateGate(ctx: ToolContext, run: Run): Promise<GateResult> {
 const shellArg = (value: string) =>
   /^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 
-type Outbound = { from: Role; to: Role; type: MessageType; state: RunState };
+type Outbound = {
+  from: Role;
+  to: Role;
+  type: MessageType;
+  state: RunState;
+  /** Stored run events, published once the transaction committed. */
+  rows: EventRecord[];
+};
 
 /** Persists the gate outcome, state change and outgoing message atomically. */
 function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: GateResult): Outbound {
@@ -58,6 +66,16 @@ function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: Gate
     ctx.config.maxRounds,
   );
   ctx.db.updateRun(run.id, { lastGate: gate, state: next.state, round: next.round });
+  // The bus ran the gate itself, so a red gate's outcome is verified.
+  const rows = recordRunTransition(
+    ctx.db,
+    run,
+    run,
+    next,
+    gate.passed
+      ? undefined
+      : { outcome: next.state === 'blocked' ? 'blocked' : 'gate_failed', evidence: 'verified' },
+  );
   const runId = run.id;
   if (gate.passed) {
     ctx.db.insertMessage({
@@ -76,7 +94,13 @@ function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: Gate
         instructions: 'Review the diff read-only. Call submit_review.',
       },
     });
-    return { from: 'implementer', to: 'reviewer', type: 'review_request', state: next.state };
+    return {
+      from: 'implementer',
+      to: 'reviewer',
+      type: 'review_request',
+      state: next.state,
+      rows,
+    };
   }
   if (next.state === 'blocked') {
     ctx.db.insertMessage({
@@ -86,7 +110,7 @@ function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: Gate
       runId,
       payload: { runId, reason: 'round limit reached', lastGate: gate },
     });
-    return { from: 'implementer', to: 'orchestrator', type: 'notice', state: next.state };
+    return { from: 'implementer', to: 'orchestrator', type: 'notice', state: next.state, rows };
   }
   // A red gate without steps still names a failed step and a non-zero exit code.
   const failed = gate.steps.find((step) => step.exitCode !== 0) ??
@@ -104,7 +128,13 @@ function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: Gate
       outputTail: failed.outputTail,
     },
   });
-  return { from: 'orchestrator', to: 'implementer', type: 'gate_result', state: next.state };
+  return {
+    from: 'orchestrator',
+    to: 'implementer',
+    type: 'gate_result',
+    state: next.state,
+    rows,
+  };
 }
 
 async function handleGateResult(
@@ -121,6 +151,11 @@ async function handleGateResult(
   const out = ctx.db.transaction(() => applyGateResult(ctx, run, summary, gate));
   void afterRunTransition(ctx, { ...run, state: out.state });
   // The outcome is committed: logging must not trigger the gate_failed fallback or skip the wake.
+  try {
+    publishRows(ctx.events, out.rows);
+  } catch (err) {
+    ctx.log.logLine('ERROR', `${runId} could not publish the run events: ${errorMessage(err)}`);
+  }
   try {
     const after = ctx.db.getRun(runId);
     ctx.log.logLine('GATE', `${runId} ${gate.passed ? 'passed' : 'failed'}`);
@@ -202,14 +237,22 @@ export function registerSubmitTools(server: McpServer, ctx: ToolContext): void {
         return errorResult(`run ${runId} is no longer in state 'implementing'`);
       }
       const next = transition(fresh, { type: 'implementation_submitted' }, ctx.config.maxRounds);
-      ctx.db.updateRun(runId, {
-        state: next.state,
-        round: next.round,
-        lastSummary: summary,
+      const rows = ctx.db.transaction(() => {
+        ctx.db.updateRun(runId, {
+          state: next.state,
+          round: next.round,
+          lastSummary: summary,
+        });
+        return recordRunTransition(ctx.db, fresh, fresh, next);
       });
       // Start the gate right after the commit so a logging failure cannot strand the run in gating.
       pendingGates.set(runId, runInBackground(ctx, fresh, summary));
       void afterRunTransition(ctx, { ...fresh, state: next.state });
+      try {
+        publishRows(ctx.events, rows);
+      } catch (err) {
+        ctx.log.logLine('ERROR', `${runId} could not publish the run events: ${errorMessage(err)}`);
+      }
       try {
         ctx.log.logLine('STATE', `${runId} ${next.state} (round ${next.round})`);
       } catch (err) {
