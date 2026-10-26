@@ -13,6 +13,8 @@ import { EventValidationError, recordEvent } from './event-store.js';
 import { createEventStream, createHostGuard } from './event-stream.js';
 import { type BusEvent, BusEventSchema, INGEST_TYPES, isIngestType } from './events/schema.js';
 import { startLeaseRenewal } from './run-lease.js';
+import { aggregateRunMetrics, collectEvents, computeRunMetrics } from './run-metrics.js';
+import { parseMultiRunMetricsQuery, parseSingleRunMetricsQuery } from './run-metrics-query.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
 
@@ -44,6 +46,7 @@ export interface RunningHttp {
 }
 
 const MCP_PATH = /^\/mcp\/([^/]+)\/?$/;
+const RUN_METRICS_PATH = /^\/runs\/(\d+)\/metrics$/;
 const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const DEFAULT_CLI = 'unknown';
 /** Printable ASCII token for X-Agent-Cli / X-Agent-Model. */
@@ -381,6 +384,47 @@ export async function startHttp({
     sendJson(res, 200, db.queryEvents(parsed.query));
   }
 
+  function handleRunMetrics(req: IncomingMessage, res: ServerResponse, issue?: number): void {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    if (!hostAllowed(req)) {
+      sendJson(res, 403, { error: 'forbidden host or origin' });
+      return;
+    }
+    const params = new URL(req.url ?? '/', 'http://localhost').searchParams;
+    const parsed =
+      issue === undefined ? parseMultiRunMetricsQuery(params) : parseSingleRunMetricsQuery(params);
+    if ('error' in parsed) {
+      sendJson(res, 400, { error: parsed.error });
+      return;
+    }
+    if (issue !== undefined) {
+      sendJson(res, 200, computeRunMetrics(issue, collectEvents(db, { issue, ...parsed.window })));
+      return;
+    }
+    const runs = [];
+    if (parsed.issues) {
+      for (const n of parsed.issues) {
+        runs.push(computeRunMetrics(n, collectEvents(db, { issue: n, ...parsed.window })));
+      }
+    } else {
+      const byIssue = new Map<number, ReturnType<typeof collectEvents>>();
+      for (const e of collectEvents(db, parsed.window)) {
+        if (e.issue !== null) {
+          const list = byIssue.get(e.issue) ?? [];
+          list.push(e);
+          byIssue.set(e.issue, list);
+        }
+      }
+      for (const n of [...byIssue.keys()].sort((a, b) => a - b)) {
+        runs.push(computeRunMetrics(n, byIssue.get(n) ?? []));
+      }
+    }
+    sendJson(res, 200, { runs, aggregate: aggregateRunMetrics(runs) });
+  }
+
   async function handleEvent(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method !== 'POST') {
       sendJson(res, 405, { error: 'method not allowed' });
@@ -585,6 +629,22 @@ export async function startHttp({
           sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
         }
       });
+      return;
+    }
+    const runMatch = RUN_METRICS_PATH.exec(path);
+    if (path === '/runs/metrics' || runMatch) {
+      const issue = runMatch ? Number(runMatch[1]) : undefined;
+      if (issue !== undefined && !Number.isSafeInteger(issue)) {
+        sendJson(res, 404, { error: 'not found' });
+        return;
+      }
+      try {
+        handleRunMetrics(req, res, issue);
+      } catch (error) {
+        if (!res.headersSent) {
+          sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
+        }
+      }
       return;
     }
     const match = MCP_PATH.exec(path);
