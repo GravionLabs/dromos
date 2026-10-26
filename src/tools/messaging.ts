@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ToolContext } from '../context.js';
-import { MessageTypeSchema, type Role, RoleSchema } from '../schemas.js';
+import { MessageTypeSchema, parseTaskPayload, type Role, RoleSchema } from '../schemas.js';
 import { errorResult, jsonResult } from './util.js';
 
 export function registerMessagingTools(server: McpServer, ctx: ToolContext): void {
@@ -16,7 +16,12 @@ export function registerMessagingTools(server: McpServer, ctx: ToolContext): voi
         to: z.string().min(1).describe('Role or agent id that receives the message'),
         type: MessageTypeSchema.describe("Message type; use 'chat' for free-form text"),
         runId: z.string().optional().describe('Run this message belongs to, if any'),
-        payload: z.unknown().describe('JSON payload; for chat use { "text": "..." }'),
+        payload: z
+          .unknown()
+          .describe(
+            'JSON payload; for chat use { "text": "..." }. For task it must contain objective, constraints, ownership (non-empty), ' +
+              'outputFormat, editsAllowed, validation, forbidden, issue (number) and runId',
+          ),
       },
     },
     ({ to, type, runId, payload }) => {
@@ -34,6 +39,12 @@ export function registerMessagingTools(server: McpServer, ctx: ToolContext): voi
       const toRole: Role = asRole.success ? asRole.data : (recipient as { role: Role }).role;
       if (runId !== undefined && !ctx.db.getRun(runId)) {
         return errorResult(`unknown run: ${runId}`);
+      }
+      if (type === 'task') {
+        const parsed = parseTaskPayload(payload);
+        if (!parsed.success) {
+          return errorResult(`invalid task payload: ${z.prettifyError(parsed.error)}`);
+        }
       }
       const message = ctx.db.insertMessage({
         from: ctx.role,

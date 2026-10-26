@@ -10,6 +10,7 @@ import { repoFromPath, viewIssue } from '../github.js';
 import { LeaseConflictError } from '../lease.js';
 import { publishRows, recordRunTransition } from '../run-events.js';
 import { claimRunLease, releaseRunLease } from '../run-lease.js';
+import { type TaskPayload, TaskPayloadSchema } from '../schemas.js';
 import { isTerminal } from '../state-machine.js';
 import {
   assertWorktreeDirIgnored,
@@ -129,20 +130,36 @@ export function registerRunTools(server: McpServer, ctx: ToolContext): void {
             state: 'implementing',
             round: 1,
           });
+          const taskPayload: TaskPayload = TaskPayloadSchema.parse({
+            runId: id,
+            issue: info.number,
+            objective: `Implement #${info.number}: ${info.title}\n\n${info.body}`,
+            constraints: [
+              'Work only in worktreePath on the given branch',
+              'Commit your work',
+              'Call submit_implementation when done',
+            ],
+            ownership: ['**'],
+            outputFormat: `Commits on ${branch}, then submit_implementation`,
+            editsAllowed: true,
+            validation: ctx.config.gate.commands.map((c) => c.run),
+            forbidden: [
+              'push to the base branch',
+              'open a pull request before review approval',
+              'edit files outside the worktree',
+            ],
+            worktreePath,
+            branch,
+            baseBranch: base,
+            instructions:
+              'Implement the issue in worktreePath. Commit your work. When done call submit_implementation.',
+          });
           ctx.db.insertMessage({
             from: 'orchestrator',
             to: 'implementer',
             type: 'task',
             runId: id,
-            payload: {
-              runId: id,
-              issue: { number: info.number, title: info.title, body: info.body },
-              worktreePath,
-              branch,
-              baseBranch: base,
-              instructions:
-                'Implement the issue in worktreePath. Commit your work. When done call submit_implementation.',
-            },
+            payload: taskPayload,
           });
           // First run tool call of this agent pins its run_id; later calls keep it.
           ctx.db.setAgentRun(ctx.agentId, id);

@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { ToolContext } from '../context.js';
+import { type Message, parseTaskPayload, type TaskMessage } from '../schemas.js';
 import { jsonResult } from './util.js';
 
 export const DEFAULT_WAIT_SECONDS = 30;
@@ -9,6 +10,15 @@ export const INBOX_BATCH_SIZE = 20;
 /** Default 30 s, never above the configured maximum, never negative. 0 means "do not wait". */
 export function resolveWaitSeconds(requested: number | undefined, max: number): number {
   return Math.min(Math.max(requested ?? DEFAULT_WAIT_SECONDS, 0), max);
+}
+
+/** Task payloads come back typed; legacy rows that do not parse are returned unchanged. */
+export function typeMessages(messages: Message[]): (Message | TaskMessage)[] {
+  return messages.map((m) => {
+    if (m.type !== 'task') return m;
+    const parsed = parseTaskPayload(m.payload);
+    return parsed.success ? ({ ...m, type: 'task', payload: parsed.data } as TaskMessage) : m;
+  });
 }
 
 export function registerInboxTool(server: McpServer, ctx: ToolContext): void {
@@ -35,7 +45,7 @@ export function registerInboxTool(server: McpServer, ctx: ToolContext): void {
       const immediate = pending();
       const wait = resolveWaitSeconds(waitSeconds, config.inboxMaxWaitSeconds);
       if (immediate.length > 0 || wait === 0) {
-        return jsonResult({ messages: immediate });
+        return jsonResult({ messages: typeMessages(immediate) });
       }
 
       // Checking and subscribing happen synchronously, so a post cannot slip in between.
@@ -59,7 +69,7 @@ export function registerInboxTool(server: McpServer, ctx: ToolContext): void {
         }
       });
 
-      return jsonResult({ messages: pending() });
+      return jsonResult({ messages: typeMessages(pending()) });
     },
   );
 }

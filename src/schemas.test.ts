@@ -4,8 +4,11 @@ import {
   GateResultSchema,
   HookEventSchema,
   MessageSchema,
+  parseTaskPayload,
   ReviewSchema,
   RoleSchema,
+  TaskMessageSchema,
+  TaskPayloadSchema,
 } from './schemas.js';
 
 describe('schemas', () => {
@@ -95,6 +98,58 @@ describe('schemas', () => {
       expect(
         HookEventSchema.safeParse({ role: 'reviewer', cli: 'vim', state: 'idle' }).success,
       ).toBe(false);
+    });
+  });
+
+  describe('TaskPayloadSchema', () => {
+    const full = {
+      objective: 'Do it',
+      constraints: ['c'],
+      ownership: ['src/**'],
+      outputFormat: 'commits',
+      editsAllowed: true,
+      validation: ['pnpm test'],
+      forbidden: ['push'],
+      issue: 130,
+      runId: 'run-130-1',
+    };
+
+    it('accepts a full payload and keeps extra keys', () => {
+      expect(TaskPayloadSchema.parse({ ...full, branch: 'b' })).toEqual({ ...full, branch: 'b' });
+    });
+
+    it('rejects a missing objective', () => {
+      const { objective: _o, ...rest } = full;
+      expect(parseTaskPayload(rest).success).toBe(false);
+    });
+
+    it('rejects missing or empty ownership', () => {
+      const { ownership: _o, ...rest } = full;
+      expect(parseTaskPayload(rest).success).toBe(false);
+      expect(parseTaskPayload({ ...full, ownership: [] }).success).toBe(false);
+    });
+
+    it('rejects wrong types', () => {
+      expect(parseTaskPayload({ ...full, editsAllowed: 'yes' }).success).toBe(false);
+      expect(parseTaskPayload({ ...full, issue: '130' }).success).toBe(false);
+      expect(parseTaskPayload({ ...full, issue: 0 }).success).toBe(false);
+      expect(parseTaskPayload(null).success).toBe(false);
+    });
+
+    it('TaskMessageSchema requires the typed payload only for task', () => {
+      const message = {
+        id: 1,
+        from: 'orchestrator',
+        to: 'implementer',
+        type: 'task',
+        runId: null,
+        payload: full,
+        createdAt: '2026-09-24T05:00:00.000Z',
+        ackedAt: null,
+      };
+      expect(TaskMessageSchema.safeParse(message).success).toBe(true);
+      expect(TaskMessageSchema.safeParse({ ...message, payload: null }).success).toBe(false);
+      expect(TaskMessageSchema.safeParse({ ...message, type: 'chat' }).success).toBe(false);
     });
   });
 

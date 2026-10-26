@@ -66,3 +66,16 @@ export function textOf(result: unknown): string {
   const content = (result as { content: { type: string; text: string }[] }).content;
   return content.map((c) => c.text).join('');
 }
+
+/** A schema-valid task message payload. */
+export const validTask = (runId: string) => ({
+  objective: 'Do it',
+  constraints: ['stay in the worktree'],
+  ownership: ['src/**'],
+  outputFormat: 'commits',
+  editsAllowed: true,
+  validation: ['pnpm test'],
+  forbidden: ['push'],
+  issue: 130,
+  runId,
+});
