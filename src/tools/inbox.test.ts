@@ -59,6 +59,25 @@ describe('inbox tool', () => {
     expect((await inbox('implementer', 0)).messages[0]?.payload).toEqual(validTask('r'));
   });
 
+  it('keeps extra keys on a typed task payload', async () => {
+    const payload = { ...validTask('r'), worktreePath: '/w', branch: 'b' };
+    bus.db.insertMessage({ from: 'orchestrator', to: 'implementer', type: 'task', payload });
+    expect((await inbox('implementer', 0)).messages[0]?.payload).toEqual(payload);
+  });
+
+  it('returns a task that arrives while waiting', async () => {
+    const waiting = inbox('implementer', 5);
+    await new Promise((r) => setTimeout(r, 50));
+    bus.db.insertMessage({
+      from: 'orchestrator',
+      to: 'implementer',
+      type: 'task',
+      payload: validTask('r'),
+    });
+    bus.events.messageFor('implementer');
+    expect((await waiting).messages[0]?.payload).toEqual(validTask('r'));
+  });
+
   it('returns a legacy unparseable task payload unchanged', async () => {
     bus.db.insertMessage({
       from: 'orchestrator',

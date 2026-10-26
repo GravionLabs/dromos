@@ -150,6 +150,19 @@ describe('start_run', () => {
           issue: 14,
           objective: 'Implement #14: Add Start Run!\n\nBody',
           editsAllowed: true,
+          constraints: [
+            'Work only in worktreePath on the given branch',
+            'Commit your work',
+            'Call submit_implementation when done',
+          ],
+          ownership: ['**'],
+          outputFormat: 'Commits on feat/14-add-start-run, then submit_implementation',
+          validation: [],
+          forbidden: [
+            'push to the base branch',
+            'open a pull request before review approval',
+            'edit files outside the worktree',
+          ],
           worktreePath,
           branch: 'feat/14-add-start-run',
           baseBranch: 'main',
@@ -175,10 +188,12 @@ describe('start_run', () => {
     const orchestrator = await bus.connect('orchestrator');
     await orchestrator.callTool({ name: 'start_run', arguments: args() });
     const [task] = bus.db.listUnacked('implementer');
-    const payload = TaskPayloadSchema.parse(task?.payload);
-    expect(payload.issue).toBe(14);
-    expect(payload.editsAllowed).toBe(true);
-    expect(payload.validation).toEqual(['pnpm build', 'pnpm test']);
+    expect(task?.payload).toMatchObject({
+      issue: 14,
+      editsAllowed: true,
+      validation: ['pnpm build', 'pnpm test'],
+    });
+    expect(TaskPayloadSchema.safeParse(task?.payload).success).toBe(true);
   });
 
   it('uses an explicit baseBranch', async () => {
