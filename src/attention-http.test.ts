@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AttentionRecord, EventRecord } from './db.js';
 import { BusEventSchema } from './events/schema.js';
+import { MAX_INGEST_BODY_BYTES } from './http.js';
 import { startTestBus, type TestBus } from './test-helpers.js';
 
 let bus: TestBus;
@@ -190,6 +191,49 @@ describe('attention HTTP API', () => {
     expect(res.status).toBe(400);
     expect(bus.db.getAttention(id)?.state).toBe('open');
   });
+
+  it('returns 409 for a second ack and emits one attention.acked', async () => {
+    const id = await ingest(attention());
+    await act(id, 'answer', { text: 'yes', by: 'jerome' });
+    expect((await act(id, 'ack', { by: 'jerome' })).status).toBe(200);
+    const again = await act(id, 'ack', { by: 'other' });
+    expect(again.status).toBe(409);
+    expect(((await again.json()) as { error: string }).error).toContain('acked');
+    expect(bus.db.getAttention(id)?.ackedBy).toBe('jerome');
+    expect(await eventsOfType('attention.acked')).toHaveLength(1);
+  });
+
+  it('returns 404 for an ack on a malformed id', async () => {
+    expect((await act('abc', 'ack', {})).status).toBe(404);
+    expect((await act(0, 'ack', {})).status).toBe(404);
+  });
+
+  it.each([
+    ['empty by', { by: '' }],
+    ['by over 128 chars', { by: 'x'.repeat(129) }],
+    ['non-string by', { by: 42 }],
+    ['unknown key', { by: 'jerome', extra: 1 }],
+    ['an array body', []],
+  ])('rejects an ack with %s as 400 and leaves it answered', async (_name, body) => {
+    const id = await ingest(attention());
+    await act(id, 'answer', { text: 'yes', by: 'jerome' });
+    const res = await act(id, 'ack', body);
+    expect(res.status).toBe(400);
+    expect(bus.db.getAttention(id)?.state).toBe('answered');
+    expect(await eventsOfType('attention.acked')).toEqual([]);
+  });
+
+  it.each(['answer', 'ack'] as const)(
+    'rejects a %s body over the size cap with 413',
+    async (action) => {
+      const id = await ingest(attention());
+      if (action === 'ack') await act(id, 'answer', { text: 'yes', by: 'jerome' });
+      const before = bus.db.getAttention(id)?.state;
+      const res = await act(id, action, { text: 'x'.repeat(MAX_INGEST_BODY_BYTES), by: 'y' });
+      expect(res.status).toBe(413);
+      expect(bus.db.getAttention(id)?.state).toBe(before);
+    },
+  );
 
   it('accepts text of exactly 4000 chars', async () => {
     const id = await ingest(attention());

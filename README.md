@@ -101,6 +101,16 @@ Latency (opt-in, 10k events for one issue plus noise, p99 must stay under 50 ms)
 DROMOS_PERF=1 pnpm vitest run src/events-query.perf.test.ts
 ```
 
+## Attention API
+
+An ingested `attention` event creates an attention row (same id as the event) in state `open`. A human moves it `open -> answered -> acked`; each step emits exactly one bus event.
+
+- `GET /attention?state=open|answered|acked&issue=<int>&since=<ISO>&limit=<1..1000>` answers `200 { attention: [...] }`, oldest first; a bad or unknown parameter answers 400.
+- `POST /attention/<id>/answer` with `{ "text": "...", "by": "..." }` (`text` 1-4000, `by` 1-128 chars) emits `attention.answered { id, text, by }` and answers 200 with the updated attention.
+- `POST /attention/<id>/ack` with `{ "by": "..." }` or an empty body emits `attention.acked { id, by }`; only an answered attention can be acked.
+- 404 for an unknown id, 409 when the state does not allow the step (a second answer, an ack before the answer or a second ack), 400 for an invalid body, 413 for a body over 1 MiB, 405 for other methods.
+- Security: same guards as `POST /ingest` (loopback bind, `Host`/`Origin` check, `application/json` for browser requests); no authentication. `by` is self-asserted by the caller and is not verified: treat it as a label, not as an identity.
+
 ## Repository layout
 
 - `src/`: TypeScript MCP bus

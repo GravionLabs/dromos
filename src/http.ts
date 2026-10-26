@@ -607,6 +607,11 @@ export async function startHttp({
    * `POST /attention/<id>/answer|ack`: compare-and-set state transition plus its lifecycle event
    * in one transaction, published after the commit as in `handleIngest`. 404 for an unknown id,
    * 409 when the current state does not allow the transition.
+   *
+   * Trust model: like every bus write route there is no caller authentication. The guards are the
+   * loopback bind, the Host/Origin check and the browser content-type rule. `by` is self-asserted
+   * by the caller (validated for length and forbidden characters only) and is a label, never an
+   * identity to authorize on.
    */
   async function handleAttentionAction(
     req: IncomingMessage,
