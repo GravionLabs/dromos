@@ -1,27 +1,26 @@
 # dromos
 
-Local MCP message bus that coordinates **interactive** AI coding agents (Claude Code and GitHub Copilot CLI), each running in its own terminal. Formerly `agent-bus`; the old `agent-bus.config.json` still loads with a deprecation warning for one release.
+Local event bus for coding agents. dromos collects the events of unattended [apm-hub](https://github.com/GravionLabs/apm-hub) orchestrator loops and of the herdr plugin, keeps their history and run metrics, tracks attention (questions and gates that wait for a human) and runs sessions. Formerly `agent-bus`; the old `agent-bus.config.json` still loads with a deprecation warning for one release.
 
-Three roles:
+What it offers:
 
-- **orchestrator**: starts runs, routes work, never edits code
-- **implementer**: implements a GitHub issue in an isolated git worktree
-- **reviewer**: read-only quality gate that reviews the diff and returns a structured verdict
+- **Events**: a typed event stream (`GET /events/stream`) and `POST /ingest` for producers such as apm-hub hooks. The bus works without any terminal.
+- **History and metrics**: stored events with query and per-run metrics for apm-hub's retro (planned).
+- **Attention**: gates and questions with an id and state that a human answers (planned).
+- **Sessions**: a driver asks the bus to run a session headless and restart it with a fresh start prompt (planned).
+- **MCP tools** as the bus API: `start_run`, `submit_implementation`, `submit_review`, `open_pr`, `status`, `post`, `ack`, `inbox`. The deterministic gate (build, tests, lint, round limit, "PR only after approval") is enforced by the bus itself.
 
-Agents talk to each other through MCP tool calls, not terminal screen-scraping. Hooks report when an agent goes idle or busy. The deterministic gate (build, tests, lint, round limit, "PR only after approval") is enforced by the bus itself, so no agent can skip it.
-
-The bus is terminal-agnostic: plain windows, tabs, tmux, VS Code terminals and SSH all work. A WezTerm split-pane layout is optional.
+dromos does not provide its own interactive role workflow (orchestrator, implementer and reviewer terminals started by dromos): that was dropped, apm-hub's orchestrator and agents cover it. The workspace is the herdr plugin (`dromos-herdr`, primary). The Rust multiplexer `dromos-mux` is parked: the code stays in the repository but is not on the roadmap.
 
 ```
- terminal 1: orchestrator ─┐
- terminal 2: implementer  ─┼── MCP (HTTP, 127.0.0.1) ──► dromos ──► git worktree, gate, gh
- terminal 3: reviewer     ─┘                              ▲
- terminal 4: dromos log            Claude Stop hooks ─────┘ (idle/busy events)
+ apm-hub loops (hooks, POST /ingest) ─┐
+ herdr plugin (events, attention)    ─┼──► dromos ──► SQLite history, metrics, sessions, gate, gh
+ MCP clients (start_run, submit_*)   ─┘
 ```
 
 ## Status
 
-Early development. Implemented: project foundation and messaging (`post`, `ack`, `inbox`, `/events`, `/events/stream`, bus log) over streamable HTTP at `/mcp/<role>`. Everything else below is **planned**, including the `dromos` CLI (`package.json` has no `bin` yet). Order of work: [ROADMAP.md](ROADMAP.md).
+Early development. Implemented: project foundation and messaging (`post`, `ack`, `inbox`, `/events`, `/events/stream`, bus log) over streamable HTTP at `/mcp/<role>`, `POST /ingest`, agent instances and the workflow core. Everything else below is **planned**, including the `dromos` CLI (`package.json` has no `bin` yet). Order of work: [ROADMAP.md](ROADMAP.md); the bus core is Epic #166.
 
 ## Event stream
 
@@ -73,8 +72,8 @@ DROMOS_PERF=1 pnpm vitest run src/ingest.perf.test.ts
 ## Repository layout
 
 - `src/`: TypeScript MCP bus
-- `crates/dromos-mux`: terminal multiplexer (daemon and client binary)
-- `crates/dromos-mux-proto`: event and IPC types shared by daemon and client
+- `crates/dromos-mux`: terminal multiplexer (daemon and client binary), parked
+- `crates/dromos-mux-proto`: event and IPC types generated from the Zod schema (used by the parked dromos-mux)
 - `.github/workflows/`: GitHub Actions workflows
 
 ## Event schema
@@ -93,31 +92,22 @@ CI (`.github/workflows/schema.yml`) reruns both generators and fails on `git dif
 
 ## Usage (planned)
 
-Start each role in any terminal. The bus starts automatically if it is not running:
+Start the bus and follow its log:
 
 ```bash
-dromos role orchestrator
-dromos role implementer --cli claude
-dromos role reviewer --cli copilot --model GPT-Luna
+dromos serve
 dromos log
 ```
 
-Or open all four at once with a layout:
+The herdr plugin (Epic #98) is the workspace for interactive work; apm-hub orchestrator runs report to the bus through `$DROMOS_URL`.
 
-```bash
-dromos up                     # separate windows in your default terminal
-dromos up --layout wezterm    # optional: one WezTerm window, 4 split panes
-dromos up --layout print      # just print the commands (tmux, VS Code, SSH, ...)
-dromos up --reviewer-cli copilot --reviewer-model GPT-Luna
-```
+Config: `dromos.config.json` in the working directory (or the file named by `DROMOS_CONFIG`), merged over defaults. See `dromos.config.example.json` for host, port, `maxRounds`, gate commands, base branch, `branchPrefix` (default `conventional`, see `start_run`), `worktreeDir` (relative path, no `..`, default `.worktrees`).
 
-`--cli` and `--model` can be set per role. Precedence: flag > `roles.<role>` in the config file > the CLI's own default. Model names are passed verbatim to `claude --model` / `copilot --model`; there is no model list and no validation.
+## Workflow
 
-Config: `dromos.config.json` in the working directory (or the file named by `DROMOS_CONFIG`), merged over defaults. See `dromos.config.example.json` for host, port, `maxRounds`, gate commands, base branch, `branchPrefix` (default `conventional`, see `start_run`), `worktreeDir` (relative path, no `..`, default `.worktrees`), `roles` and `layouts`.
+The MCP tools stay as bus API.
 
-## Workflow (planned)
-
-1. `start_run(issue)`: create worktree and branch `<type>/<issue>-<slug>` (`fix` for issues labelled `bug` or titled `fix...`/`[bug]...`, otherwise `feat`; e.g. `feat/14-add-start-run`). Set `branchPrefix` to a fixed string such as `agent` to get `agent/<issue>-<slug>` instead. Post the task to the implementer. The worktree lives at `<repoPath>/<worktreeDir>/<issue>` (default `.worktrees/<issue>`); `start_run` refuses unless `<worktreeDir>/` is git-ignored in that repository.
+1. `start_run(issue)`: create worktree and branch `<type>/<issue>-<slug>` (`fix` for issues labelled `bug` or titled `fix...`/`[bug]...`, otherwise `feat`; e.g. `feat/14-add-start-run`). Set `branchPrefix` to a fixed string such as `agent` to get `agent/<issue>-<slug>` instead. Post the task to the implementer role. The worktree lives at `<repoPath>/<worktreeDir>/<issue>` (default `.worktrees/<issue>`); `start_run` refuses unless `<worktreeDir>/` is git-ignored in that repository.
 2. `submit_implementation`: the bus runs build, tests and lint. Red goes back to the implementer.
 3. `submit_review`: schema-validated verdict. Blocking findings go back to the implementer.
 4. After the round limit (default 3) the run is `blocked` and the orchestrator is notified.
@@ -127,13 +117,13 @@ A `status` tool reports the state of a run.
 
 ## Roadmap
 
-[ROADMAP.md](ROADMAP.md) lists the stages, their dependencies and the planned Session API (a driver asks the bus to run a session and restart it with a fresh start prompt, for unattended runs). Stages cover the workflow core, events and agent instances, roles/CLI/idle hooks, the Session API, the `dromos-mux` terminal multiplexer MVP and end-to-end validation.
+[ROADMAP.md](ROADMAP.md) lists the stages and their dependencies: bus core (Epic #166: events, Session API, CLI, validation), history and attention for unattended apm-hub loops (Epic #132), the herdr plugin (Epic #98), self-learning (Epic #159). dromos-mux (Epics #36, #56) is parked at the end.
 
 ## Tech
 
-TypeScript 7 (strict, ESM), pnpm, Vitest, Biome (lint and format), `@modelcontextprotocol/sdk` (streamable HTTP), Zod, better-sqlite3. Planned: execa, commander, `gh` CLI, optional WezTerm CLI. Requires Node >= 22.
+TypeScript 7 (strict, ESM), pnpm, Vitest, Biome (lint and format), `@modelcontextprotocol/sdk` (streamable HTTP), Zod, better-sqlite3. Planned: execa, commander, `gh` CLI. Requires Node >= 22.
 
-Rust (edition 2024, Cargo workspace under `crates/`, toolchain pinned in `rust-toolchain.toml`) for `dromos-mux`.
+Rust (edition 2024, Cargo workspace under `crates/`, toolchain pinned in `rust-toolchain.toml`) for the parked `dromos-mux`.
 
 ## Development
 
