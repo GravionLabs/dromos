@@ -45,8 +45,8 @@ describe('db', () => {
         raw.close();
 
         const migrated = openDb(file);
-        expect(MIGRATIONS).toHaveLength(5);
-        expect(migrated.schemaVersion()).toBe(5);
+        expect(MIGRATIONS).toHaveLength(6);
+        expect(migrated.schemaVersion()).toBe(6);
         expect(migrated.queryEvents({ issue: 7, limit: 10 }).events).toHaveLength(1);
         migrated.close();
 
@@ -626,6 +626,98 @@ describe('db', () => {
         .all(1, 0, 11) as { detail: string }[];
       raw.close();
       expect(plan.map((p) => p.detail).join('\n')).toContain('idx_events_issue_id');
+    });
+  });
+
+  describe('migration 6 and attention', () => {
+    const ev = (issue: number | null, kind = 'GATE') =>
+      db.insertEvent(
+        'apm-hub/queue',
+        'attention',
+        { kind, summary: 's', pr: null },
+        { agentId: 'a1', issue, runId: null },
+      );
+
+    it('upgrades a version-5 database and keeps its events', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'dromos-db-'));
+      try {
+        const file = join(dir, 'bus.db');
+        const raw = new Database(file);
+        for (const sql of MIGRATIONS.slice(0, 5)) raw.exec(sql);
+        raw.pragma('user_version = 5');
+        raw
+          .prepare(
+            `INSERT INTO events (role, kind, data_json, created_at, issue)
+             VALUES ('implementer', 'hook:idle', '{}', '2026-01-01T00:00:00Z', 7)`,
+          )
+          .run();
+        raw.close();
+        const migrated = openDb(file);
+        expect(migrated.schemaVersion()).toBe(6);
+        expect(migrated.listAttention({ limit: 10 })).toEqual([]);
+        expect(migrated.queryEvents({ issue: 7, limit: 10 }).events).toHaveLength(1);
+        migrated.close();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('inserts an open attention with the event id', () => {
+      const event = ev(5);
+      const a = db.insertAttention(event);
+      expect(a).toMatchObject({
+        id: event.id,
+        eventId: event.id,
+        source: 'apm-hub/queue',
+        agentId: 'a1',
+        issue: 5,
+        kind: 'GATE',
+        summary: 's',
+        state: 'open',
+        answeredAt: null,
+        ackedAt: null,
+      });
+      expect(a.data).toEqual({ kind: 'GATE', summary: 's', pr: null });
+      expect(db.getAttention(event.id)).toEqual(a);
+      expect(db.getAttention(9999)).toBeUndefined();
+    });
+
+    it('rejects any state other than open, answered or acked', () => {
+      const raw = new Database(':memory:');
+      for (const sql of MIGRATIONS) raw.exec(sql);
+      raw
+        .prepare(
+          "INSERT INTO events (role, kind, data_json, created_at) VALUES ('r','attention','{}','t')",
+        )
+        .run();
+      const insert = (state: string) =>
+        raw
+          .prepare(
+            `INSERT INTO attention (id, event_id, source, kind, summary, data_json, state, created_at)
+             VALUES (1, 1, 's', 'k', 'x', '{}', ?, 't')`,
+          )
+          .run(state);
+      expect(() => insert('closed')).toThrow(/CHECK/);
+      expect(() => insert('answered')).not.toThrow();
+      raw.close();
+    });
+
+    it('rejects a duplicate attention for one event', () => {
+      const event = ev(5);
+      db.insertAttention(event);
+      expect(() => db.insertAttention(event)).toThrow();
+    });
+
+    it('lists ascending, filtered by state, issue and since', () => {
+      const a = db.insertAttention(ev(1));
+      const b = db.insertAttention(ev(2));
+      const c = db.insertAttention(ev(1));
+      expect(db.listAttention({ limit: 10 }).map((r) => r.id)).toEqual([a.id, b.id, c.id]);
+      expect(db.listAttention({ issue: 1, limit: 10 }).map((r) => r.id)).toEqual([a.id, c.id]);
+      expect(db.listAttention({ state: 'open', limit: 2 }).map((r) => r.id)).toEqual([a.id, b.id]);
+      expect(db.listAttention({ state: 'acked', limit: 10 })).toEqual([]);
+      expect(db.listAttention({ since: '2999-01-01T00:00:00.000Z', limit: 10 })).toEqual([]);
+      expect(db.listAttention({ since: '2000-01-01T00:00:00.000Z', limit: 10 })).toHaveLength(3);
     });
   });
 });

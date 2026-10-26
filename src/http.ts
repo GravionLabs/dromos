@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { recordAttention } from './attention.js';
 import { BusEvents } from './bus-events.js';
 import { type BusLog, createBusLog } from './bus-log.js';
 import type { Config } from './config.js';
@@ -530,11 +531,13 @@ export async function startHttp({
     // Persist first; subscribers are notified only after the commit.
     const rows = db.transaction(() =>
       accepted.map((e) =>
-        db.insertEvent(e.source, e.type, e.data, {
-          agentId: e.agentId,
-          issue: e.issue,
-          runId: e.runId,
-        }),
+        e.type === 'attention'
+          ? recordAttention(db, e).event
+          : db.insertEvent(e.source, e.type, e.data, {
+              agentId: e.agentId,
+              issue: e.issue,
+              runId: e.runId,
+            }),
       ),
     );
     // Synchronously, in id order: a deferred publish could arrive after a higher id another
@@ -551,7 +554,11 @@ export async function startHttp({
       'INGEST',
       `${accepted.length} event(s): ${shown.join(', ')}${accepted.length > shown.length ? ', ...' : ''}`,
     );
-    sendJson(res, 202, { ids: rows.map((r) => r.id) });
+    const single = !Array.isArray(body) && accepted[0]?.type === 'attention';
+    sendJson(res, 202, {
+      ids: rows.map((r) => r.id),
+      ...(single ? { id: rows[0]?.id } : {}),
+    });
   }
 
   const server = createServer((req, res) => {
