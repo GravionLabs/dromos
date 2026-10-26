@@ -7,7 +7,10 @@ import { BUS_EVENT_TYPES, BusEventSchema, PROGRESS_KINDS } from './schema.js';
 const fixturesDir = fileURLToPath(new URL('../../schema/fixtures/', import.meta.url));
 const fixtureFiles = readdirSync(fixturesDir).filter((f) => f.endsWith('.json'));
 // `progress-<kind>.json` are extra variants of the one `progress` event type.
-const baseFixtureFiles = fixtureFiles.filter((f) => !f.startsWith('progress-'));
+// `attention-question.json` is an extra variant of `attention`.
+const baseFixtureFiles = fixtureFiles.filter(
+  (f) => !f.startsWith('progress-') && f !== 'attention-question.json',
+);
 const readFixture = (f: string): Record<string, unknown> =>
   JSON.parse(readFileSync(fixturesDir + f, 'utf8'));
 
@@ -221,11 +224,52 @@ describe('external event types', () => {
     ).toBe(false);
   });
 
-  it('accepts every attention kind and rejects others', () => {
-    for (const kind of ['GATE', 'BLOCKED', 'FAILED', 'QUESTION']) {
+  it('accepts free-form attention kinds and bounds them', () => {
+    for (const kind of ['GATE', 'BLOCKED', 'FAILED', 'QUESTION', 'FEATURE_DONE']) {
       expect(withData('attention.json', { kind }), kind).toBe(true);
     }
-    expect(withData('attention.json', { kind: 'DONE' })).toBe(false);
+    expect(withData('attention.json', { kind: '' })).toBe(false);
+    expect(withData('attention.json', { kind: 'x'.repeat(64) })).toBe(true);
+    expect(withData('attention.json', { kind: 'x'.repeat(65) })).toBe(false);
+    expect(withData('attention.json', { kind: 'A\nB' })).toBe(false);
+  });
+
+  it('accepts optional attention question, options and checkout', () => {
+    expect(BusEventSchema.safeParse(readFixture('attention-question.json')).success).toBe(true);
+    expect(withData('attention.json', { question: 'x'.repeat(2000) })).toBe(true);
+    expect(withData('attention.json', { question: 'x'.repeat(2001) })).toBe(false);
+    expect(withData('attention.json', { question: '' })).toBe(false);
+    expect(withData('attention.json', { question: 'a\nb' })).toBe(false);
+    expect(withData('attention.json', { checkout: 'x'.repeat(4096) })).toBe(true);
+    expect(withData('attention.json', { checkout: 'x'.repeat(4097) })).toBe(false);
+    expect(withData('attention.json', { checkout: '/a\u001b' })).toBe(false);
+    expect(withData('attention.json', { options: [] })).toBe(true);
+    expect(withData('attention.json', { options: Array(16).fill('o') })).toBe(true);
+    expect(withData('attention.json', { options: Array(17).fill('o') })).toBe(false);
+    expect(withData('attention.json', { options: [''] })).toBe(false);
+    expect(withData('attention.json', { options: ['x'.repeat(201)] })).toBe(false);
+    expect(withData('attention.json', { options: ['a\u202e'] })).toBe(false);
+  });
+
+  it('validates attention.answered and attention.acked', () => {
+    const a = 'attention-answered.json';
+    expect(withData(a, {})).toBe(true);
+    expect(withData(a, { id: 0 })).toBe(false);
+    expect(withData(a, { id: 1.5 })).toBe(false);
+    expect(withData(a, { text: '' })).toBe(false);
+    expect(withData(a, { text: 'x'.repeat(4000) })).toBe(true);
+    expect(withData(a, { text: 'x'.repeat(4001) })).toBe(false);
+    expect(withData(a, { text: 'a\nb' })).toBe(false);
+    expect(withData(a, { by: '' })).toBe(false);
+    expect(withData(a, { by: 'x'.repeat(129) })).toBe(false);
+    expect(withData(a, { by: null })).toBe(false);
+    const k = 'attention-acked.json';
+    expect(withData(k, {})).toBe(true);
+    expect(withData(k, { by: 'jerome' })).toBe(true);
+    expect(withData(k, { id: 0 })).toBe(false);
+    expect(withData(k, { by: '' })).toBe(false);
+    expect(withData(k, { by: 'a\u0007' })).toBe(false);
+    expect(withoutData(k, 'by')).toBe(false);
   });
 
   it('bounds attention summary and pr', () => {
@@ -372,6 +416,8 @@ describe('events JSON Schema', () => {
       '#/definitions/HookBusyEvent',
       '#/definitions/ProgressEvent',
       '#/definitions/AttentionEvent',
+      '#/definitions/AttentionAnsweredEvent',
+      '#/definitions/AttentionAckedEvent',
       '#/definitions/UsageEvent',
       '#/definitions/QueueItemEvent',
       '#/definitions/AgentRegisteredEvent',

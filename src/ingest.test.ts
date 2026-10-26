@@ -413,6 +413,17 @@ describe('POST /ingest validation', () => {
     ).toEqual(['attention', 'usage', 'queue.item']);
   });
 
+  it('answers 403 for the server-owned attention.answered and attention.acked', async () => {
+    for (const [type, data] of [
+      ['attention.answered', { id: 1, text: 'yes', by: 'me' }],
+      ['attention.acked', { id: 1, by: null }],
+    ] as const) {
+      const res = await post([{ ...attention, type, data }]);
+      expect(res.status).toBe(403);
+    }
+    expect(bus.db.listEvents()).toHaveLength(0);
+  });
+
   it('answers 403 for a disallowed type wherever it sits in the batch', async () => {
     const bad = { ...progress(), type: 'hook:idle' };
     const invalid = { type: 'progress', source: 'apm-hub/hook' };

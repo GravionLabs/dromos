@@ -90,6 +90,9 @@ export const ProgressEventSchema = z
   })
   .meta({ id: 'ProgressEvent' });
 
+/** Entry cap of `attention.data.options`; the Rust `check_constraints` enforces the same number. */
+const MAX_ATTENTION_OPTIONS = 16;
+
 /** A run needs a human: gate, blocked, failed or a question. */
 export const AttentionEventSchema = z
   .strictObject({
@@ -97,13 +100,50 @@ export const AttentionEventSchema = z
     type: z.literal('attention'),
     data: z
       .strictObject({
-        kind: z.enum(['GATE', 'BLOCKED', 'FAILED', 'QUESTION']),
+        /** Free-form: `GATE`, `BLOCKED`, `FAILED`, `QUESTION`, `FEATURE_DONE`, ... */
+        kind: text(1, 64),
         summary: text(1, 2000),
         pr: z.number().int().nullable(),
+        question: text(1, 2000).optional(),
+        options: z
+          .array(text(1, 200))
+          .max(MAX_ATTENTION_OPTIONS)
+          .meta({ maxItems: MAX_ATTENTION_OPTIONS })
+          .optional(),
+        checkout: text(1, 4096).optional(),
       })
       .meta({ id: 'AttentionData' }),
   })
   .meta({ id: 'AttentionEvent' });
+
+/** Server-owned: a human answered an attention. Envelope `issue`/`runId` are the attention's. */
+export const AttentionAnsweredEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('attention.answered'),
+    data: z
+      .strictObject({
+        id: z.number().int().min(1),
+        text: text(1, 4000),
+        by: text(1, 128),
+      })
+      .meta({ id: 'AttentionAnsweredData' }),
+  })
+  .meta({ id: 'AttentionAnsweredEvent' });
+
+/** Server-owned: an attention was acknowledged. Envelope `issue`/`runId` are the attention's. */
+export const AttentionAckedEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('attention.acked'),
+    data: z
+      .strictObject({
+        id: z.number().int().min(1),
+        by: text(1, 128).nullable(),
+      })
+      .meta({ id: 'AttentionAckedData' }),
+  })
+  .meta({ id: 'AttentionAckedEvent' });
 
 /** Context and cost sample of one agent. */
 export const UsageEventSchema = z
@@ -207,6 +247,8 @@ export const BusEventSchema = z
     HookBusyEventSchema,
     ProgressEventSchema,
     AttentionEventSchema,
+    AttentionAnsweredEventSchema,
+    AttentionAckedEventSchema,
     UsageEventSchema,
     QueueItemEventSchema,
     AgentRegisteredEventSchema,
@@ -221,6 +263,8 @@ export const BUS_EVENT_TYPES = [
   'hook:busy',
   'progress',
   'attention',
+  'attention.answered',
+  'attention.acked',
   'usage',
   'queue.item',
   'agent.registered',
