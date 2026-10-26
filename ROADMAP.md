@@ -111,6 +111,17 @@ Gate 1: dromos-mux used daily for two weeks.
 
 #30 integration test with mocked `gh`, #31 manual end-to-end checklist. Stage 1 is done, so both can start; they close 0.2.0.
 
+## Stage 7 — self-learning (Epic #159)
+
+dromos supplies what a single repo's retro cannot: structured outcome data, cross-repo queries, approval of retro candidates through `attention`, and export of approved lessons. The analysis itself stays in apm-hub's retro (GravionLabs/apm-hub#576, #577); the repo-local lessons contract is GravionLabs/apm-hub#661. apm-hub works without dromos. Blocked by Epic #132 (Stage 2b); not yet planned into PBIs or milestones.
+
+| Order | Issue | Title | Size | Depends on |
+| --- | --- | --- | --- | --- |
+| 1 | #160 | outcome events: review verdicts, finding fingerprints, gate failure signatures, rulings | – | #44, #136 |
+| 2 | #161 | cross-repo learning queries for apm-hub retro | – | #160, #135, #137 |
+| 2 | #162 | retro candidates as attention: approve lessons and candidate PBIs from the bus | – | #138, #160 |
+| 3 | #163 | lesson export: write the apm-hub lessons contract into several repos via PR | – | GravionLabs/apm-hub#661, #161, #162 |
+
 ## After the MVP (Epic #56)
 
 Phase 1 #57 (Windows, macOS, SSH attach), phase 2 #58 (queue view, usage; needs apm-hub #392 and #393), phase 3 #59 (comfort). Each starts after the gate before it. PBIs are planned per phase. Unscheduled: #150 (close merged Task issues automatically) and the code rename #70 (`needs-decision`).
@@ -120,3 +131,4 @@ Phase 1 #57 (Windows, macOS, SSH attach), phase 2 #58 (queue view, usage; needs 
 - #39 decides the event shape for everything after it; session events (#62) extend it, so plan them together.
 - The pane mode relies on dromos-mux claiming `session.requested`; without it the request fails after the claim timeout instead of hanging.
 - Headless `input` (stdin) is unverified for both CLIs; headless gate answers wait for that decision (#65).
+- Learned content reaching prompts (injection, drift, Stage 7): human approval through `attention`, PR-only export, size caps and the apm-hub guardrails (GravionLabs/apm-hub#590).
