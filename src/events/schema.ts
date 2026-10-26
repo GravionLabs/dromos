@@ -9,6 +9,9 @@ import { HookEventSchema, ReviewSchema, RunStateSchema } from '../schemas.js';
 // Zod 4 `min`/`max` count code points, like the JSON Schema `maxLength` and the Rust types.
 export const FORBIDDEN_CHARS =
   /[\p{Cc}\u061C\u200B-\u200F\u2028-\u202E\u2060-\u2064\u2066-\u206F\uFEFF]/u;
+/** Version of the bus event schema carried by `dromos run export`; bump on a breaking change. */
+export const EVENTS_SCHEMA_VERSION = 1;
+
 const noForbiddenChars = (s: string) => !FORBIDDEN_CHARS.test(s);
 const FORBIDDEN_MSG = 'control or invisible formatting characters are not allowed';
 const text = (min: number, max: number) =>

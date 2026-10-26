@@ -147,7 +147,10 @@ Start the bus and follow its log:
 ```bash
 dromos serve
 dromos log
+dromos run export <issue> --format json|mermaid [--out FILE]
 ```
+
+`dromos run export` reads one issue's events from the local store and prints a JSON export (schema version, issue, `exportedAt`, events) or a Mermaid flowchart of its subagent tree, without network access. An unknown issue prints nothing and exits 1.
 
 The herdr plugin (Epic #98) is the workspace for interactive work; apm-hub orchestrator runs report to the bus through `$DROMOS_URL`.
 
