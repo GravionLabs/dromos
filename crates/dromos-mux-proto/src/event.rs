@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
 use crate::BusEvent;
-use crate::generated::QueueItemDataState;
+use crate::generated::{ProgressDataFieldsValue, QueueItemDataState};
 
 /// `type` values the generated [`BusEvent`] knows, taken from the generated
 /// [`BUS_EVENT_TYPES`](crate::BUS_EVENT_TYPES) so a new variant can never fall into
@@ -168,6 +168,18 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
         Progress { data, .. } => {
             texts.push(("data.line", data.line.as_str()));
             texts.push(("data.agent", data.agent.as_str()));
+            if data.fields.len() > 32 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.fields",
+                    rule: "at most 32 entries",
+                });
+            }
+            for (key, value) in &data.fields {
+                texts.push(("data.fields", key.as_str()));
+                if let ProgressDataFieldsValue::String(v) = value {
+                    texts.push(("data.fields", v.as_str()));
+                }
+            }
         }
         Attention { data, .. } => texts.push(("data.summary", data.summary.as_str())),
         Usage { data, .. } => {

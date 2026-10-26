@@ -2,10 +2,12 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { buildEventsSchema, EVENTS_SCHEMA_PATH, serializeEventsSchema } from './export-schema.js';
-import { BUS_EVENT_TYPES, BusEventSchema } from './schema.js';
+import { BUS_EVENT_TYPES, BusEventSchema, PROGRESS_KINDS } from './schema.js';
 
 const fixturesDir = fileURLToPath(new URL('../../schema/fixtures/', import.meta.url));
 const fixtureFiles = readdirSync(fixturesDir).filter((f) => f.endsWith('.json'));
+// `progress-<kind>.json` are extra variants of the one `progress` event type.
+const baseFixtureFiles = fixtureFiles.filter((f) => !f.startsWith('progress-'));
 const readFixture = (f: string): Record<string, unknown> =>
   JSON.parse(readFileSync(fixturesDir + f, 'utf8'));
 
@@ -15,11 +17,64 @@ describe('BusEventSchema fixtures', () => {
   });
 
   it('has exactly one fixture per event type', () => {
-    expect([...fixtureFiles].sort()).toEqual(
+    expect([...baseFixtureFiles].sort()).toEqual(
       BUS_EVENT_TYPES.map((t) => `${t.replace(/[:.]/g, '-')}.json`).sort(),
     );
-    const types = fixtureFiles.map((f) => readFixture(f).type);
+    const types = baseFixtureFiles.map((f) => readFixture(f).type);
     expect([...types].sort()).toEqual([...BUS_EVENT_TYPES].sort());
+  });
+});
+
+describe('progress kind and fields', () => {
+  const withData = (extra: Record<string, unknown>) => {
+    const e = readFixture('progress.json');
+    return { ...e, data: { ...(e.data as object), ...extra } };
+  };
+  const ok = (extra: Record<string, unknown>) => BusEventSchema.safeParse(withData(extra)).success;
+
+  it('has one fixture per kind, carrying that kind', () => {
+    for (const k of PROGRESS_KINDS) {
+      expect((readFixture(`progress-${k}.json`).data as { kind: string }).kind).toBe(k);
+    }
+  });
+
+  it('accepts the base fixture without kind or fields', () => {
+    expect(BusEventSchema.safeParse(readFixture('progress.json')).success).toBe(true);
+  });
+
+  it('rejects an unknown kind', () => {
+    expect(ok({ kind: 'bogus' })).toBe(false);
+  });
+
+  it('accepts string, number and null field values and an empty map', () => {
+    expect(ok({ fields: { a: 'x', b: 1.5, c: null, d: '' } })).toBe(true);
+    expect(ok({ fields: {} })).toBe(true);
+  });
+
+  it('rejects object, array and boolean field values', () => {
+    expect(ok({ fields: { a: { n: 1 } } })).toBe(false);
+    expect(ok({ fields: { a: [1] } })).toBe(false);
+    expect(ok({ fields: { a: true } })).toBe(false);
+  });
+
+  it('enforces key and value text rules', () => {
+    expect(ok({ fields: { '': 'x' } })).toBe(false);
+    expect(ok({ fields: { ['k'.repeat(65)]: 'x' } })).toBe(false);
+    expect(ok({ fields: { ['k'.repeat(64)]: 'v'.repeat(1000) } })).toBe(true);
+    expect(ok({ fields: { a: 'v'.repeat(1001) } })).toBe(false);
+    expect(ok({ fields: { a: 'x\u001b[31m' } })).toBe(false);
+    expect(ok({ fields: { 'a\u200bb': 'x' } })).toBe(false);
+  });
+
+  it('caps fields at 32 entries', () => {
+    const n = (count: number) =>
+      Object.fromEntries(Array.from({ length: count }, (_, i) => [`k${i}`, i]));
+    expect(ok({ fields: n(32) })).toBe(true);
+    expect(ok({ fields: n(33) })).toBe(false);
+  });
+
+  it('rejects an extra key in data', () => {
+    expect(ok({ extra: 1 })).toBe(false);
   });
 });
 

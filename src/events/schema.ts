@@ -53,12 +53,40 @@ export const HookBusyEventSchema = z
   .strictObject({ ...envelope, type: z.literal('hook:busy'), data: hookData })
   .meta({ id: 'HookBusyEvent' });
 
+/** Entry cap of `progress.data.fields`; the Rust `check_constraints` enforces the same number. */
+const MAX_PROGRESS_FIELDS = 32;
+
+/** Classification of a ledger line; optional on `progress` events. */
+export const PROGRESS_KINDS = [
+  'phase',
+  'task',
+  'wave',
+  'fix-round',
+  'ruling',
+  'gate',
+  'loop',
+  'complete',
+  'subagent',
+  'other',
+] as const;
+
 /** One ledger line of an orchestrator run. */
 export const ProgressEventSchema = z
   .strictObject({
     ...envelope,
     type: z.literal('progress'),
-    data: z.strictObject({ line: text(1, 1000), agent: text(1, 64) }).meta({ id: 'ProgressData' }),
+    data: z
+      .strictObject({
+        line: text(1, 1000),
+        agent: text(1, 64),
+        kind: z.enum(PROGRESS_KINDS).optional(),
+        fields: z
+          .record(text(1, 64), z.union([text(0, 1000), z.number(), z.null()]))
+          .refine((o) => Object.keys(o).length <= MAX_PROGRESS_FIELDS, 'at most 32 entries')
+          .meta({ maxProperties: MAX_PROGRESS_FIELDS })
+          .optional(),
+      })
+      .meta({ id: 'ProgressData' }),
   })
   .meta({ id: 'ProgressEvent' });
 

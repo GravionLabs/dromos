@@ -1,0 +1,19 @@
+{
+  "id": 43,
+  "type": "progress",
+  "at": "2026-10-22T09:16:02.000Z",
+  "source": "apm-hub/subagent-stop",
+  "agentId": null,
+  "issue": 39,
+  "runId": "run-39-a1",
+  "data": {
+    "line": "Task #97 implemented, 14 tests green",
+    "agent": "implementer",
+    "kind": "gate",
+    "fields": {
+      "ref": "#97",
+      "count": 3.5,
+      "note": null
+    }
+  }
+}

@@ -1519,6 +1519,13 @@ impl ::std::convert::TryFrom<::std::string::String> for HookEventState {
 #[serde(deny_unknown_fields)]
 pub struct ProgressData {
     pub agent: ProgressDataAgent,
+    #[serde(default, skip_serializing_if = ":: std :: collections :: HashMap::is_empty")]
+    pub fields: ::std::collections::HashMap<
+        ProgressDataFieldsKey,
+        ProgressDataFieldsValue,
+    >,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub kind: ::std::option::Option<ProgressDataKind>,
     pub line: ProgressDataLine,
 }
 ///`ProgressDataAgent`
@@ -1576,6 +1583,225 @@ impl<'de> ::serde::Deserialize<'de> for ProgressDataAgent {
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+///`ProgressDataFieldsKey`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ProgressDataFieldsKey(::std::string::String);
+impl ::std::ops::Deref for ProgressDataFieldsKey {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ProgressDataFieldsKey> for ::std::string::String {
+    fn from(value: ProgressDataFieldsKey) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ProgressDataFieldsKey {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProgressDataFieldsKey {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ProgressDataFieldsKey {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ProgressDataFieldsKey {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`ProgressDataFieldsValue`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(untagged)]
+pub enum ProgressDataFieldsValue {
+    String(ProgressDataFieldsValueString),
+    Number(f64),
+    Null,
+}
+impl ::std::convert::From<ProgressDataFieldsValueString> for ProgressDataFieldsValue {
+    fn from(value: ProgressDataFieldsValueString) -> Self {
+        Self::String(value)
+    }
+}
+impl ::std::convert::From<f64> for ProgressDataFieldsValue {
+    fn from(value: f64) -> Self {
+        Self::Number(value)
+    }
+}
+///`ProgressDataFieldsValueString`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct ProgressDataFieldsValueString(::std::string::String);
+impl ::std::ops::Deref for ProgressDataFieldsValueString {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ProgressDataFieldsValueString> for ::std::string::String {
+    fn from(value: ProgressDataFieldsValueString) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ProgressDataFieldsValueString {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 1000usize {
+            return Err("longer than 1000 characters".into());
+        }
+        if value.chars().count() < 0usize {
+            return Err("shorter than 0 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProgressDataFieldsValueString {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ProgressDataFieldsValueString {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ProgressDataFieldsValueString {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`ProgressDataKind`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum ProgressDataKind {
+    #[serde(rename = "phase")]
+    Phase,
+    #[serde(rename = "task")]
+    Task,
+    #[serde(rename = "wave")]
+    Wave,
+    #[serde(rename = "fix-round")]
+    FixRound,
+    #[serde(rename = "ruling")]
+    Ruling,
+    #[serde(rename = "gate")]
+    Gate,
+    #[serde(rename = "loop")]
+    Loop,
+    #[serde(rename = "complete")]
+    Complete,
+    #[serde(rename = "subagent")]
+    Subagent,
+    #[serde(rename = "other")]
+    Other,
+}
+impl ::std::fmt::Display for ProgressDataKind {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Phase => f.write_str("phase"),
+            Self::Task => f.write_str("task"),
+            Self::Wave => f.write_str("wave"),
+            Self::FixRound => f.write_str("fix-round"),
+            Self::Ruling => f.write_str("ruling"),
+            Self::Gate => f.write_str("gate"),
+            Self::Loop => f.write_str("loop"),
+            Self::Complete => f.write_str("complete"),
+            Self::Subagent => f.write_str("subagent"),
+            Self::Other => f.write_str("other"),
+        }
+    }
+}
+impl ::std::str::FromStr for ProgressDataKind {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "phase" => Ok(Self::Phase),
+            "task" => Ok(Self::Task),
+            "wave" => Ok(Self::Wave),
+            "fix-round" => Ok(Self::FixRound),
+            "ruling" => Ok(Self::Ruling),
+            "gate" => Ok(Self::Gate),
+            "loop" => Ok(Self::Loop),
+            "complete" => Ok(Self::Complete),
+            "subagent" => Ok(Self::Subagent),
+            "other" => Ok(Self::Other),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ProgressDataKind {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ProgressDataKind {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`ProgressDataLine`

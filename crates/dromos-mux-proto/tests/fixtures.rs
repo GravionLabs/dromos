@@ -215,8 +215,87 @@ fn assert_field_rejected(name: &str, label: &str, path: &str, edit: Edit) {
 }
 
 #[test]
+fn progress_kind_fixtures_parse_with_their_kind() {
+    for kind in [
+        "phase",
+        "task",
+        "wave",
+        "fix-round",
+        "ruling",
+        "gate",
+        "loop",
+        "complete",
+        "subagent",
+        "other",
+    ] {
+        let input = read_json(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("../../schema/fixtures/progress-{kind}.json")),
+        );
+        let BusEvent::Progress { data, .. } = serde_json::from_value(input).unwrap() else {
+            panic!("progress-{kind}.json did not map to BusEvent::Progress");
+        };
+        let wire = serde_json::to_value(data.kind.expect("kind set")).unwrap();
+        assert_eq!(wire, json!(kind));
+        let fields = serde_json::to_value(&data.fields).unwrap();
+        assert_eq!(fields, json!({"ref": "#97", "count": 3.5, "note": null}));
+    }
+}
+
+#[test]
 fn rejects_invalid_progress_data() {
     let p = "progress.json";
+    assert_field_rejected(p, "unknown kind", "data.kind", Edit::Set(json!("bogus")));
+    assert_field_rejected(p, "non-object fields", "data.fields", Edit::Set(json!([1])));
+    assert_field_rejected(
+        p,
+        "object field value",
+        "data.fields",
+        Edit::Set(json!({"a": {"n": 1}})),
+    );
+    assert_field_rejected(
+        p,
+        "bool field value",
+        "data.fields",
+        Edit::Set(json!({"a": true})),
+    );
+    assert_field_rejected(
+        p,
+        "empty field key",
+        "data.fields",
+        Edit::Set(json!({"": "x"})),
+    );
+    assert_field_rejected(
+        p,
+        "long field value",
+        "data.fields",
+        Edit::Set(json!({"a": "x".repeat(1001)})),
+    );
+    assert_field_rejected(
+        p,
+        "long field key",
+        "data.fields",
+        Edit::Set(json!({"k".repeat(65): "x"})),
+    );
+    assert_rejected(p, "33 field entries", "at most 32", |e| {
+        let map: serde_json::Map<String, Value> =
+            (0..33).map(|i| (format!("k{i}"), json!(i))).collect();
+        e["data"]["fields"] = Value::Object(map);
+    });
+    assert_accepted(p, "32 field entries", |e| {
+        let map: serde_json::Map<String, Value> =
+            (0..32).map(|i| (format!("k{i}"), json!(i))).collect();
+        e["data"]["fields"] = Value::Object(map);
+    });
+    assert_accepted(p, "empty value and empty map", |e| {
+        e["data"]["fields"] = json!({"a": ""});
+    });
+    assert_rejected(p, "escape in field value", "data.fields", |e| {
+        e["data"]["fields"] = json!({"a": "x\u{1b}[31m"});
+    });
+    assert_rejected(p, "zero-width in field key", "data.fields", |e| {
+        e["data"]["fields"] = json!({"a\u{200b}b": "x"});
+    });
     assert_field_rejected(p, "extra key", "data.extra", Edit::Set(json!(1)));
     assert_field_rejected(p, "empty line", "data.line", Edit::Set(json!("")));
     assert_field_rejected(
@@ -579,6 +658,8 @@ mod event_wrapper {
             .map(|p| read_json(p)["type"].as_str().unwrap().to_owned())
             .collect();
         fixture_types.sort();
+        // `progress-<kind>.json` repeat the `progress` type.
+        fixture_types.dedup();
         let mut known: Vec<String> = KNOWN_TYPES.iter().map(|s| (*s).to_owned()).collect();
         known.sort();
         assert_eq!(fixture_types, known);
