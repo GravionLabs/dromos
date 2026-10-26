@@ -17,7 +17,7 @@ export const MAX_QUERY_LIMIT = 1000;
 
 export type ParsedEventQuery = { query: EventQuery } | { error: string };
 
-function intParam(name: string, value: string): number | string {
+export function intParam(name: string, value: string): number | string {
   const n = Number(value);
   if (!NON_NEGATIVE_INT.test(value) || !Number.isSafeInteger(n)) {
     return `${name} must be a non-negative integer`;
@@ -25,14 +25,14 @@ function intParam(name: string, value: string): number | string {
   return n;
 }
 
-function listParam(name: string, value: string): string[] | string {
+export function listParam(name: string, value: string): string[] | string {
   const items = value.split(',');
   return items.some((i) => i === '')
     ? `${name} must be a comma-separated list without empty entries`
     : items;
 }
 
-function timeParam(name: string, value: string): string | { iso: string } {
+export function timeParam(name: string, value: string): string | { iso: string } {
   const ms = Date.parse(value);
   if (!ISO_PREFIX.test(value) || Number.isNaN(ms)) {
     return `${name} must be an ISO-8601 date-time (YYYY-MM-DDTHH:MM...)`;
