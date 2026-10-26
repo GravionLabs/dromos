@@ -46,6 +46,30 @@ export const MessageSchema = z.object({
 });
 export type Message = z.infer<typeof MessageSchema>;
 
+/** Payload of a `task` message. Loose, so extra keys such as worktreePath and branch survive. */
+export const TaskPayloadSchema = z.looseObject({
+  objective: z.string().min(1),
+  constraints: z.array(z.string()),
+  ownership: z.array(z.string()).min(1),
+  outputFormat: z.string().min(1),
+  editsAllowed: z.boolean(),
+  validation: z.array(z.string()),
+  forbidden: z.array(z.string()),
+  issue: z.number().int().positive(),
+  runId: z.string().min(1),
+});
+export type TaskPayload = z.infer<typeof TaskPayloadSchema>;
+
+export function parseTaskPayload(payload: unknown) {
+  return TaskPayloadSchema.safeParse(payload);
+}
+
+export const TaskMessageSchema = MessageSchema.extend({
+  type: z.literal('task'),
+  payload: TaskPayloadSchema,
+});
+export type TaskMessage = z.infer<typeof TaskMessageSchema>;
+
 export const SeveritySchema = z.enum(['critical', 'important', 'suggestion']);
 export type Severity = z.infer<typeof SeveritySchema>;
 

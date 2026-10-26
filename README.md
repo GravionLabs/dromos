@@ -119,6 +119,36 @@ An ingested `attention` event creates an attention row (same id as the event) in
 - 404 for an unknown id, 409 when the state does not allow the step (a second answer, an ack before the answer or a second ack), 400 for an invalid body, 413 for a body over 1 MiB, 405 for other methods.
 - Security: same guards as `POST /ingest` (loopback bind, `Host`/`Origin` check, `application/json` for browser requests); no authentication. `by` is self-asserted by the caller and is not verified: treat it as a label, not as an identity.
 
+## Task message payload
+
+A `post` with `type: "task"` must carry a typed payload; an invalid one is rejected with an error and nothing is stored. `inbox` returns task payloads typed. Extra keys (for example `worktreePath`, `branch`, `baseBranch`, `instructions` from `start_run`) are kept. All other message types accept any JSON payload.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `objective` | string, non-empty | What the task must achieve |
+| `constraints` | string[] | Rules the work must respect |
+| `ownership` | string[], at least one | Paths or globs the receiver may change |
+| `outputFormat` | string, non-empty | What the receiver must deliver |
+| `editsAllowed` | boolean | Whether files may be edited |
+| `validation` | string[] | Commands that must pass before the work counts as done |
+| `forbidden` | string[] | Actions the receiver must not take |
+| `issue` | positive integer | Issue number the task belongs to |
+| `runId` | string, non-empty | Run the task belongs to |
+
+```json
+{
+  "objective": "Implement #12: Add export",
+  "constraints": ["Work only in the worktree"],
+  "ownership": ["src/export/**"],
+  "outputFormat": "Commits on feat/12-export, then submit_implementation",
+  "editsAllowed": true,
+  "validation": ["pnpm test"],
+  "forbidden": ["push to the base branch"],
+  "issue": 12,
+  "runId": "run-12-1"
+}
+```
+
 ## Repository layout
 
 - `src/`: TypeScript MCP bus

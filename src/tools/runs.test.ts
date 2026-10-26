@@ -13,6 +13,7 @@ import { execa } from 'execa';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { leaseKey, stamp } from '../lease.js';
 import { afterRunTransition } from '../run-lease.js';
+import { TaskPayloadSchema } from '../schemas.js';
 import { startTestBus, type TestBus, textOf } from '../test-helpers.js';
 
 vi.mock('execa');
@@ -146,7 +147,22 @@ describe('start_run', () => {
         runId: 'run-14-1',
         payload: {
           runId: 'run-14-1',
-          issue: { number: 14, title: 'Add Start Run!', body: 'Body' },
+          issue: 14,
+          objective: 'Implement #14: Add Start Run!\n\nBody',
+          editsAllowed: true,
+          constraints: [
+            'Work only in worktreePath on the given branch',
+            'Commit your work',
+            'Call submit_implementation when done',
+          ],
+          ownership: ['**'],
+          outputFormat: 'Commits on feat/14-add-start-run, then submit_implementation',
+          validation: [],
+          forbidden: [
+            'push to the base branch',
+            'open a pull request before review approval',
+            'edit files outside the worktree',
+          ],
           worktreePath,
           branch: 'feat/14-add-start-run',
           baseBranch: 'main',
@@ -157,6 +173,27 @@ describe('start_run', () => {
     expect(bus.readLog()).toContain(
       'run-14-1 started: implementing (round 1) on feat/14-add-start-run',
     );
+  });
+
+  it('delivers a schema-valid task with the configured gate commands as validation', async () => {
+    await bus.close();
+    bus = await startTestBus({
+      gate: {
+        commands: [
+          { name: 'build', run: 'pnpm build' },
+          { name: 'test', run: 'pnpm test' },
+        ],
+      },
+    });
+    const orchestrator = await bus.connect('orchestrator');
+    await orchestrator.callTool({ name: 'start_run', arguments: args() });
+    const [task] = bus.db.listUnacked('implementer');
+    expect(task?.payload).toMatchObject({
+      issue: 14,
+      editsAllowed: true,
+      validation: ['pnpm build', 'pnpm test'],
+    });
+    expect(TaskPayloadSchema.safeParse(task?.payload).success).toBe(true);
   });
 
   it('uses an explicit baseBranch', async () => {

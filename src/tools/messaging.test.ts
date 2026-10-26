@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { startTestBus, type TestBus, textOf } from '../test-helpers.js';
+import { startTestBus, type TestBus, textOf, validTask } from '../test-helpers.js';
 
 describe('messaging tools', () => {
   let bus: TestBus;
@@ -26,6 +26,42 @@ describe('messaging tools', () => {
       ]);
     });
 
+    it('rejects a task without objective and stores nothing', async () => {
+      const { objective: _o, ...payload } = validTask('r');
+      const orchestrator = await bus.connect('orchestrator');
+      const result = await orchestrator.callTool({
+        name: 'post',
+        arguments: { to: 'implementer', type: 'task', payload },
+      });
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain('invalid task payload');
+      expect(textOf(result)).toContain('objective');
+      expect(bus.db.listUnacked('implementer')).toEqual([]);
+    });
+
+    it('rejects a task without ownership, with empty ownership or null payload', async () => {
+      const { ownership: _o, ...payload } = validTask('r');
+      const orchestrator = await bus.connect('orchestrator');
+      for (const bad of [payload, { ...validTask('r'), ownership: [] }, null]) {
+        const result = await orchestrator.callTool({
+          name: 'post',
+          arguments: { to: 'implementer', type: 'task', payload: bad },
+        });
+        expect(result.isError).toBe(true);
+      }
+      expect(bus.db.listUnacked('implementer')).toEqual([]);
+    });
+
+    it('stores a valid task payload', async () => {
+      const orchestrator = await bus.connect('orchestrator');
+      const result = await orchestrator.callTool({
+        name: 'post',
+        arguments: { to: 'implementer', type: 'task', payload: validTask('r') },
+      });
+      expect(result.isError).toBeFalsy();
+      expect(bus.db.listUnacked('implementer')).toMatchObject([{ payload: validTask('r') }]);
+    });
+
     it('logs a MESSAGE line with sender, receiver, type and run', async () => {
       bus.db.insertRun({
         id: 'run-1-1',
@@ -40,7 +76,12 @@ describe('messaging tools', () => {
       const orchestrator = await bus.connect('orchestrator');
       await orchestrator.callTool({
         name: 'post',
-        arguments: { to: 'implementer', type: 'task', runId: 'run-1-1', payload: null },
+        arguments: {
+          to: 'implementer',
+          type: 'task',
+          runId: 'run-1-1',
+          payload: validTask('run-1-1'),
+        },
       });
       await orchestrator.callTool({
         name: 'post',

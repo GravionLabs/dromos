@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { startTestBus, type TestBus, textOf } from '../test-helpers.js';
+import { startTestBus, type TestBus, textOf, validTask } from '../test-helpers.js';
 import { resolveWaitSeconds } from './inbox.js';
 
 type InboxResult = { messages: { id: number; from: string; payload: unknown }[] };
@@ -48,6 +48,60 @@ describe('inbox tool', () => {
     expect(Date.now() - started).toBeLessThan(1000);
     expect(first.messages.map((m) => m.payload)).toEqual([1, 2]);
     expect((await inbox('implementer', 0)).messages).toHaveLength(2);
+  });
+
+  it('returns a posted task with every field typed and equal to the input', async () => {
+    const orchestrator = await bus.connect('orchestrator');
+    await orchestrator.callTool({
+      name: 'post',
+      arguments: { to: 'implementer', type: 'task', payload: validTask('r') },
+    });
+    expect((await inbox('implementer', 0)).messages[0]?.payload).toEqual(validTask('r'));
+  });
+
+  it('keeps extra keys on a typed task payload', async () => {
+    const payload = { ...validTask('r'), worktreePath: '/w', branch: 'b' };
+    bus.db.insertMessage({ from: 'orchestrator', to: 'implementer', type: 'task', payload });
+    expect((await inbox('implementer', 0)).messages[0]?.payload).toEqual(payload);
+  });
+
+  it('returns a task that arrives while waiting', async () => {
+    const waiting = inbox('implementer', 5);
+    await new Promise((r) => setTimeout(r, 50));
+    bus.db.insertMessage({
+      from: 'orchestrator',
+      to: 'implementer',
+      type: 'task',
+      payload: validTask('r'),
+    });
+    bus.events.messageFor('implementer');
+    expect((await waiting).messages[0]?.payload).toEqual(validTask('r'));
+  });
+
+  it('returns a legacy unparseable task payload unchanged', async () => {
+    bus.db.insertMessage({
+      from: 'orchestrator',
+      to: 'implementer',
+      type: 'task',
+      payload: { a: 1 },
+    });
+    expect((await inbox('implementer', 0)).messages[0]?.payload).toEqual({ a: 1 });
+  });
+
+  it('accepts and returns arbitrary payloads of other types unchanged', async () => {
+    const orchestrator = await bus.connect('orchestrator');
+    const payloads = ['text', 42, { a: { b: [1, 2] } }, null];
+    for (const type of ['chat', 'notice'] as const) {
+      for (const payload of payloads) {
+        const r = await orchestrator.callTool({
+          name: 'post',
+          arguments: { to: 'implementer', type, payload },
+        });
+        expect(r.isError).toBeFalsy();
+      }
+    }
+    const got = (await inbox('implementer', 0)).messages.map((m) => m.payload);
+    expect(got).toEqual([...payloads, ...payloads]);
   });
 
   it('returns at most 20 messages per call', async () => {
