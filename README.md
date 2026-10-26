@@ -69,6 +69,38 @@ The p99 latency test (1000 sequential posts after a warm-up, must stay under 50 
 DROMOS_PERF=1 pnpm vitest run src/ingest.perf.test.ts
 ```
 
+## GET /events
+
+`GET /events` queries stored events, oldest first. The reply is `200 { events, next }`; each event is a stored row exactly as in an event-stream frame (`id`, `role`, `kind`, `data`, `createdAt`, `agentId`, `issue`, `runId`).
+
+```sh
+curl 'http://127.0.0.1:4777/events?issue=135&type=progress,usage&limit=500'
+# {"events":[{"id":7,"role":"apm-hub/hook","kind":"progress",...}],"next":null}
+```
+
+| Parameter | Meaning |
+| --- | --- |
+| `issue` | Issue number (non-negative integer). |
+| `type` | Event `kind`; comma-separated list matches any. |
+| `source` | Event `role`; comma-separated list matches any. |
+| `agentId` | Exact agent id. |
+| `since` | ISO-8601 date-time, inclusive lower bound on `createdAt`. |
+| `until` | ISO-8601 date-time, exclusive upper bound on `createdAt`. |
+| `after` | Cursor: only events with `id` greater than this. |
+| `limit` | Page size, 1 to 1000 (default 100). |
+
+- Filters combine with AND. Order is always ascending `id`.
+- Pagination: when more events match, `next` is the id of the last event in the page; pass it as `after` for the next page. `next` is `null` on the last page. Pages never repeat or skip an event.
+- `since` and `until` need a `YYYY-MM-DDTHH:MM` prefix (a bare number or date is invalid) and are normalized to UTC; give an explicit `Z` or offset, since a value without one is read as server local time.
+- `400 { error }` names the parameter: unknown or repeated parameters, a non-integer `issue`, `after` or `limit`, `limit` outside 1..1000, empty list entries or empty `agentId`, an invalid `since` or `until`.
+- `403 { error }` for a `Host` or `Origin` that is not loopback or the configured bind host. Binds to 127.0.0.1; no authentication. Methods other than `GET` and `POST` answer 405 (`POST /events` is unchanged).
+
+Latency (opt-in, 10k events for one issue plus noise, p99 must stay under 50 ms):
+
+```sh
+DROMOS_PERF=1 pnpm vitest run src/events-query.perf.test.ts
+```
+
 ## Repository layout
 
 - `src/`: TypeScript MCP bus
