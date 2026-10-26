@@ -107,6 +107,21 @@ describe('dromos attention answer / ack', () => {
     expect(r.err[0]).toContain('not found');
   });
 
+  it('passes answer text starting with -- after the -- separator', async () => {
+    const id = await ingest(7, 'q');
+    const r = await cli(['answer', '--by', 'bob', String(id), '--', '--force it']);
+    expect(r.code).toBe(0);
+    expect(bus.db.getAttention(id)?.answerText).toBe('--force it');
+  });
+
+  it('answer without --by and without $USER exits 2 with a clear message', async () => {
+    const id = await ingest(7, 'q');
+    const r = await cli(['answer', String(id), 'x'], {});
+    expect(r.code).toBe(2);
+    expect(r.err[0]).toContain('--by');
+    expect(bus.db.getAttention(id)?.state).toBe('open');
+  });
+
   it('ack works without a user name', async () => {
     const id = await ingest(7, 'q');
     await cli(['answer', String(id), 'x']);

@@ -19,7 +19,7 @@ interface Row {
 const STATES = ['open', 'answered', 'acked'];
 const USAGE =
   'usage: dromos attention list [--state open|answered|acked] [--issue N]\n' +
-  '       dromos attention answer <id> <text> [--by NAME]\n' +
+  '       dromos attention answer <id> <text> [--by NAME]  (use -- before text starting with --)\n' +
   '       dromos attention ack <id> [--by NAME]';
 
 class UsageError extends Error {}
@@ -28,9 +28,12 @@ class UsageError extends Error {}
 function parseArgs(args: string[], allowed: string[]) {
   const positional: string[] = [];
   const flags = new Map<string, string>();
+  let optionsEnded = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] as string;
-    if (arg.startsWith('--')) {
+    if (!optionsEnded && arg === '--') {
+      optionsEnded = true;
+    } else if (!optionsEnded && arg.startsWith('--')) {
       const name = arg.slice(2);
       const value = args[i + 1];
       if (!allowed.includes(name)) throw new UsageError(`unknown option ${arg}`);
@@ -85,7 +88,11 @@ export async function runAttentionCli(argv: string[], io: AttentionCliIo = {}): 
       }
       if (!/^[1-9]\d*$/.test(id)) throw new UsageError('<id> must be a positive integer');
       path = `/attention/${id}/answer`;
-      init = { method: 'POST', body: JSON.stringify({ text, by: by(flags) }) };
+      const who = by(flags);
+      if (who === undefined || who === '') {
+        throw new UsageError('answer needs --by NAME (USER is not set)');
+      }
+      init = { method: 'POST', body: JSON.stringify({ text, by: who }) };
     } else if (sub === 'ack') {
       const { positional, flags } = parseArgs(rest, ['by']);
       const [id, ...extra] = positional;
