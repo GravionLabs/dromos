@@ -188,6 +188,9 @@ export interface AttentionRecord {
   ackedBy: string | null;
 }
 
+/** Outcome of a compare-and-set attention state transition. */
+export type AttentionTransition = 'ok' | 'not_found' | 'conflict';
+
 /** Filters for `Db.listAttention`; absent filters match everything. */
 export interface AttentionQuery {
   state?: AttentionState;
@@ -402,6 +405,13 @@ export interface Db {
   getAttention(id: number): AttentionRecord | undefined;
   /** Matching attentions in ascending id order, at most `limit`. */
   listAttention(query: AttentionQuery): AttentionRecord[];
+  /**
+   * Compare-and-set `open -> answered`: `conflict` when the attention exists but is not open,
+   * `not_found` when it does not exist. Never reads before writing.
+   */
+  answerAttention(id: number, text: string, by: string): AttentionTransition;
+  /** Compare-and-set `answered -> acked`; an open or acked attention is a `conflict`. */
+  ackAttention(id: number, by: string | null): AttentionTransition;
   /** Runs `fn` in one SQLite transaction; rolls back when it throws. */
   transaction<T>(fn: () => T): T;
   schemaVersion(): number;
@@ -513,6 +523,20 @@ export function openDb(file: string): Db {
      WHERE (? IS NULL OR state = ?) AND (? IS NULL OR issue = ?) AND (? IS NULL OR created_at >= ?)
      ORDER BY id ASC LIMIT ?`,
   );
+  const answerAttention = db.prepare<[string, string, string, number]>(
+    `UPDATE attention SET state = 'answered', answered_at = ?, answer_text = ?, answered_by = ?
+     WHERE id = ? AND state = 'open'`,
+  );
+  const ackAttention = db.prepare<[string, string | null, number]>(
+    `UPDATE attention SET state = 'acked', acked_at = ?, acked_by = ?
+     WHERE id = ? AND state = 'answered'`,
+  );
+  const transitionOutcome = (changes: number, id: number): AttentionTransition => {
+    if (changes > 0) {
+      return 'ok';
+    }
+    return getAttention.get(id) ? 'conflict' : 'not_found';
+  };
   const toAttention = (row: AttentionRow): AttentionRecord => ({
     id: row.id,
     eventId: row.event_id,
@@ -682,6 +706,12 @@ export function openDb(file: string): Db {
       const is = issue ?? null;
       const si = since ?? null;
       return listAttention.all(st, st, is, is, si, si, limit).map(toAttention);
+    },
+    answerAttention(id, text, by) {
+      return transitionOutcome(answerAttention.run(now(), text, by, id).changes, id);
+    },
+    ackAttention(id, by) {
+      return transitionOutcome(ackAttention.run(now(), by, id).changes, id);
     },
     countUnackedByRole(runId) {
       const counts: Partial<Record<Role, number>> = {};

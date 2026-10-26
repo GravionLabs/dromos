@@ -719,5 +719,35 @@ describe('db', () => {
       expect(db.listAttention({ since: '2999-01-01T00:00:00.000Z', limit: 10 })).toEqual([]);
       expect(db.listAttention({ since: '2000-01-01T00:00:00.000Z', limit: 10 })).toHaveLength(3);
     });
+
+    it('answers an open attention once and reports a conflict on the second answer', () => {
+      const a = db.insertAttention(ev(1));
+      expect(db.answerAttention(a.id, 'ship it', 'jerome')).toBe('ok');
+      expect(db.getAttention(a.id)).toMatchObject({
+        state: 'answered',
+        answerText: 'ship it',
+        answeredBy: 'jerome',
+      });
+      expect(db.getAttention(a.id)?.answeredAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(db.answerAttention(a.id, 'again', 'other')).toBe('conflict');
+      expect(db.getAttention(a.id)?.answerText).toBe('ship it');
+    });
+
+    it('reports not_found for an unknown attention id', () => {
+      expect(db.answerAttention(4242, 'x', 'y')).toBe('not_found');
+      expect(db.ackAttention(4242, null)).toBe('not_found');
+    });
+
+    it('acks only an answered attention', () => {
+      const a = db.insertAttention(ev(1));
+      expect(db.ackAttention(a.id, 'jerome')).toBe('conflict');
+      expect(db.getAttention(a.id)?.state).toBe('open');
+      db.answerAttention(a.id, 'ok', 'jerome');
+      expect(db.ackAttention(a.id, null)).toBe('ok');
+      expect(db.getAttention(a.id)).toMatchObject({ state: 'acked', ackedBy: null });
+      expect(db.getAttention(a.id)?.ackedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(db.ackAttention(a.id, 'x')).toBe('conflict');
+      expect(db.answerAttention(a.id, 'late', 'x')).toBe('conflict');
+    });
   });
 });

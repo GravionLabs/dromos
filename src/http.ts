@@ -4,15 +4,27 @@ import type { AddressInfo } from 'node:net';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { recordAttention } from './attention.js';
+import {
+  type AttentionTransitionResult,
+  ackAttention,
+  answerAttention,
+  recordAttention,
+} from './attention.js';
 import { BusEvents } from './bus-events.js';
 import { type BusLog, createBusLog } from './bus-log.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
-import { parseEventQuery } from './event-query.js';
+import { parseAttentionQuery, parseEventQuery } from './event-query.js';
 import { EventValidationError, recordEvent } from './event-store.js';
 import { createEventStream, createHostGuard } from './event-stream.js';
-import { type BusEvent, BusEventSchema, INGEST_TYPES, isIngestType } from './events/schema.js';
+import {
+  AttentionAckedEventSchema,
+  AttentionAnsweredEventSchema,
+  type BusEvent,
+  BusEventSchema,
+  INGEST_TYPES,
+  isIngestType,
+} from './events/schema.js';
 import { startLeaseRenewal } from './run-lease.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
@@ -45,6 +57,13 @@ export interface RunningHttp {
 }
 
 const MCP_PATH = /^\/mcp\/([^/]+)\/?$/;
+const ATTENTION_ACTION_PATH = /^\/attention\/([^/]+)\/(answer|ack)$/;
+/** Body of `POST /attention/<id>/answer`; same limits as the `attention.answered` data. */
+const AnswerBodySchema = AttentionAnsweredEventSchema.shape.data.pick({ text: true, by: true });
+/** Body of `POST /attention/<id>/ack`; `by` is optional. */
+const AckBodySchema = z.strictObject({
+  by: AttentionAckedEventSchema.shape.data.shape.by.optional(),
+});
 const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const DEFAULT_CLI = 'unknown';
 /** Printable ASCII token for X-Agent-Cli / X-Agent-Model. */
@@ -101,6 +120,15 @@ async function readJson(
     req.once('error', reject);
   });
   return raw.length === 0 ? undefined : (JSON.parse(raw) as unknown);
+}
+
+/** A request with an Origin (a browser) must declare application/json; others may send any. */
+function browserContentTypeAllowed(req: IncomingMessage): boolean {
+  if (req.headers.origin === undefined) {
+    return true;
+  }
+  const contentType = (req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase();
+  return contentType === 'application/json';
 }
 
 /** Body bytes discarded after a 413 before the connection is closed instead. */
@@ -468,12 +496,9 @@ export async function startHttp({
     // hooks, scripts) may send any or no Content-Type; the body is parsed as JSON regardless.
     // A browser request (it always sends Origin) must still be application/json, which a page
     // cannot send cross-origin without a CORS preflight.
-    if (req.headers.origin !== undefined) {
-      const contentType = (req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase();
-      if (contentType !== 'application/json') {
-        sendJson(res, 415, { error: 'content-type must be application/json' });
-        return;
-      }
+    if (!browserContentTypeAllowed(req)) {
+      sendJson(res, 415, { error: 'content-type must be application/json' });
+      return;
     }
     const declared = Number(req.headers['content-length']);
     if (declared > MAX_INGEST_BODY_BYTES) {
@@ -561,6 +586,105 @@ export async function startHttp({
     });
   }
 
+  function handleAttentionList(req: IncomingMessage, res: ServerResponse): void {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    if (!hostAllowed(req)) {
+      sendJson(res, 403, { error: 'forbidden host or origin' });
+      return;
+    }
+    const parsed = parseAttentionQuery(new URL(req.url ?? '/', 'http://localhost').searchParams);
+    if ('error' in parsed) {
+      sendJson(res, 400, { error: parsed.error });
+      return;
+    }
+    sendJson(res, 200, { attention: db.listAttention(parsed.query) });
+  }
+
+  /**
+   * `POST /attention/<id>/answer|ack`: compare-and-set state transition plus its lifecycle event
+   * in one transaction, published after the commit as in `handleIngest`. 404 for an unknown id,
+   * 409 when the current state does not allow the transition.
+   */
+  async function handleAttentionAction(
+    req: IncomingMessage,
+    res: ServerResponse,
+    rawId: string,
+    action: 'answer' | 'ack',
+  ): Promise<void> {
+    if (req.method !== 'POST') {
+      sendJson(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    if (!hostAllowed(req)) {
+      sendJson(res, 403, { error: 'forbidden host or origin' });
+      return;
+    }
+    if (!browserContentTypeAllowed(req)) {
+      sendJson(res, 415, { error: 'content-type must be application/json' });
+      return;
+    }
+    const id = Number(rawId);
+    if (!/^\d+$/.test(rawId) || !Number.isSafeInteger(id) || id < 1) {
+      sendJson(res, 404, { error: 'attention not found' });
+      return;
+    }
+    const declared = Number(req.headers['content-length']);
+    if (declared > MAX_INGEST_BODY_BYTES) {
+      sendTooLarge(req, res);
+      return;
+    }
+    let body: unknown;
+    try {
+      body = await readJson(req, MAX_INGEST_BODY_BYTES);
+    } catch (error) {
+      if (error instanceof PayloadTooLargeError) {
+        sendTooLarge(req, res);
+      } else {
+        sendJson(res, 400, { error: 'invalid JSON body' });
+      }
+      return;
+    }
+    let result: AttentionTransitionResult;
+    if (action === 'answer') {
+      const checked = AnswerBodySchema.safeParse(body);
+      if (!checked.success) {
+        sendJson(res, 400, { error: briefIssue(checked.error) });
+        return;
+      }
+      result = answerAttention(db, id, checked.data.text, checked.data.by);
+    } else {
+      const checked = AckBodySchema.safeParse(body ?? {});
+      if (!checked.success) {
+        sendJson(res, 400, { error: briefIssue(checked.error) });
+        return;
+      }
+      result = ackAttention(db, id, checked.data.by ?? null);
+    }
+    if (result.outcome !== 'ok') {
+      if (result.outcome === 'not_found') {
+        sendJson(res, 404, { error: 'attention not found' });
+      } else {
+        sendJson(res, 409, {
+          error: `attention ${id} is ${db.getAttention(id)?.state ?? 'gone'}; cannot ${action}`,
+        });
+      }
+      return;
+    }
+    try {
+      events.publishEvent(result.event);
+    } catch (error) {
+      log.logLine(
+        'ERROR',
+        `attention ${action} broadcast of event ${result.event.id} failed: ${String(error)}`,
+      );
+    }
+    log.logLine('STATE', `attention ${id} ${result.attention.state}`);
+    sendJson(res, 200, result.attention);
+  }
+
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? '/', 'http://localhost').pathname;
     if (req.method === 'GET' && path === '/health') {
@@ -587,6 +711,32 @@ export async function startHttp({
       (req.method === 'GET'
         ? Promise.resolve().then(() => handleEventQuery(req, res))
         : handleEvent(req, res)
+      ).catch((error: unknown) => {
+        if (!res.headersSent) {
+          sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
+        }
+      });
+      return;
+    }
+    if (path === '/attention') {
+      Promise.resolve()
+        .then(() => handleAttentionList(req, res))
+        .catch((error: unknown) => {
+          if (!res.headersSent) {
+            sendJson(res, 500, {
+              error: error instanceof Error ? error.message : 'internal error',
+            });
+          }
+        });
+      return;
+    }
+    const attentionAction = ATTENTION_ACTION_PATH.exec(path);
+    if (attentionAction) {
+      handleAttentionAction(
+        req,
+        res,
+        attentionAction[1] ?? '',
+        attentionAction[2] === 'ack' ? 'ack' : 'answer',
       ).catch((error: unknown) => {
         if (!res.headersSent) {
           sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });

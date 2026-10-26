@@ -1,4 +1,4 @@
-import type { EventQuery } from './db.js';
+import type { AttentionQuery, AttentionState, EventQuery } from './db.js';
 
 const ALLOWED_KEYS = new Set([
   'issue',
@@ -40,17 +40,39 @@ function timeParam(name: string, value: string): string | { iso: string } {
   return { iso: new Date(ms).toISOString() };
 }
 
-/** Validates the `GET /events` query string; the error text names the offending parameter. */
-export function parseEventQuery(params: URLSearchParams): ParsedEventQuery {
+function rejectUnknownOrRepeated(
+  params: URLSearchParams,
+  allowed: Set<string>,
+): string | undefined {
   const seen = new Set<string>();
   for (const key of params.keys()) {
-    if (!ALLOWED_KEYS.has(key)) {
-      return { error: `unknown parameter: ${key}` };
+    if (!allowed.has(key)) {
+      return `unknown parameter: ${key}`;
     }
     if (seen.has(key)) {
-      return { error: `repeated parameter: ${key}` };
+      return `repeated parameter: ${key}`;
     }
     seen.add(key);
+  }
+  return undefined;
+}
+
+function limitParam(raw: string | null): number | string {
+  if (raw === null) {
+    return DEFAULT_QUERY_LIMIT;
+  }
+  const n = intParam('limit', raw);
+  if (typeof n === 'number' && (n < 1 || n > MAX_QUERY_LIMIT)) {
+    return `limit must be an integer between 1 and ${MAX_QUERY_LIMIT}`;
+  }
+  return n;
+}
+
+/** Validates the `GET /events` query string; the error text names the offending parameter. */
+export function parseEventQuery(params: URLSearchParams): ParsedEventQuery {
+  const keyError = rejectUnknownOrRepeated(params, ALLOWED_KEYS);
+  if (keyError !== undefined) {
+    return { error: keyError };
   }
   const query: EventQuery = { limit: DEFAULT_QUERY_LIMIT };
 
@@ -101,6 +123,49 @@ export function parseEventQuery(params: URLSearchParams): ParsedEventQuery {
       }
       query[name] = t.iso;
     }
+  }
+  return { query };
+}
+
+const ATTENTION_KEYS = new Set(['state', 'issue', 'since', 'limit']);
+const ATTENTION_STATES: readonly AttentionState[] = ['open', 'answered', 'acked'];
+
+export type ParsedAttentionQuery = { query: AttentionQuery } | { error: string };
+
+/** Validates the `GET /attention` query string; the error text names the offending parameter. */
+export function parseAttentionQuery(params: URLSearchParams): ParsedAttentionQuery {
+  const keyError = rejectUnknownOrRepeated(params, ATTENTION_KEYS);
+  if (keyError !== undefined) {
+    return { error: keyError };
+  }
+  const limit = limitParam(params.get('limit'));
+  if (typeof limit === 'string') {
+    return { error: limit };
+  }
+  const query: AttentionQuery = { limit };
+  const state = params.get('state');
+  if (state !== null) {
+    const match = ATTENTION_STATES.find((s) => s === state);
+    if (match === undefined) {
+      return { error: `state must be one of ${ATTENTION_STATES.join(', ')}` };
+    }
+    query.state = match;
+  }
+  const issue = params.get('issue');
+  if (issue !== null) {
+    const n = intParam('issue', issue);
+    if (typeof n === 'string') {
+      return { error: n };
+    }
+    query.issue = n;
+  }
+  const since = params.get('since');
+  if (since !== null) {
+    const t = timeParam('since', since);
+    if (typeof t === 'string') {
+      return { error: t };
+    }
+    query.since = t.iso;
   }
   return { query };
 }
