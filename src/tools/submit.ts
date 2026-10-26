@@ -5,7 +5,7 @@ import { requireRole } from '../auth.js';
 import type { ToolContext } from '../context.js';
 import type { EventRecord, Run } from '../db.js';
 import { resolveGateCommands, runGate } from '../gate.js';
-import { publishRows, recordRunTransition } from '../run-events.js';
+import { publishRows, recordRunEvent, recordRunTransition } from '../run-events.js';
 import { afterRunTransition } from '../run-lease.js';
 import type { GateResult, MessageType, Role, RunState } from '../schemas.js';
 import { transition } from '../state-machine.js';
@@ -66,7 +66,16 @@ function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: Gate
     ctx.config.maxRounds,
   );
   ctx.db.updateRun(run.id, { lastGate: gate, state: next.state, round: next.round });
-  // The bus ran the gate itself, so a red gate's outcome is verified.
+  // The bus ran the gate itself, so its result and a red gate's outcome are verified. The
+  // gate.result row goes first so the sequence reads gate.result -> run.state.
+  const result = recordRunEvent(ctx.db, run, 'gate.result', {
+    passed: gate.passed,
+    round: run.round,
+    evidence: 'verified',
+    durationMs: gate.steps.reduce((sum, step) => sum + step.durationMs, 0),
+    failedStep: gate.steps.find((step) => step.exitCode !== 0)?.name ?? null,
+    steps: gate.steps.map(({ name, exitCode, durationMs }) => ({ name, exitCode, durationMs })),
+  });
   const rows = recordRunTransition(
     ctx.db,
     run,
@@ -76,6 +85,7 @@ function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: Gate
       ? undefined
       : { outcome: next.state === 'blocked' ? 'blocked' : 'gate_failed', evidence: 'verified' },
   );
+  rows.unshift(result);
   const runId = run.id;
   if (gate.passed) {
     ctx.db.insertMessage({

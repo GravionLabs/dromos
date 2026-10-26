@@ -669,6 +669,79 @@ describe('submit_implementation', () => {
       expect(ofKind('attempt.started').at(-1)).toMatchObject({ n: 2, cause: 'gate_failed' });
     });
 
+    it('stores gate.result before the matching run.state for a green gate', async () => {
+      addRun();
+      mockRunGate.mockResolvedValue(green);
+      await submit();
+      await settle();
+      expect(ofKind('gate.result')).toEqual([
+        {
+          passed: true,
+          round: 1,
+          evidence: 'verified',
+          durationMs: 1,
+          failedStep: null,
+          steps: [{ name: 'test', exitCode: 0, durationMs: 1 }],
+        },
+      ]);
+      expect(stored().map((e) => e.kind)).toEqual(['run.state', 'gate.result', 'run.state']);
+    });
+
+    it('stores a red gate result with the first failing step and summed duration', async () => {
+      addRun();
+      startAttempt();
+      mockRunGate.mockResolvedValue(red);
+      await submit();
+      await settle();
+      expect(ofKind('gate.result')).toEqual([
+        {
+          passed: false,
+          round: 1,
+          evidence: 'verified',
+          durationMs: 2,
+          failedStep: 'test',
+          steps: [
+            { name: 'lint', exitCode: 0, durationMs: 1 },
+            { name: 'test', exitCode: 2, durationMs: 1 },
+          ],
+        },
+      ]);
+      const kinds = stored().map((e) => e.kind);
+      expect(kinds.indexOf('gate.result')).toBeLessThan(kinds.lastIndexOf('run.state'));
+    });
+
+    it('stores a failed gate.result for a crashed gate', async () => {
+      addRun();
+      mockRunGate.mockRejectedValue(new Error('spawn exploded'));
+      await submit();
+      await settle();
+      expect(ofKind('gate.result')).toEqual([
+        {
+          passed: false,
+          round: 1,
+          evidence: 'verified',
+          durationMs: 0,
+          failedStep: 'gate',
+          steps: [{ name: 'gate', exitCode: 1, durationMs: 0 }],
+        },
+      ]);
+    });
+
+    it('rolls the gate outcome back when the gate.result insert fails', async () => {
+      addRun();
+      mockRunGate.mockResolvedValue(green);
+      const insert = bus.db.insertEvent.bind(bus.db);
+      const spy = vi.spyOn(bus.db, 'insertEvent').mockImplementation((role, kind, data, c) => {
+        if (kind === 'gate.result') throw new Error('events full');
+        return insert(role, kind, data, c);
+      });
+      await submit();
+      await settle();
+      spy.mockRestore();
+      expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'gating', round: 1 });
+      expect(ofKind('gate.result')).toEqual([]);
+    });
+
     it('publishes the events only after they are stored', async () => {
       addRun();
       mockRunGate.mockResolvedValue(red);

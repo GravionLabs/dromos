@@ -46,6 +46,35 @@ function latestAttempt(db: Db, run: RunRef): AttemptStarted | undefined {
 }
 
 /**
+ * Validates one server-owned run event against BusEvent and inserts it; an invalid one throws
+ * EventValidationError. Call it inside the transaction that changes the run row.
+ */
+export function recordRunEvent(
+  db: Db,
+  run: RunRef,
+  type: string,
+  data: unknown,
+  at = new Date().toISOString(),
+): EventRecord {
+  const checked = BusEventSchema.safeParse({
+    id: 0,
+    type,
+    at,
+    source: SOURCE,
+    agentId: null,
+    issue: run.issueNumber,
+    runId: run.id,
+    data,
+  });
+  if (!checked.success) throw new EventValidationError(z.prettifyError(checked.error));
+  return db.insertEvent(SOURCE, checked.data.type, checked.data.data, {
+    agentId: null,
+    issue: run.issueNumber,
+    runId: run.id,
+  });
+}
+
+/**
  * Stores the events of one run transition: always `run.state`; `attempt.started` (n = 1, cause
  * `initial`) when the run is created (`prev` null); `attempt.settled` for the open attempt when
  * `settle` is given, followed by a new `attempt.started` when the run goes back to
@@ -63,26 +92,8 @@ export function recordRunTransition(
 ): EventRecord[] {
   const at = new Date().toISOString();
   const rows: EventRecord[] = [];
-  const insert = (type: string, data: unknown) => {
-    const checked = BusEventSchema.safeParse({
-      id: 0,
-      type,
-      at,
-      source: SOURCE,
-      agentId: null,
-      issue: run.issueNumber,
-      runId: run.id,
-      data,
-    });
-    if (!checked.success) throw new EventValidationError(z.prettifyError(checked.error));
-    rows.push(
-      db.insertEvent(SOURCE, checked.data.type, checked.data.data, {
-        agentId: null,
-        issue: run.issueNumber,
-        runId: run.id,
-      }),
-    );
-  };
+  const insert = (type: string, data: unknown) =>
+    rows.push(recordRunEvent(db, run, type, data, at));
 
   insert('run.state', { state: next.state, round: next.round, previous: prev?.state ?? null });
   if (prev === null) {

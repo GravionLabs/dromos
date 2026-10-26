@@ -314,6 +314,45 @@ describe('submit_review run events', () => {
     expect(ofKind('attempt.started')).toHaveLength(1);
   });
 
+  it('stores review.result before run.state for a changes verdict', async () => {
+    addRun();
+    await submit({
+      verdict: 'changes',
+      summary: 'Fix it',
+      findings: [finding('important', 'bug'), finding('suggestion', 'nit')],
+    });
+    expect(ofKind('review.result')).toEqual([
+      { verdict: 'changes', round: 1, blockingFindings: 1, findings: 2, evidence: 'reported' },
+    ]);
+    const kinds = bus.db
+      .listEventsSince(0)
+      .filter((e) => e.role === 'dromos')
+      .map((e) => e.kind);
+    expect(kinds.indexOf('review.result')).toBeLessThan(kinds.indexOf('run.state'));
+  });
+
+  it('stores review.result for an approval with only suggestions', async () => {
+    addRun();
+    await submit({ verdict: 'approve', summary: 'ok', findings: [finding('suggestion', 'nit')] });
+    expect(ofKind('review.result')).toEqual([
+      { verdict: 'approve', round: 1, blockingFindings: 0, findings: 1, evidence: 'reported' },
+    ]);
+  });
+
+  it('keeps the run in reviewing when the review.result insert fails', async () => {
+    addRun();
+    const insert = bus.db.insertEvent.bind(bus.db);
+    const spy = vi.spyOn(bus.db, 'insertEvent').mockImplementation((role, kind, data, c) => {
+      if (kind === 'review.result') throw new Error('events full');
+      return insert(role, kind, data, c);
+    });
+    const result = await submit(changes);
+    spy.mockRestore();
+    expect(result.isError).toBe(true);
+    expect(bus.db.getRun('run-1-1')).toMatchObject({ state: 'reviewing', lastReview: null });
+    expect(ofKind('run.state')).toEqual([]);
+  });
+
   it('publishes the stored events after commit', async () => {
     addRun();
     const published: number[] = [];

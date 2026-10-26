@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { requireRole } from '../auth.js';
 import type { ToolContext } from '../context.js';
-import { publishRows, recordRunTransition } from '../run-events.js';
+import { publishRows, recordRunEvent, recordRunTransition } from '../run-events.js';
 import { afterRunTransition } from '../run-lease.js';
 import { type Finding, type Review, ReviewSchema, type Severity } from '../schemas.js';
 import { isBlocking, transition } from '../state-machine.js';
@@ -64,10 +64,20 @@ export function registerReviewTools(server: McpServer, ctx: ToolContext): void {
           state: moved.state,
           round: moved.round,
         });
+        const result = recordRunEvent(ctx.db, run, 'review.result', {
+          verdict: review.verdict,
+          round: run.round,
+          blockingFindings: review.findings.filter((f) =>
+            ctx.config.blockingSeverities.includes(f.severity),
+          ).length,
+          findings: review.findings.length,
+          evidence: 'reported',
+        });
         const rows = recordRunTransition(ctx.db, run, run, moved, {
           outcome: blocking ? (moved.state === 'blocked' ? 'blocked' : 'sent_back') : 'approved',
           evidence: 'reported',
         });
+        rows.unshift(result);
         const findings = sortFindings(review.findings, ctx.config.blockingSeverities);
         if (moved.state === 'implementing') {
           ctx.db.insertMessage({
