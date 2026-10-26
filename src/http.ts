@@ -8,6 +8,7 @@ import { BusEvents } from './bus-events.js';
 import { type BusLog, createBusLog } from './bus-log.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
+import { parseEventQuery } from './event-query.js';
 import { EventValidationError, recordEvent } from './event-store.js';
 import { createEventStream, createHostGuard } from './event-stream.js';
 import { type BusEvent, BusEventSchema, INGEST_TYPES, isIngestType } from './events/schema.js';
@@ -367,6 +368,19 @@ export async function startHttp({
     return live.length === 1 ? live[0]?.id : undefined;
   }
 
+  function handleEventQuery(req: IncomingMessage, res: ServerResponse): void {
+    if (!hostAllowed(req)) {
+      sendJson(res, 403, { error: 'forbidden host or origin' });
+      return;
+    }
+    const parsed = parseEventQuery(new URL(req.url ?? '/', 'http://localhost').searchParams);
+    if ('error' in parsed) {
+      sendJson(res, 400, { error: parsed.error });
+      return;
+    }
+    sendJson(res, 200, db.queryEvents(parsed.query));
+  }
+
   async function handleEvent(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method !== 'POST') {
       sendJson(res, 405, { error: 'method not allowed' });
@@ -563,7 +577,10 @@ export async function startHttp({
       return;
     }
     if (path === '/events') {
-      handleEvent(req, res).catch((error: unknown) => {
+      (req.method === 'GET'
+        ? Promise.resolve().then(() => handleEventQuery(req, res))
+        : handleEvent(req, res)
+      ).catch((error: unknown) => {
         if (!res.headersSent) {
           sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
         }

@@ -183,6 +183,6 @@ describe('POST /events', () => {
   });
 
   it('rejects other methods with 405', async () => {
-    expect((await fetch(`${bus.http.url}/events`)).status).toBe(405);
+    expect((await fetch(`${bus.http.url}/events`, { method: 'PUT' })).status).toBe(405);
   });
 });
