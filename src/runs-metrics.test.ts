@@ -44,7 +44,82 @@ beforeAll(() => {
   rec(null, '2031-01-01T00:00:00.000Z', 'progress', {});
 });
 
+function recRaw(
+  issue: number,
+  at: string,
+  type: string,
+  data: Record<string, unknown>,
+  agentId: string | null = null,
+) {
+  vi.setSystemTime(new Date(at));
+  return recordEvent(bus.db, bus.events, 'test', {
+    id: 0,
+    at,
+    source: 'test',
+    type,
+    agentId,
+    issue,
+    runId: null,
+    data,
+  });
+}
+
+// Issue 7200: two phases, a fix-round and usage from the database, end to end.
+beforeAll(() => {
+  const line = { line: 'l', agent: 'orchestrator' };
+  recRaw(7200, '2033-01-01T00:00:00.000Z', 'progress', {
+    ...line,
+    kind: 'phase',
+    fields: { phase: 'plan' },
+  });
+  recRaw(7200, '2033-01-01T00:01:00.000Z', 'progress', {
+    ...line,
+    kind: 'phase',
+    fields: { phase: 'build' },
+  });
+  recRaw(7200, '2033-01-01T00:01:30.000Z', 'progress', { ...line, kind: 'other' });
+  recRaw(7200, '2033-01-01T00:02:00.000Z', 'usage', {
+    contextTokens: 5,
+    costUsd: 0.75,
+    model: null,
+  });
+});
+
 describe('GET /runs/{issue}/metrics', () => {
+  it('reports phases, kinds and usage from stored events', async () => {
+    const m = (await (await fetch(url('/runs/7200/metrics'))).json()) as RunMetrics;
+    expect(m.durations.phases).toEqual({ build: 60, plan: 60 });
+    expect(m.progress.byKind).toEqual({ other: 1, phase: 2 });
+    expect(m.usage).toEqual({ tokensIn: null, tokensOut: null, usd: 0.75, measured: true });
+  });
+
+  it('until is exclusive and since inclusive', async () => {
+    const at = (qs: string) =>
+      fetch(url(`/runs/7101/metrics${qs}`)).then((r) => r.json() as Promise<RunMetrics>);
+    expect((await at('?until=2031-01-01T00:01Z')).events).toBe(1);
+    expect((await at('?since=2031-01-01T00:01Z&until=2031-01-01T00:01:00.001Z')).events).toBe(1);
+  });
+
+  it('answers 404 for an issue beyond the safe integer range and for other paths', async () => {
+    expect((await fetch(url('/runs/99999999999999999999/metrics'))).status).toBe(404);
+    expect((await fetch(url('/runs/abc/metrics'))).status).toBe(404);
+    expect((await fetch(url('/runs/7101'))).status).toBe(404);
+    expect((await fetch(url('/runs/7101/metrics/x'))).status).toBe(404);
+  });
+
+  it('answers 500 without leaking the internal error text', async () => {
+    const spy = vi.spyOn(bus.db, 'queryEvents').mockImplementation(() => {
+      throw new Error('secret db detail');
+    });
+    try {
+      const res = await fetch(url('/runs/7101/metrics'));
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ error: 'internal error' });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('returns the RunMetrics shape for the issue', async () => {
     const res = await fetch(url('/runs/7101/metrics'));
     expect(res.status).toBe(200);
@@ -94,6 +169,33 @@ describe('GET /runs/{issue}/metrics', () => {
 });
 
 describe('GET /runs/metrics', () => {
+  it('lists duplicate ids once', async () => {
+    const body = (await (await fetch(url('/runs/metrics?issues=7102,7102'))).json()) as Multi;
+    expect(body.runs.map((r) => r.issue)).toEqual([7102]);
+  });
+
+  it('accepts exactly 100 issues', async () => {
+    const list = Array.from({ length: 100 }, (_, i) => 8000 + i).join(',');
+    expect((await fetch(url(`/runs/metrics?issues=${list}`))).status).toBe(200);
+  });
+
+  it('ignores since when issues is given beyond filtering the window', async () => {
+    const body = (await (
+      await fetch(url('/runs/metrics?issues=7101,7102&since=2031-01-01T00:00:45Z'))
+    ).json()) as Multi;
+    expect(body.runs.map((r) => [r.issue, r.events])).toEqual([
+      [7101, 2],
+      [7102, 0],
+    ]);
+  });
+
+  it('keeps event-less requested issues out of the aggregate means', async () => {
+    const body = (await (await fetch(url('/runs/metrics?issues=7102,999998'))).json()) as Multi;
+    expect(body.runs).toHaveLength(2);
+    expect(body.aggregate.runs).toBe(1);
+    expect(body.aggregate.mean.events).toBe(1);
+  });
+
   it('returns per-issue objects and the aggregate for ?issues=', async () => {
     const res = await fetch(url('/runs/metrics?issues=7101,7102'));
     expect(res.status).toBe(200);

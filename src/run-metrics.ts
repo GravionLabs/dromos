@@ -36,6 +36,11 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+/** Counter keyed by client-controlled strings: no prototype, so `constructor`/`__proto__` are plain keys. */
+function newCounts(): Record<string, number> {
+  return Object.create(null) as Record<string, number>;
+}
+
 function bump(counts: Record<string, number>, key: string, by = 1): void {
   counts[key] = (counts[key] ?? 0) + by;
 }
@@ -51,40 +56,57 @@ function dataKind(e: EventRecord): string | undefined {
 }
 
 function phaseName(e: EventRecord): string | undefined {
-  if (e.kind !== 'progress' || dataKind(e) !== 'phase' || !isRecord(e.data)) return undefined;
+  if (e.kind !== 'progress' || dataKind(e) !== 'phase' || !isRecord(e.data)) {
+    return undefined;
+  }
   const fields = e.data.fields;
   return isRecord(fields) && typeof fields.phase === 'string' ? fields.phase : undefined;
 }
 
+/** createdAt is written by the bus; an unparsable value counts as 0 rather than poisoning sums with NaN. */
+function ms(iso: string): number {
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? 0 : t;
+}
+
 function chronological(events: readonly EventRecord[]): EventRecord[] {
-  return [...events].sort(
-    (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id - b.id,
-  );
+  return [...events].sort((a, b) => ms(a.createdAt) - ms(b.createdAt) || a.id - b.id);
 }
 
 function computeUsd(sorted: readonly EventRecord[]): number | null {
-  // Last non-null costUsd sample per agent, summed across agents.
+  // costUsd is a cumulative per-agent sample, so the last non-null one per agent is that agent's
+  // total, summed across agents. Usage without an agentId cannot be told apart and is pooled as
+  // one agent: several anonymous agents therefore undercount (only the latest sample is kept).
   const lastByAgent = new Map<string, number>();
   for (const e of sorted) {
-    if (e.kind !== 'usage' || !isRecord(e.data)) continue;
+    if (e.kind !== 'usage' || !isRecord(e.data)) {
+      continue;
+    }
     const cost = e.data.costUsd;
-    if (typeof cost === 'number') lastByAgent.set(e.agentId ?? '', cost);
+    if (typeof cost === 'number') {
+      lastByAgent.set(e.agentId ?? '', cost);
+    }
   }
   if (lastByAgent.size === 0) return null;
   let sum = 0;
-  for (const v of lastByAgent.values()) sum += v;
+  for (const v of lastByAgent.values()) {
+    sum += v;
+  }
   return sum;
 }
 
 export function computeRunMetrics(issue: number, events: readonly EventRecord[]): RunMetrics {
   const sorted = chronological(events);
-  const progress: Record<string, number> = {};
-  const attention: Record<string, number> = {};
+  const progress = newCounts();
+  const attention = newCounts();
   const agents = new Map<string, { role?: string; events: number }>();
 
   for (const e of sorted) {
-    if (e.kind === 'progress') bump(progress, dataKind(e) ?? 'unspecified');
-    else if (e.kind === 'attention') bump(attention, dataKind(e) ?? 'unspecified');
+    if (e.kind === 'progress') {
+      bump(progress, dataKind(e) ?? 'unspecified');
+    } else if (e.kind === 'attention') {
+      bump(attention, dataKind(e) ?? 'unspecified');
+    }
     if (e.agentId !== null) {
       const entry = agents.get(e.agentId) ?? { events: 0 };
       entry.events += 1;
@@ -95,19 +117,19 @@ export function computeRunMetrics(issue: number, events: readonly EventRecord[])
 
   const firstAt = sorted[0]?.createdAt ?? null;
   const lastAt = sorted[sorted.length - 1]?.createdAt ?? null;
-  const lastMs = lastAt === null ? 0 : Date.parse(lastAt);
-  const seconds = firstAt === null ? 0 : (lastMs - Date.parse(firstAt)) / 1000;
+  const lastMs = lastAt === null ? 0 : ms(lastAt);
+  const seconds = firstAt === null ? 0 : (lastMs - ms(firstAt)) / 1000;
 
   const phaseEvents = sorted.filter((e) => phaseName(e) !== undefined);
   const durations: RunMetrics['durations'] = { firstAt, lastAt, seconds };
   if (phaseEvents.length > 0) {
-    const phases: Record<string, number> = {};
+    const phases = newCounts();
     phaseEvents.forEach((e, i) => {
       const next = phaseEvents[i + 1];
-      const end = next ? Date.parse(next.createdAt) : lastMs;
-      bump(phases, phaseName(e) as string, (end - Date.parse(e.createdAt)) / 1000);
+      const end = next ? ms(next.createdAt) : lastMs;
+      bump(phases, phaseName(e) as string, (end - ms(e.createdAt)) / 1000);
     });
-    durations.phases = phases;
+    durations.phases = sortedCounts(phases);
   }
 
   const usd = computeUsd(sorted);
@@ -125,8 +147,8 @@ export function computeRunMetrics(issue: number, events: readonly EventRecord[])
 }
 
 export function aggregateRunMetrics(runs: readonly RunMetrics[]): RunMetricsAggregate {
-  const progress: Record<string, number> = {};
-  const attention: Record<string, number> = {};
+  const progress = newCounts();
+  const attention = newCounts();
   let events = 0;
   let seconds = 0;
   let usd = 0;
@@ -134,8 +156,12 @@ export function aggregateRunMetrics(runs: readonly RunMetrics[]): RunMetricsAggr
   for (const r of runs) {
     events += r.events;
     seconds += r.durations.seconds;
-    for (const [k, n] of Object.entries(r.progress.byKind)) bump(progress, k, n);
-    for (const [k, n] of Object.entries(r.attention.byKind)) bump(attention, k, n);
+    for (const [k, n] of Object.entries(r.progress.byKind)) {
+      bump(progress, k, n);
+    }
+    for (const [k, n] of Object.entries(r.attention.byKind)) {
+      bump(attention, k, n);
+    }
     if (r.usage.usd !== null) {
       usd += r.usage.usd;
       measuredRuns += 1;
@@ -168,7 +194,9 @@ export function collectEvents(
   for (;;) {
     const page = db.queryEvents({ ...query, after, limit: MAX_QUERY_LIMIT });
     all.push(...page.events);
-    if (page.next === null) return all;
+    if (page.next === null) {
+      return all;
+    }
     after = page.next;
   }
 }

@@ -34,6 +34,20 @@ function fixture(): EventRecord[] {
   ];
 }
 
+describe('computeRunMetrics prototype-named keys', () => {
+  it('counts constructor and __proto__ kinds as ordinary keys', () => {
+    const m = computeRunMetrics(1, [
+      ev('2026-01-01T00:00:00.000Z', 'progress', { kind: 'constructor' }),
+      ev('2026-01-01T00:00:01.000Z', 'progress', { kind: '__proto__' }),
+      ev('2026-01-01T00:00:02.000Z', 'progress', { kind: '__proto__' }),
+    ]);
+    expect(Object.entries(m.progress.byKind)).toEqual([
+      ['__proto__', 2],
+      ['constructor', 1],
+    ]);
+  });
+});
+
 describe('computeRunMetrics', () => {
   it('matches the snapshot for a full run', () => {
     expect(computeRunMetrics(137, fixture())).toMatchInlineSnapshot(`

@@ -13,7 +13,12 @@ import { EventValidationError, recordEvent } from './event-store.js';
 import { createEventStream, createHostGuard } from './event-stream.js';
 import { type BusEvent, BusEventSchema, INGEST_TYPES, isIngestType } from './events/schema.js';
 import { startLeaseRenewal } from './run-lease.js';
-import { aggregateRunMetrics, collectEvents, computeRunMetrics } from './run-metrics.js';
+import {
+  aggregateRunMetrics,
+  collectEvents,
+  computeRunMetrics,
+  type RunMetrics,
+} from './run-metrics.js';
 import { parseMultiRunMetricsQuery, parseSingleRunMetricsQuery } from './run-metrics-query.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
@@ -404,7 +409,7 @@ export async function startHttp({
       sendJson(res, 200, computeRunMetrics(issue, collectEvents(db, { issue, ...parsed.window })));
       return;
     }
-    const runs = [];
+    const runs: RunMetrics[] = [];
     if (parsed.issues) {
       for (const n of parsed.issues) {
         runs.push(computeRunMetrics(n, collectEvents(db, { issue: n, ...parsed.window })));
@@ -422,7 +427,11 @@ export async function startHttp({
         runs.push(computeRunMetrics(n, byIssue.get(n) ?? []));
       }
     }
-    sendJson(res, 200, { runs, aggregate: aggregateRunMetrics(runs) });
+    // Requested issues without events stay listed but must not drag the aggregate means down.
+    sendJson(res, 200, {
+      runs,
+      aggregate: aggregateRunMetrics(runs.filter((r) => r.events > 0)),
+    });
   }
 
   async function handleEvent(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -640,9 +649,9 @@ export async function startHttp({
       }
       try {
         handleRunMetrics(req, res, issue);
-      } catch (error) {
+      } catch {
         if (!res.headersSent) {
-          sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
+          sendJson(res, 500, { error: 'internal error' });
         }
       }
       return;
