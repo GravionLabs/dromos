@@ -802,6 +802,34 @@ describe('submit_implementation', () => {
       expect(data?.steps[0]?.name).toBe('n'.repeat(128));
     });
 
+    it('records a red gate whose failing step lies past the 32-step cap', async () => {
+      addRun();
+      startAttempt();
+      const steps = Array.from({ length: 40 }, (_, i) => ({
+        name: i === 35 ? `bad\u0000${'z'.repeat(200)}` : `s${i}`,
+        command: 'x',
+        exitCode: i === 35 ? 3 : 0,
+        durationMs: 2,
+        outputTail: '',
+      }));
+      mockRunGate.mockResolvedValue({ passed: false, steps });
+      await submit();
+      await settle();
+      expect(bus.db.getRun('run-1-1')?.state).toBe('implementing');
+      const [data] = ofKind('gate.result') as {
+        passed: boolean;
+        durationMs: number;
+        failedStep: string | null;
+        steps: unknown[];
+      }[];
+      expect(data).toMatchObject({
+        passed: false,
+        durationMs: 80,
+        failedStep: `bad ${'z'.repeat(124)}`,
+      });
+      expect(data?.steps).toHaveLength(32);
+    });
+
     it('names an empty failing step so the red gate is still recorded', async () => {
       addRun();
       startAttempt();
