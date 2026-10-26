@@ -7,6 +7,9 @@
   "engines": {
     "node": ">=22"
   },
+  "bin": {
+    "dromos": "dist/index.js"
+  },
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "tsx watch src/index.ts",

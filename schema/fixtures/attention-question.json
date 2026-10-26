@@ -1,0 +1,17 @@
+{
+  "id": 45,
+  "type": "attention",
+  "at": "2026-10-22T09:25:00.000Z",
+  "source": "apm-hub/pbi-runner",
+  "agentId": "orchestrator-1",
+  "issue": 39,
+  "runId": "run-39-a1",
+  "data": {
+    "kind": "FEATURE_DONE",
+    "summary": "Feature done: pick how to proceed",
+    "pr": null,
+    "question": "Merge the feature branch now?",
+    "options": ["merge", "wait", "abort"],
+    "checkout": "/work/dromos/39"
+  }
+}

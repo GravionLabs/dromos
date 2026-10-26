@@ -1,0 +1,13 @@
+{
+  "id": 47,
+  "type": "attention.acked",
+  "at": "2026-10-22T09:31:00.000Z",
+  "source": "dromos",
+  "agentId": null,
+  "issue": 39,
+  "runId": "run-39-a1",
+  "data": {
+    "id": 44,
+    "by": null
+  }
+}

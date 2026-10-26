@@ -1455,6 +1455,247 @@
       "set": {
         "data.model": ""
       }
+    },
+    {
+      "name": "attention.json free-form kind",
+      "fixture": "attention.json",
+      "valid": true,
+      "set": {
+        "data.kind": "FEATURE_DONE"
+      }
+    },
+    {
+      "name": "attention.json empty kind",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.kind": ""
+      }
+    },
+    {
+      "name": "attention.json long kind",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.kind": {
+          "repeat": ["x", 65]
+        }
+      }
+    },
+    {
+      "name": "attention.json kind newline",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.kind": "A\nB"
+      }
+    },
+    {
+      "name": "attention.json long question",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.question": {
+          "repeat": ["x", 2001]
+        }
+      }
+    },
+    {
+      "name": "attention.json question newline",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.question": "a\nb"
+      }
+    },
+    {
+      "name": "attention.json checkout esc",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.checkout": "/a\u001b"
+      }
+    },
+    {
+      "name": "attention.json long checkout",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.checkout": {
+          "repeat": ["x", 4097]
+        }
+      }
+    },
+    {
+      "name": "attention.json 16 options",
+      "fixture": "attention.json",
+      "valid": true,
+      "set": {
+        "data.options": [
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o"
+        ]
+      }
+    },
+    {
+      "name": "attention.json 17 options",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.options": [
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o",
+          "o"
+        ]
+      }
+    },
+    {
+      "name": "attention.json option rlo",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.options": ["a‮"]
+      }
+    },
+    {
+      "name": "attention.json empty option",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.options": [""]
+      }
+    },
+    {
+      "name": "attention.json long option",
+      "fixture": "attention.json",
+      "valid": false,
+      "set": {
+        "data.options": [
+          {
+            "repeat": ["x", 201]
+          }
+        ]
+      }
+    },
+    {
+      "name": "attention-question.json valid",
+      "fixture": "attention-question.json",
+      "valid": true,
+      "set": {}
+    },
+    {
+      "name": "attention.answered valid",
+      "fixture": "attention-answered.json",
+      "valid": true,
+      "set": {}
+    },
+    {
+      "name": "attention.answered id zero",
+      "fixture": "attention-answered.json",
+      "valid": false,
+      "set": {
+        "data.id": 0
+      }
+    },
+    {
+      "name": "attention.answered text newline",
+      "fixture": "attention-answered.json",
+      "valid": false,
+      "set": {
+        "data.text": "a\nb"
+      }
+    },
+    {
+      "name": "attention.answered long text",
+      "fixture": "attention-answered.json",
+      "valid": false,
+      "set": {
+        "data.text": {
+          "repeat": ["x", 4001]
+        }
+      }
+    },
+    {
+      "name": "attention.answered empty by",
+      "fixture": "attention-answered.json",
+      "valid": false,
+      "set": {
+        "data.by": ""
+      }
+    },
+    {
+      "name": "attention.answered by bom",
+      "fixture": "attention-answered.json",
+      "valid": false,
+      "set": {
+        "data.by": "a﻿"
+      }
+    },
+    {
+      "name": "attention.acked valid",
+      "fixture": "attention-acked.json",
+      "valid": true,
+      "set": {}
+    },
+    {
+      "name": "attention.acked by name",
+      "fixture": "attention-acked.json",
+      "valid": true,
+      "set": {
+        "data.by": "jerome"
+      }
+    },
+    {
+      "name": "attention.acked id zero",
+      "fixture": "attention-acked.json",
+      "valid": false,
+      "set": {
+        "data.id": 0
+      }
+    },
+    {
+      "name": "attention.acked by zero-width",
+      "fixture": "attention-acked.json",
+      "valid": false,
+      "set": {
+        "data.by": "a​"
+      }
+    },
+    {
+      "name": "attention.acked empty by",
+      "fixture": "attention-acked.json",
+      "valid": false,
+      "set": {
+        "data.by": ""
+      }
     }
   ]
 }

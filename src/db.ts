@@ -79,6 +79,28 @@ export const MIGRATIONS: readonly string[] = [
   CREATE INDEX idx_events_issue_id ON events(issue, id);
   CREATE INDEX idx_events_kind_id ON events(kind, id);
   `,
+  `
+  CREATE TABLE attention (
+    id INTEGER PRIMARY KEY,
+    event_id INTEGER NOT NULL REFERENCES events(id),
+    source TEXT NOT NULL,
+    agent_id TEXT,
+    issue INTEGER,
+    run_id TEXT,
+    kind TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    data_json TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('open','answered','acked')),
+    created_at TEXT NOT NULL,
+    answered_at TEXT,
+    answer_text TEXT,
+    answered_by TEXT,
+    acked_at TEXT,
+    acked_by TEXT
+  );
+  CREATE INDEX idx_attention_state_id ON attention(state, id);
+  CREATE INDEX idx_attention_issue_id ON attention(issue, id);
+  `,
 ];
 
 export interface Run {
@@ -141,6 +163,41 @@ export interface EventRecord {
   issue: number | null;
   /** Orchestrator run the event belongs to; null when none. */
   runId: string | null;
+}
+
+export type AttentionState = 'open' | 'answered' | 'acked';
+
+/** One attention that needs a human; `id` equals the id of its `attention` event. */
+export interface AttentionRecord {
+  id: number;
+  eventId: number;
+  source: string;
+  agentId: string | null;
+  issue: number | null;
+  runId: string | null;
+  kind: string;
+  summary: string;
+  /** The attention event's full `data` payload. */
+  data: unknown;
+  state: AttentionState;
+  createdAt: string;
+  answeredAt: string | null;
+  answerText: string | null;
+  answeredBy: string | null;
+  ackedAt: string | null;
+  ackedBy: string | null;
+}
+
+/** Outcome of a compare-and-set attention state transition. */
+export type AttentionTransition = 'ok' | 'not_found' | 'conflict';
+
+/** Filters for `Db.listAttention`; absent filters match everything. */
+export interface AttentionQuery {
+  state?: AttentionState;
+  issue?: number;
+  /** Inclusive lower bound on `created_at`, normalized ISO UTC. */
+  since?: string;
+  limit: number;
 }
 
 /** Filters for `Db.queryEvents`; absent filters match everything. */
@@ -214,6 +271,25 @@ interface EventRow {
   agent_id: string | null;
   issue: number | null;
   run_id: string | null;
+}
+
+interface AttentionRow {
+  id: number;
+  event_id: number;
+  source: string;
+  agent_id: string | null;
+  issue: number | null;
+  run_id: string | null;
+  kind: string;
+  summary: string;
+  data_json: string;
+  state: AttentionState;
+  created_at: string;
+  answered_at: string | null;
+  answer_text: string | null;
+  answered_by: string | null;
+  acked_at: string | null;
+  acked_by: string | null;
 }
 
 const now = (): string => new Date().toISOString();
@@ -324,6 +400,18 @@ export interface Db {
   listEventsSince(afterId: number, limit?: number): EventRecord[];
   /** Matching events in ascending id order, at most `limit`, with a keyset cursor. */
   queryEvents(query: EventQuery): EventPage;
+  /** Stores the `attention` event as an open attention with the same id. Throws on a malformed payload or a duplicate. */
+  insertAttention(event: EventRecord): AttentionRecord;
+  getAttention(id: number): AttentionRecord | undefined;
+  /** Matching attentions in ascending id order, at most `limit`. */
+  listAttention(query: AttentionQuery): AttentionRecord[];
+  /**
+   * Compare-and-set `open -> answered`: `conflict` when the attention exists but is not open,
+   * `not_found` when it does not exist. Never reads before writing.
+   */
+  answerAttention(id: number, text: string, by: string): AttentionTransition;
+  /** Compare-and-set `answered -> acked`; an open or acked attention is a `conflict`. */
+  ackAttention(id: number, by: string | null): AttentionTransition;
   /** Runs `fn` in one SQLite transaction; rolls back when it throws. */
   transaction<T>(fn: () => T): T;
   schemaVersion(): number;
@@ -413,6 +501,60 @@ export function openDb(file: string): Db {
   const listEventsSince = db.prepare<[number, number], EventRow>(
     'SELECT * FROM events WHERE id > ? ORDER BY id ASC LIMIT ?',
   );
+
+  const insertAttention = db.prepare(
+    `INSERT INTO attention (id, event_id, source, agent_id, issue, run_id, kind, summary, data_json, state, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`,
+  );
+  const getAttention = db.prepare<[number], AttentionRow>('SELECT * FROM attention WHERE id = ?');
+  const listAttention = db.prepare<
+    [
+      string | null,
+      string | null,
+      number | null,
+      number | null,
+      string | null,
+      string | null,
+      number,
+    ],
+    AttentionRow
+  >(
+    `SELECT * FROM attention
+     WHERE (? IS NULL OR state = ?) AND (? IS NULL OR issue = ?) AND (? IS NULL OR created_at >= ?)
+     ORDER BY id ASC LIMIT ?`,
+  );
+  const answerAttention = db.prepare<[string, string, string, number]>(
+    `UPDATE attention SET state = 'answered', answered_at = ?, answer_text = ?, answered_by = ?
+     WHERE id = ? AND state = 'open'`,
+  );
+  const ackAttention = db.prepare<[string, string | null, number]>(
+    `UPDATE attention SET state = 'acked', acked_at = ?, acked_by = ?
+     WHERE id = ? AND state = 'answered'`,
+  );
+  const transitionOutcome = (changes: number, id: number): AttentionTransition => {
+    if (changes > 0) {
+      return 'ok';
+    }
+    return getAttention.get(id) ? 'conflict' : 'not_found';
+  };
+  const toAttention = (row: AttentionRow): AttentionRecord => ({
+    id: row.id,
+    eventId: row.event_id,
+    source: row.source,
+    agentId: row.agent_id,
+    issue: row.issue,
+    runId: row.run_id,
+    kind: row.kind,
+    summary: row.summary,
+    data: JSON.parse(row.data_json) as unknown,
+    state: row.state,
+    createdAt: row.created_at,
+    answeredAt: row.answered_at,
+    answerText: row.answer_text,
+    answeredBy: row.answered_by,
+    ackedAt: row.acked_at,
+    ackedBy: row.acked_by,
+  });
 
   const toEvent = (row: EventRow): EventRecord => ({
     id: row.id,
@@ -538,6 +680,38 @@ export function openDb(file: string): Db {
         context?.runId ?? null,
       );
       return toEvent(getEvent.get(info.lastInsertRowid) as EventRow);
+    },
+    insertAttention(event) {
+      const data = event.data as { kind: string; summary: string };
+      insertAttention.run(
+        event.id,
+        event.id,
+        event.role,
+        event.agentId,
+        event.issue,
+        event.runId,
+        data.kind,
+        data.summary,
+        JSON.stringify(event.data ?? null),
+        event.createdAt,
+      );
+      return toAttention(getAttention.get(event.id) as AttentionRow);
+    },
+    getAttention(id) {
+      const row = getAttention.get(id);
+      return row ? toAttention(row) : undefined;
+    },
+    listAttention({ state, issue, since, limit }) {
+      const st = state ?? null;
+      const is = issue ?? null;
+      const si = since ?? null;
+      return listAttention.all(st, st, is, is, si, si, limit).map(toAttention);
+    },
+    answerAttention(id, text, by) {
+      return transitionOutcome(answerAttention.run(now(), text, by, id).changes, id);
+    },
+    ackAttention(id, by) {
+      return transitionOutcome(ackAttention.run(now(), by, id).changes, id);
     },
     countUnackedByRole(runId) {
       const counts: Partial<Record<Role, number>> = {};

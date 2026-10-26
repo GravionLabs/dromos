@@ -1,0 +1,14 @@
+{
+  "id": 46,
+  "type": "attention.answered",
+  "at": "2026-10-22T09:30:00.000Z",
+  "source": "dromos",
+  "agentId": null,
+  "issue": 39,
+  "runId": "run-39-a1",
+  "data": {
+    "id": 44,
+    "text": "merge",
+    "by": "jerome"
+  }
+}

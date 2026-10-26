@@ -91,6 +91,18 @@ fn external_fixtures_map_to_their_variants() {
     let load = |name: &str| parse(fixture(name)).unwrap();
     assert!(matches!(load("progress.json"), BusEvent::Progress { .. }));
     assert!(matches!(load("attention.json"), BusEvent::Attention { .. }));
+    assert!(matches!(
+        load("attention-question.json"),
+        BusEvent::Attention { .. }
+    ));
+    assert!(matches!(
+        load("attention-answered.json"),
+        BusEvent::AttentionAnswered { .. }
+    ));
+    assert!(matches!(
+        load("attention-acked.json"),
+        BusEvent::AttentionAcked { .. }
+    ));
     assert!(matches!(load("usage.json"), BusEvent::Usage { .. }));
     assert!(matches!(
         load("queue-item.json"),
@@ -330,7 +342,38 @@ fn rejects_invalid_progress_data() {
 #[test]
 fn rejects_invalid_attention_data() {
     let a = "attention.json";
-    assert_field_rejected(a, "unknown kind", "data.kind", Edit::Set(json!("DONE")));
+    assert_field_rejected(a, "empty kind", "data.kind", Edit::Set(json!("")));
+    assert_field_rejected(
+        a,
+        "long kind",
+        "data.kind",
+        Edit::Set(json!("x".repeat(65))),
+    );
+    assert_field_rejected(a, "kind newline", "data.kind", Edit::Set(json!("A\nB")));
+    assert_field_rejected(
+        a,
+        "17 options",
+        "data.options",
+        Edit::Set(json!(vec!["o"; 17])),
+    );
+    assert_field_rejected(
+        a,
+        "option control char",
+        "data.options",
+        Edit::Set(json!(["a\u{7}"])),
+    );
+    assert_field_rejected(
+        a,
+        "checkout esc",
+        "data.checkout",
+        Edit::Set(json!("/a\u{1b}")),
+    );
+    assert_field_rejected(
+        a,
+        "question newline",
+        "data.question",
+        Edit::Set(json!("a\nb")),
+    );
     assert_field_rejected(a, "empty summary", "data.summary", Edit::Set(json!("")));
     assert_field_rejected(
         a,
@@ -346,6 +389,28 @@ fn rejects_invalid_attention_data() {
     );
     assert_field_rejected(a, "fractional pr", "data.pr", Edit::Set(json!(1.5)));
     assert_field_rejected(a, "missing pr", "data.pr", Edit::Remove);
+}
+
+#[test]
+fn accepts_free_form_attention_kind_and_16_options() {
+    let mut event = fixture("attention-question.json");
+    event["data"]["kind"] = json!("ANYTHING");
+    event["data"]["options"] = json!(vec!["o"; 16]);
+    assert!(parse(event).is_ok());
+}
+
+#[test]
+fn rejects_invalid_attention_answered_and_acked() {
+    let a = "attention-answered.json";
+    assert_field_rejected(a, "id zero", "data.id", Edit::Set(json!(0)));
+    assert_field_rejected(a, "empty text", "data.text", Edit::Set(json!("")));
+    assert_field_rejected(a, "text newline", "data.text", Edit::Set(json!("a\nb")));
+    assert_field_rejected(a, "null by", "data.by", Edit::Set(Value::Null));
+    assert_field_rejected(a, "by esc", "data.by", Edit::Set(json!("a\u{1b}")));
+    let k = "attention-acked.json";
+    assert_field_rejected(k, "id zero", "data.id", Edit::Set(json!(0)));
+    assert_field_rejected(k, "by bidi", "data.by", Edit::Set(json!("a\u{202e}")));
+    assert_field_rejected(k, "missing by", "data.by", Edit::Remove);
 }
 
 #[test]
@@ -763,6 +828,8 @@ mod event_wrapper {
                 "hook:busy",
                 "progress",
                 "attention",
+                "attention.answered",
+                "attention.acked",
                 "usage",
                 "queue.item",
                 "agent.registered",

@@ -53,6 +53,50 @@ describe('POST /ingest', () => {
     expect(seen).toEqual([]);
   });
 
+  it('stores a single attention as an open row and returns its id', async () => {
+    const res = await post({
+      type: 'attention',
+      source: 'apm-hub/queue',
+      agentId: null,
+      issue: 43,
+      runId: null,
+      data: { kind: 'GATE', summary: 'needs a human', pr: null },
+    });
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { ids: number[]; id: number };
+    expect(body.ids).toEqual([body.id]);
+    expect(bus.db.getAttention(body.id)?.state).toBe('open');
+  });
+
+  it('creates attention rows only for attentions in a mixed batch, without a top-level id', async () => {
+    const res = await post([
+      progress(),
+      { ...progress(), type: 'attention', data: { kind: 'GATE', summary: 'x', pr: null } },
+    ]);
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { ids: number[]; id?: number };
+    expect(body.id).toBeUndefined();
+    expect(bus.db.listAttention({ limit: 10 }).map((a) => a.id)).toEqual([body.ids[1]]);
+  });
+
+  it('rolls back events and rows when the attention insert fails', async () => {
+    const seen: string[] = [];
+    bus.events.onEvent((e) => seen.push(e.kind));
+    const spy = vi.spyOn(bus.db, 'insertAttention').mockImplementation(() => {
+      throw new Error('disk full');
+    });
+    const res = await post([
+      progress(),
+      { ...progress(), type: 'attention', data: { kind: 'GATE', summary: 'x', pr: null } },
+    ]);
+    spy.mockRestore();
+    await new Promise((r) => setImmediate(r));
+    expect(res.status).toBe(500);
+    expect(bus.db.listEvents()).toHaveLength(0);
+    expect(bus.db.listAttention({ limit: 10 })).toEqual([]);
+    expect(seen).toEqual([]);
+  });
+
   it('accepts one event with 202 and stores it', async () => {
     const res = await post(progress());
     expect(res.status).toBe(202);
@@ -411,6 +455,17 @@ describe('POST /ingest validation', () => {
         .reverse()
         .map((r) => r.kind),
     ).toEqual(['attention', 'usage', 'queue.item']);
+  });
+
+  it('answers 403 for the server-owned attention.answered and attention.acked', async () => {
+    for (const [type, data] of [
+      ['attention.answered', { id: 1, text: 'yes', by: 'me' }],
+      ['attention.acked', { id: 1, by: null }],
+    ] as const) {
+      const res = await post([{ ...attention, type, data }]);
+      expect(res.status).toBe(403);
+    }
+    expect(bus.db.listEvents()).toHaveLength(0);
   });
 
   it('answers 403 for a disallowed type wherever it sits in the batch', async () => {

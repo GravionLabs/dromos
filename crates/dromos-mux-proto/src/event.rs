@@ -122,8 +122,8 @@ impl std::error::Error for ConstraintError {}
 /// checked; call this on it, or deserialise through [`Event`] instead.
 pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
     use BusEvent::{
-        AgentRegistered, AgentRun, AgentState, Attention, HookBusy, HookIdle, Progress, QueueItem,
-        Usage,
+        AgentRegistered, AgentRun, AgentState, Attention, AttentionAcked, AttentionAnswered,
+        HookBusy, HookIdle, Progress, QueueItem, Usage,
     };
     let (agent_id, run_id) = match event {
         HookIdle {
@@ -136,6 +136,12 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
             agent_id, run_id, ..
         }
         | Attention {
+            agent_id, run_id, ..
+        }
+        | AttentionAnswered {
+            agent_id, run_id, ..
+        }
+        | AttentionAcked {
             agent_id, run_id, ..
         }
         | Usage {
@@ -181,7 +187,38 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
                 }
             }
         }
-        Attention { data, .. } => texts.push(("data.summary", data.summary.as_str())),
+        Attention { data, .. } => {
+            texts.push(("data.kind", data.kind.as_str()));
+            texts.push(("data.summary", data.summary.as_str()));
+            texts.extend(
+                data.question
+                    .as_ref()
+                    .map(|v| ("data.question", v.as_str())),
+            );
+            texts.extend(
+                data.checkout
+                    .as_ref()
+                    .map(|v| ("data.checkout", v.as_str())),
+            );
+            if data.options.len() > 16 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.options",
+                    rule: "at most 16 entries",
+                });
+            }
+            for option in &data.options {
+                texts.push(("data.options", option.as_str()));
+            }
+        }
+        AttentionAnswered { data, .. } => {
+            // `data.id >= 1` is carried by the generated `NonZeroU64`.
+            texts.push(("data.text", data.text.as_str()));
+            texts.push(("data.by", data.by.as_str()));
+        }
+        AttentionAcked { data, .. } => {
+            // `data.id >= 1` is carried by the generated `NonZeroU64`.
+            texts.extend(data.by.as_ref().map(|v| ("data.by", v.as_str())));
+        }
         Usage { data, .. } => {
             if data.context_tokens < 0 {
                 return Err(ConstraintError::OutOfRange {
