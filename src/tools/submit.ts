@@ -5,7 +5,12 @@ import { requireRole } from '../auth.js';
 import type { ToolContext } from '../context.js';
 import type { EventRecord, Run } from '../db.js';
 import { resolveGateCommands, runGate } from '../gate.js';
-import { publishRows, recordRunEvent, recordRunTransition } from '../run-events.js';
+import {
+  publishRows,
+  recordBlockedAttention,
+  recordRunEvent,
+  recordRunTransition,
+} from '../run-events.js';
 import { afterRunTransition } from '../run-lease.js';
 import type { GateResult, MessageType, Role, RunState } from '../schemas.js';
 import { transition } from '../state-machine.js';
@@ -113,6 +118,7 @@ function applyGateResult(ctx: ToolContext, run: Run, summary: string, gate: Gate
     };
   }
   if (next.state === 'blocked') {
+    rows.push(recordBlockedAttention(ctx.db, run, 'gate'));
     ctx.db.insertMessage({
       from: 'implementer',
       to: 'orchestrator',

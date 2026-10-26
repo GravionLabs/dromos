@@ -314,6 +314,45 @@ describe('submit_review run events', () => {
     expect(ofKind('attempt.started')).toHaveLength(1);
   });
 
+  it('stores one BLOCKED attention and an open row when the review blocks the run', async () => {
+    addRun('run-1-1', bus.config.maxRounds);
+    await submit(changes);
+    const events = bus.db.listEventsSince(0).filter((e) => e.kind === 'attention');
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ role: 'dromos', issue: 1, runId: 'run-1-1', agentId: null });
+    expect(events[0]?.data).toEqual({
+      kind: 'BLOCKED',
+      summary: `round limit reached after ${bus.config.maxRounds} rounds (review)`,
+      pr: null,
+      checkout: '/wt',
+    });
+    expect(bus.db.listAttention({ state: 'open', limit: 10 })).toEqual([
+      expect.objectContaining({ id: events[0]?.id, runId: 'run-1-1', state: 'open' }),
+    ]);
+  });
+
+  it('stores no attention for a send-back or an approval', async () => {
+    addRun();
+    await submit(changes);
+    expect(bus.db.listEventsSince(0).filter((e) => e.kind === 'attention')).toEqual([]);
+    expect(bus.db.listAttention({ limit: 10 })).toEqual([]);
+  });
+
+  it('keeps the run reviewing and stores no message when the attention insert fails', async () => {
+    addRun('run-1-1', bus.config.maxRounds);
+    const insert = bus.db.insertEvent.bind(bus.db);
+    const spy = vi.spyOn(bus.db, 'insertEvent').mockImplementation((role, kind, data, c) => {
+      if (kind === 'attention') throw new Error('events full');
+      return insert(role, kind, data, c);
+    });
+    const result = await submit(changes);
+    spy.mockRestore();
+    expect(result.isError).toBe(true);
+    expect(bus.db.getRun('run-1-1')?.state).toBe('reviewing');
+    expect(bus.db.listAttention({ limit: 10 })).toEqual([]);
+    expect(ofKind('run.state')).toEqual([]);
+  });
+
   it('stores review.result before run.state for a changes verdict', async () => {
     addRun();
     await submit({

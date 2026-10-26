@@ -710,6 +710,57 @@ describe('submit_implementation', () => {
       expect(kinds.indexOf('gate.result')).toBeLessThan(kinds.lastIndexOf('run.state'));
     });
 
+    it('stores exactly one BLOCKED attention over maxRounds red gates', async () => {
+      addRun();
+      startAttempt();
+      mockRunGate.mockResolvedValue(red);
+      for (let i = 0; i < bus.config.maxRounds; i++) {
+        await submit();
+        await settle();
+      }
+      expect(bus.db.getRun('run-1-1')?.state).toBe('blocked');
+      const events = bus.db.listEventsSince(0).filter((e) => e.kind === 'attention');
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ role: 'dromos', issue: 1, runId: 'run-1-1' });
+      expect(events[0]?.data).toEqual({
+        kind: 'BLOCKED',
+        summary: `round limit reached after ${bus.config.maxRounds} rounds (gate)`,
+        pr: null,
+        checkout: '/wt',
+      });
+      expect(bus.db.listAttention({ state: 'open', limit: 10 })).toEqual([
+        expect.objectContaining({ id: events[0]?.id, runId: 'run-1-1' }),
+      ]);
+      expect(bus.db.listUnacked('orchestrator').map((m) => m.type)).toContain('notice');
+    });
+
+    it('stores no attention for a non-blocking red gate', async () => {
+      addRun();
+      startAttempt();
+      mockRunGate.mockResolvedValue(red);
+      await submit();
+      await settle();
+      expect(bus.db.getRun('run-1-1')?.state).toBe('implementing');
+      expect(bus.db.listAttention({ limit: 10 })).toEqual([]);
+    });
+
+    it('leaves the run gating without notice when the BLOCKED attention insert fails', async () => {
+      addRun({ round: bus.config.maxRounds });
+      startAttempt();
+      mockRunGate.mockResolvedValue(red);
+      const insert = bus.db.insertEvent.bind(bus.db);
+      const spy = vi.spyOn(bus.db, 'insertEvent').mockImplementation((role, kind, data, c) => {
+        if (kind === 'attention') throw new Error('events full');
+        return insert(role, kind, data, c);
+      });
+      await submit();
+      await settle();
+      spy.mockRestore();
+      expect(bus.db.getRun('run-1-1')?.state).toBe('gating');
+      expect(bus.db.listAttention({ limit: 10 })).toEqual([]);
+      expect(bus.db.listUnacked('orchestrator')).toEqual([]);
+    });
+
     it('stores a failed gate.result for a crashed gate', async () => {
       addRun();
       mockRunGate.mockRejectedValue(new Error('spawn exploded'));

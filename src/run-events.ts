@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { recordAttention } from './attention.js';
 import type { BusEvents } from './bus-events.js';
 import type { Db, EventRecord, Run } from './db.js';
 import { EventValidationError } from './event-store.js';
@@ -121,6 +122,36 @@ export function recordRunTransition(
     });
   }
   return rows;
+}
+
+/**
+ * Stores the BLOCKED attention (event + open attention row) of a run that hit the round limit.
+ * Call it inside the transaction that moves the run to `blocked`; a run blocks once, so this
+ * stores one attention per run. Returns the event row to publish after commit.
+ */
+export function recordBlockedAttention(
+  db: Db,
+  run: Pick<Run, 'id' | 'issueNumber' | 'worktreePath' | 'round'>,
+  origin: 'gate' | 'review',
+): EventRecord {
+  const checked = BusEventSchema.safeParse({
+    id: 0,
+    type: 'attention',
+    at: new Date().toISOString(),
+    source: SOURCE,
+    agentId: null,
+    issue: run.issueNumber,
+    runId: run.id,
+    data: {
+      kind: 'BLOCKED',
+      summary: `round limit reached after ${run.round} rounds (${origin})`,
+      pr: null,
+      checkout: run.worktreePath,
+    },
+  });
+  if (!checked.success) throw new EventValidationError(z.prettifyError(checked.error));
+  if (checked.data.type !== 'attention') throw new EventValidationError('not an attention event');
+  return recordAttention(db, checked.data).event;
 }
 
 /** Broadcasts committed event rows to stream subscribers, in order. */
