@@ -106,6 +106,20 @@ describe('POST /ingest', () => {
     expect(seen).toEqual(['progress']);
   });
 
+  it('stores a progress event with kind and fields', async () => {
+    const data = { line: 'wave 2', agent: 'orchestrator', kind: 'wave', fields: { n: 2, x: null } };
+    const res = await post(progress({ data }));
+    expect(res.status).toBeLessThan(300);
+    expect(bus.db.listEvents()).toHaveLength(1);
+  });
+
+  it('rejects a progress event with an unknown kind with 400 and stores nothing', async () => {
+    const data = { line: 'x', agent: 'orchestrator', kind: 'bogus' };
+    const res = await post(progress({ data }));
+    expect(res.status).toBe(400);
+    expect(bus.db.listEvents()).toHaveLength(0);
+  });
+
   it('rejects a disallowed type with 403 and stores nothing', async () => {
     const res = await post({ ...progress(), type: 'run.state' });
     expect(res.status).toBe(403);
