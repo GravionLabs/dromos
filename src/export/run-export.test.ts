@@ -57,11 +57,11 @@ describe('toMermaid', () => {
     expect(out).toBe(
       [
         'flowchart TD',
-        '  pane_p["p"]',
-        '  run_x["a 4s"]',
-        '  run_y["a running"]',
-        '  pane_p --> run_x',
-        '  run_x --> run_y',
+        '  pane0_p["p"]',
+        '  run1_x["a 4s"]',
+        '  run2_y["a running"]',
+        '  pane0_p --> run1_x',
+        '  run1_x --> run2_y',
         '',
       ].join('\n'),
     );
@@ -76,11 +76,56 @@ describe('toMermaid', () => {
         'p',
       ),
     ]);
-    expect(out).toContain('pane_p --> run_y');
+    expect(out).toContain('pane0_p --> run1_y');
     expect(out).toContain('"a m 2s"');
   });
 
   it('returns only the header for no events', () => {
     expect(toMermaid([])).toBe('flowchart TD\n');
+  });
+});
+
+describe('toMermaid edge cases', () => {
+  const run = (id: number, rid: string, parent: string | null, agentId: string | null) =>
+    ev(
+      id,
+      'agent.run',
+      { runAgentId: rid, parentAgentId: parent, agentType: 'a', model: null, durationMs: null },
+      agentId,
+    );
+
+  it('keeps ids that differ only in punctuation as separate nodes', () => {
+    const out = toMermaid([run(1, 'a-b', null, 'p'), run(2, 'a_b', null, 'p')]);
+    const nodes = out.split('\n').filter((l) => /^ {2}run\d+_\w*\[/.test(l));
+    expect(nodes).toHaveLength(2);
+    expect(new Set(nodes.map((l) => l.trim().split('[')[0])).size).toBe(2);
+    expect(out.match(/pane0_p --> run/g)).toHaveLength(2);
+  });
+
+  it('does not loop on a parent cycle', () => {
+    const out = toMermaid([run(1, 'x', 'y', 'p'), run(2, 'y', 'x', 'p')]);
+    expect(out).toContain('run2_y --> run1_x');
+    expect(out).toContain('run1_x --> run2_y');
+  });
+
+  it('adds a run without a reporting pane as an unattached node', () => {
+    const out = toMermaid([run(1, 'x', null, null)]);
+    expect(out).toBe('flowchart TD\n  run0_x["a running"]\n');
+  });
+
+  it('links an attention to its pane, or leaves it unlinked without one', () => {
+    const out = toMermaid([
+      ev(1, 'attention', { kind: 'GATE', pr: 3 }, 'p'),
+      ev(2, 'attention', { kind: 'BLOCKED', pr: null }, null),
+    ]);
+    expect(out).toContain('att1_1{{"GATE #3"}}');
+    expect(out).toContain('pane0_p --> att1_1');
+    expect(out).toContain('{{"BLOCKED"}}');
+    expect(out.match(/-->/g)).toHaveLength(1);
+  });
+
+  it('ignores malformed agent.run data and unrelated events', () => {
+    const out = toMermaid([ev(1, 'agent.run', 'junk', 'p'), ev(2, 'progress', { line: 'x' }, 'p')]);
+    expect(out).toBe('flowchart TD\n');
   });
 });

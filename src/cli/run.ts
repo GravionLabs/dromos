@@ -54,7 +54,7 @@ function readAll(db: Db, issue: number): EventRecord[] {
 export async function runRunCli(argv: string[], io: RunCliIo = {}): Promise<number> {
   const out = io.out ?? ((text) => process.stdout.write(text));
   const err = io.err ?? ((line) => process.stderr.write(`${line}\n`));
-  const writeFile = io.writeFile ?? ((path, text) => writeFileSync(path, text));
+  const writeFile = io.writeFile ?? ((path, text) => writeFileSync(path, text, { mode: 0o600 }));
   const [sub, ...rest] = argv;
 
   let db: Db | undefined;

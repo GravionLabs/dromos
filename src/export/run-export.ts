@@ -60,8 +60,21 @@ const clean = (s: string): string =>
     .replace(/["[\](){}<>&;`|\\]/g, '')
     .trim();
 
-const nodeId = (prefix: string, key: string | number): string =>
-  `${prefix}_${String(key).replace(/[^A-Za-z0-9_]/g, '_')}`;
+/** Hands out one node id per distinct key: sanitized for Mermaid, with a counter so keys never collide. */
+function idAllocator() {
+  const ids = new Map<string, string>();
+  return (prefix: string, key: string | number): string => {
+    const full = `${prefix}\u0000${key}`;
+    let id = ids.get(full);
+    if (id === undefined) {
+      id = `${prefix}${ids.size}_${String(key)
+        .replace(/[^A-Za-z0-9]/g, '')
+        .slice(0, 24)}`;
+      ids.set(full, id);
+    }
+    return id;
+  };
+}
 
 /**
  * Mermaid `flowchart TD` of the subagent tree: pane -> depth-1 run -> depth-2 run, plus one
@@ -96,6 +109,7 @@ export function toMermaid(events: EventRecord[]): string {
     }
   }
 
+  const nodeId = idAllocator();
   const lines = ['flowchart TD'];
   for (const pane of panes) lines.push(`  ${nodeId('pane', pane)}["${clean(pane)}"]`);
   for (const r of runs.values()) {
