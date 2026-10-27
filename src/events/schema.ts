@@ -426,6 +426,67 @@ export const PhaseFailedEventSchema = z
   })
   .meta({ id: 'PhaseFailedEvent' });
 
+/** Why a fix round started. */
+export const FIX_ROUND_CAUSES = ['review_findings'] as const;
+/** Failing tests listed in one `outcome.tests` event. */
+export const MAX_TEST_FAILURES = 50;
+
+/** Runner-owned: one blocking review finding. The fingerprint is sha1(file, rule, title). */
+export const OutcomeFindingEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('outcome.finding'),
+    data: z
+      .strictObject({
+        fingerprint: z.string().regex(/^[0-9a-f]{40}$/),
+        blocking: z.boolean(),
+        fixed: z.boolean(),
+      })
+      .meta({ id: 'OutcomeFindingData' }),
+  })
+  .meta({ id: 'OutcomeFindingEvent' });
+
+/** Runner-owned: result of one test run. `failures` names the failing tests, never their output. */
+export const OutcomeTestsEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('outcome.tests'),
+    data: z
+      .strictObject({
+        passed: z.number().int().min(0),
+        failed: z.number().int().min(0),
+        failures: z
+          .array(text(1, 256))
+          .max(MAX_TEST_FAILURES)
+          .meta({ maxItems: MAX_TEST_FAILURES }),
+      })
+      .meta({ id: 'OutcomeTestsData' }),
+  })
+  .meta({ id: 'OutcomeTestsEvent' });
+
+/** Runner-owned: a fix round started. */
+export const OutcomeFixRoundEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('outcome.fixRound'),
+    data: z.strictObject({ cause: z.enum(FIX_ROUND_CAUSES) }).meta({ id: 'OutcomeFixRoundData' }),
+  })
+  .meta({ id: 'OutcomeFixRoundEvent' });
+
+/** Runner-owned: the planner's questions; `assumed` is how many were settled by a recommendation. */
+export const OutcomeQuestionsEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('outcome.questions'),
+    data: z
+      .strictObject({
+        count: z.number().int().min(0),
+        assumed: z.number().int().min(0),
+      })
+      .meta({ id: 'OutcomeQuestionsData' }),
+  })
+  .meta({ id: 'OutcomeQuestionsEvent' });
+
 export const BusEventSchema = z
   .discriminatedUnion('type', [
     HookIdleEventSchema,
@@ -447,6 +508,10 @@ export const BusEventSchema = z
     PhaseStartedEventSchema,
     PhaseFinishedEventSchema,
     PhaseFailedEventSchema,
+    OutcomeFindingEventSchema,
+    OutcomeTestsEventSchema,
+    OutcomeFixRoundEventSchema,
+    OutcomeQuestionsEventSchema,
   ])
   .meta({ id: 'BusEvent' });
 export type BusEvent = z.infer<typeof BusEventSchema>;
@@ -471,11 +536,15 @@ export const BUS_EVENT_TYPES = [
   'phase.started',
   'phase.finished',
   'phase.failed',
+  'outcome.finding',
+  'outcome.tests',
+  'outcome.fixRound',
+  'outcome.questions',
 ] as const satisfies readonly BusEvent['type'][];
 
 /**
  * Event types an external producer may post to `POST /ingest`. Server-owned types (`attention.*`,
- * `run.state`, `gate.result`, `review.result`, `attempt.*`, `phase.*`) stay out. Extend this list to open a new type
+ * `run.state`, `gate.result`, `review.result`, `attempt.*`, `phase.*`, `outcome.*`) stay out. Extend this list to open a new type
  * to ingest; every entry must be a `BusEvent['type']`.
  */
 export const INGEST_TYPES = [

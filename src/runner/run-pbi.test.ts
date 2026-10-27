@@ -127,13 +127,14 @@ describe('runPbi', () => {
     expect(s.calls).toEqual(['claim', 'worktree', 'push', 'pr', 'release', 'finish:pr_opened']);
   });
 
-  it('stores phase events with the run id', async () => {
+  it('stores phase and outcome events with the run id', async () => {
     const s = setup([done, clean]);
     await s.run();
     const stored = s.db.queryEvents({ issue: 224, limit: 50 }).events;
     expect(stored.map((e) => e.kind)).toEqual([
       'phase.started',
       'phase.finished',
+      'outcome.tests',
       'phase.started',
       'phase.finished',
     ]);

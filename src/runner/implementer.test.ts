@@ -182,6 +182,7 @@ describe('runImplementerPhase', () => {
       'phase.started',
       'phase.finished',
       'implement.finished',
+      'outcome.tests',
       'tests.passed',
     ]);
     expect(out.usage).toEqual([{ inputTokens: 1, outputTokens: 2, costUsd: null }]);
@@ -195,6 +196,16 @@ describe('runImplementerPhase', () => {
     expect(out.failureTail?.split('\n')).toHaveLength(50);
     expect(out.failureTail?.endsWith('out 79')).toBe(true);
     expect(events.at(-1)?.type).toBe('run.blocked');
+  });
+
+  it('emits the parsed test result before the state changes', async () => {
+    const output = ' FAIL  a.test.ts > breaks\n      Tests  1 failed | 3 passed (4)';
+    const { deps, events } = setup(fakeHarness(), {}, async () => ({ passed: false, output }));
+    await runImplementerPhase(deps, pbi([task(1)]), IMPLEMENTING);
+    expect(events.find((e) => e.type === 'outcome.tests')).toEqual({
+      type: 'outcome.tests',
+      data: { passed: 3, failed: 1, failures: ['a.test.ts > breaks'] },
+    });
   });
 
   it('blocks without running tests when a session reports failure', async () => {

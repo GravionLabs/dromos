@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { RunnerConfigSchema } from './config.js';
 import type { Harness, PhaseInput } from './harness.js';
 import type { ImplementerEvent, PbiSpec } from './implementer.js';
+import { findingFingerprint } from './outcome.js';
 import { buildPrBody, type GithubOps, type ReviewDeps, runReviewPhase } from './review.js';
 
 const REVIEWING = { kind: 'reviewing', round: 0 } as const;
@@ -22,7 +23,7 @@ const clean = { blocking: [], notes: [] };
 
 function setup(
   answers: unknown[],
-  opts: { tests?: boolean[]; config?: Record<string, unknown> } = {},
+  opts: { tests?: boolean[]; output?: string; config?: Record<string, unknown> } = {},
 ) {
   const inputs: PhaseInput[] = [];
   const queue = [...answers];
@@ -46,7 +47,10 @@ function setup(
     skillDirs: [],
     allow: () => ({ allow: true }),
     timeoutMs: 1000,
-    runTests: async () => ({ passed: tests.shift() ?? true, output: 'a\nb\nFAIL c' }),
+    runTests: async () => ({
+      passed: tests.shift() ?? true,
+      output: opts.output ?? 'a\nb\nFAIL c',
+    }),
     emit: (e) => events.push(e),
     repo: 'o/r',
     base: 'release/next',
@@ -102,6 +106,56 @@ describe('runReviewPhase', () => {
     expect(s.events.map((e) => e.type)).toContain('fix.finished');
   });
 
+  it('emits fix round, test result and fixed finding events for a successful fix round', async () => {
+    const s = setup(
+      [
+        { blocking: [{ ...finding, rule: 'null-check' }], notes: [] },
+        { status: 'done', summary: 'fixed' },
+      ],
+      { output: 'Tests  1 failed | 4 passed (5)\n FAIL  a.test.ts > bug' },
+    );
+    await runReviewPhase(s.deps, pbi, REVIEWING);
+    const outcome = s.events.filter((e) => e.type.startsWith('outcome.'));
+    expect(outcome).toEqual([
+      { type: 'outcome.fixRound', data: { cause: 'review_findings' } },
+      {
+        type: 'outcome.tests',
+        data: { passed: 4, failed: 1, failures: ['a.test.ts > bug'] },
+      },
+      {
+        type: 'outcome.finding',
+        data: {
+          fingerprint: findingFingerprint({ file: 'a.ts', rule: 'null-check', title: 'bug' }),
+          blocking: true,
+          fixed: true,
+        },
+      },
+    ]);
+  });
+
+  it('reports the findings as not fixed when the tests stay red', async () => {
+    const s = setup(
+      [
+        { blocking: [finding], notes: [] },
+        { status: 'done', summary: 'fixed' },
+      ],
+      { tests: [false] },
+    );
+    await runReviewPhase(s.deps, pbi, REVIEWING);
+    expect(s.events.filter((e) => e.type === 'outcome.finding')).toEqual([
+      {
+        type: 'outcome.finding',
+        data: { fingerprint: findingFingerprint(finding), blocking: true, fixed: false },
+      },
+    ]);
+  });
+
+  it('emits no outcome events for a clean review', async () => {
+    const s = setup([clean]);
+    await runReviewPhase(s.deps, pbi, REVIEWING);
+    expect(s.events.filter((e) => e.type.startsWith('outcome.'))).toEqual([]);
+  });
+
   it('opens a draft PR when tests are red after the fix round', async () => {
     const s = setup(
       [
@@ -144,6 +198,8 @@ describe('runReviewPhase', () => {
     expect(out.state.kind).toBe('blocked');
     expect(s.inputs).toHaveLength(1);
     expect(s.prs).toEqual([]);
+    expect(s.events.filter((e) => e.type === 'outcome.finding')).toHaveLength(1);
+    expect(s.events.map((e) => e.type)).not.toContain('outcome.fixRound');
   });
 });
 

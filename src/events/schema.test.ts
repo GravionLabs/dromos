@@ -427,6 +427,56 @@ describe('phase event types', () => {
   });
 });
 
+describe('outcome event types', () => {
+  const OUTCOME = {
+    'outcome.finding': 'outcome-finding.json',
+    'outcome.tests': 'outcome-tests.json',
+    'outcome.fixRound': 'outcome-fixRound.json',
+    'outcome.questions': 'outcome-questions.json',
+  } as const;
+  const withData = (f: string, patch: Record<string, unknown>) => {
+    const e = readFixture(f);
+    e.data = { ...(e.data as object), ...patch };
+    return BusEventSchema.safeParse(e).success;
+  };
+
+  it.each(Object.entries(OUTCOME))(
+    '%s parses its fixture, is a bus type and is not ingestable',
+    (type, file) => {
+      expect(BusEventSchema.safeParse(readFixture(file)).success).toBe(true);
+      expect(BUS_EVENT_TYPES).toContain(type);
+      expect(isIngestType(type)).toBe(false);
+    },
+  );
+
+  it.each(Object.values(OUTCOME))('%s rejects an unknown data key', (file) => {
+    expect(withData(file, { extra: 1 })).toBe(false);
+  });
+
+  it('outcome.finding needs a sha1 hex fingerprint', () => {
+    expect(withData('outcome-finding.json', { fingerprint: 'abc' })).toBe(false);
+    expect(withData('outcome-finding.json', { fingerprint: 'A'.repeat(40) })).toBe(false);
+    expect(withData('outcome-finding.json', { fixed: 'yes' })).toBe(false);
+  });
+
+  it('outcome.tests bounds counts and the failure list', () => {
+    expect(withData('outcome-tests.json', { failed: -1 })).toBe(false);
+    expect(withData('outcome-tests.json', { failures: [] })).toBe(true);
+    expect(withData('outcome-tests.json', { failures: [''] })).toBe(false);
+    expect(withData('outcome-tests.json', { failures: Array(51).fill('t') })).toBe(false);
+    expect(withData('outcome-tests.json', { failures: Array(50).fill('t') })).toBe(true);
+  });
+
+  it('outcome.fixRound accepts only known causes', () => {
+    expect(withData('outcome-fixRound.json', { cause: 'whatever' })).toBe(false);
+  });
+
+  it('outcome.questions bounds its counts', () => {
+    expect(withData('outcome-questions.json', { count: -1 })).toBe(false);
+    expect(withData('outcome-questions.json', { assumed: 1.5 })).toBe(false);
+  });
+});
+
 describe('workflow event types', () => {
   const SERVER_OWNED = [
     'run.state',
@@ -629,6 +679,10 @@ describe('events JSON Schema', () => {
       '#/definitions/PhaseStartedEvent',
       '#/definitions/PhaseFinishedEvent',
       '#/definitions/PhaseFailedEvent',
+      '#/definitions/OutcomeFindingEvent',
+      '#/definitions/OutcomeTestsEvent',
+      '#/definitions/OutcomeFixRoundEvent',
+      '#/definitions/OutcomeQuestionsEvent',
     ]);
   });
 

@@ -185,10 +185,9 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
         issue: options.issue,
         runId,
         // The phases carry the harness id for model lookup; the bus event has name, version and sdk only.
-        data: {
-          ...event.data,
-          harness: { name: info.name, version: info.version, sdk: info.sdk },
-        },
+        data: event.type.startsWith('phase.')
+          ? { ...event.data, harness: { name: info.name, version: info.version, sdk: info.sdk } }
+          : event.data,
       });
       options.db.insertEvent(SOURCE, checked.type, checked.data, {
         issue: options.issue,

@@ -76,10 +76,16 @@ export function formatPlanEvent(event: RunPlanEvent): string {
     }
     case 'attention':
       return `attention ${event.data.kind}: ${event.data.summary}`;
+    case 'outcome.finding':
+    case 'outcome.tests':
+    case 'outcome.fixRound':
+    case 'outcome.questions':
+      return `${event.type} ${JSON.stringify(event.data)}`;
+    case 'phase.started':
+    case 'phase.failed':
+      return `${event.type} ${event.data.phase} (${event.data.model})`;
     case 'phase.finished':
       return `${event.type} ${event.data.phase} (${event.data.model}), ${String(event.data.unansweredQuestions)} unanswered question(s)`;
-    default:
-      return `${event.type} ${event.data.phase} (${event.data.model})`;
   }
 }
 
