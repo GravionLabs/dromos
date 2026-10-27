@@ -82,6 +82,19 @@ describe('GET /events filters', () => {
     expect(await ids('kind=gate')).toEqual([]);
   });
 
+  it('does not match non-progress events whose data carries a kind', async () => {
+    const p = recordEvent(bus.db, bus.events, 'src-g', {
+      ...progress(9020),
+      data: { line: 'x', agent: 'orchestrator', kind: 'phase' },
+    });
+    recordEvent(bus.db, bus.events, 'src-g', {
+      ...progress(9020),
+      type: 'attention',
+      data: { kind: 'phase', summary: 'needs a human', pr: null },
+    });
+    expect((await page('?issue=9020&kind=phase')).events.map((e) => e.id)).toEqual([p.id]);
+  });
+
   it('returns stored stream rows and next null on a single page', async () => {
     const row = recordEvent(bus.db, bus.events, 'src-shape', progress(9003, 'ag'));
     const body = await page('?issue=9003');
