@@ -5,11 +5,32 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.1.2] — 2026-10-27
+
+### Documentation
+- Feature #12 is closed
+- **roadmap**: Add Stage 7 self-learning (#159)
+- Re-scope ROADMAP and README to bus core, park dromos-mux
+
+
+### Features
+- Add GET /events query API (#135) (#176)
+- Add optional kind and fields to progress events (#136) (#177)
+- Add run metrics routes (#137) (#181)
+- Add attention state and answer endpoint (#138) (#188)
+- Emit run, gate, review and attention events (#44) (#197)
+- Add dromos run export for json and mermaid (#113) (#198)
+- Add typed task message payload (#130) (#199)
+- Add dromos cli serve subcommand (#32) (#200)
+- Add events cli subcommand (#135) (#201)
+
+
 ## [0.1.1] — 2026-10-25
 
 ### Documentation
 - Add what apm-hub's self-learning workflow needs from dromos
 - Align ROADMAP.md with v0.1.0 and the milestones
+- Update CHANGELOG.md for v0.1.1 [skip ci]
 
 
 ## [0.1.0] — 2026-10-25
