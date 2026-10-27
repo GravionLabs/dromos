@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Check [docs/decisions](../tree/main/docs/decisions) and [docs/out-of-scope](../tree/main/docs/out-of-scope) before proposing, so settled decisions are not re-opened.
+        Check [docs/decisions](https://github.com/GravionLabs/dromos/tree/main/docs/decisions) and [docs/out-of-scope](https://github.com/GravionLabs/dromos/tree/main/docs/out-of-scope) before proposing, so settled decisions are not re-opened.
   - type: input
     id: feature
     attributes:
