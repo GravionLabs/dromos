@@ -66,6 +66,8 @@ export const RunnerConfigSchema = z.strictObject({
     })
     .prefault({}),
   parallel: z.number().int().positive().default(3),
+  /** Fix rounds after the first review before the run is blocked; 0 blocks on the first findings. */
+  maxFixRounds: z.number().int().nonnegative().default(1),
   /** Extra tools or command prefixes allowed on top of the built-in allowlist. */
   allow: z.array(z.string().min(1)).default([]),
 });

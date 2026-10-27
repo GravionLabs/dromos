@@ -50,6 +50,7 @@ describe('loadRunnerConfig', () => {
       },
       test: { full: 'npm test' },
       parallel: 3,
+      maxFixRounds: 1,
       allow: [],
     });
   });
@@ -97,6 +98,7 @@ describe('loadRunnerConfig', () => {
     ['role outside a harness', { models: { planner: 'opus' } }],
     ['unknown harness in models', { models: { gemini: {} } }],
     ['empty model', { models: { copilot: { planner: '' } } }],
+    ['negative maxFixRounds', { maxFixRounds: -1 }],
     ['zero parallel', { parallel: 0 }],
     ['fractional parallel', { parallel: 1.5 }],
     ['skills not a list', { skills: { planner: 'planner' } }],
