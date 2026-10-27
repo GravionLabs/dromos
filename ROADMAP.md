@@ -15,11 +15,10 @@ apm-hub's Epic #573 (`GravionLabs/apm-hub` `ROADMAP.md`, "Unattended path") runs
 | 5 (#591, 2.8.0) | `progress` events with `data.kind` and `data.fields` | #136 | 0.2.0 | open |
 | 5 (#592, 2.8.0) | `GET /events` query API | #135 | 0.2.0 | open |
 | 5 (#592, 2.8.0) | `dromos run metrics`, `GET /runs/{issue}/metrics` | #137 (also needs apm-hub#393) | 0.2.0 | open |
-| 6 (#398, 2.8.0) | headless session executor and HTTP endpoints | #62–#65 | 0.4.0 | open |
-| 6 (#398, optional) | pane executor via herdr | #106 | 0.4.0 | open |
+| 6 (#398) | `dromos run` runner with harness adapters (replaces the headless session executor #62–#65) | work plan B2–B17 | 0.2.0–0.4.0 | open |
 | any | merged Task issues are closed automatically | #150 | none | open, to be scheduled |
 
-Order inside dromos: #136 → #135 → #138 → #137 (Stage 2b), then Stage 4. Gate answers by `attention` (#138) and by the apm-hub `/ruling` comment (#581) are independent; the comment path works without dromos.
+Order inside dromos: #136 → #135 → #138 → #137 (Stage 2b), then Stage 4 (harness adapters and runner). Gate answers by `attention` (#138) and by the apm-hub `/ruling` comment (#581) are independent; the comment path works without dromos.
 
 ## Done
 
@@ -54,7 +53,9 @@ Unblocks apm-hub 2.8.0 (#591, #592) at #135–#137; #138 is what #103 (herdr) an
 | #32 | CLI `serve` (the `role` subcommand is dropped) | — |
 | #28 | `dromos log` | ~#32 |
 
-0.2.0 closes with Stage 2b, this stage and #30, #31 (Feature #29, validation, see Stage 6). #131 records the re-scope decisions: role mode closed, dromos-mux parked, herdr primary, bus core epic, self-learning #159.
+Pull-model tools marked for removal (B16): the MCP tools `start_run`, `submit_implementation`, `submit_review`, `open_pr` and `status` (`src/tools/{submit,review,pr,runs,status}`), the old state machine `src/state-machine.ts` and the bus-side lease (`http-lease`, `run-lease`) go once the runner owns worktrees and the PR. `post`, `ack` and `inbox` stay only if the herdr plugin uses them.
+
+0.2.0 closes with Stage 2b, this stage and #30, #31 (Feature #29, validation, see Stage 6). #131 records the re-scope decisions: role mode closed, dromos-mux parked, herdr primary, bus core epic, self-learning #159, and the decision of 2026-10-27 that dromos owns the control flow and apm-hub is content (Stage 4).
 
 ## Stage 3b — herdr plugin (Epic #98, Feature #99; milestone 0.3.0)
 
@@ -72,28 +73,21 @@ The primary workspace for dromos runs; dromos-mux is parked. apm-hub's parked ga
 | 6 | #107 | docs: herdr plugin as the primary workspace, dromos-mux parked | #103 |
 | 7 | #165 | herdr end-to-end validation on Linux | #44, #101, #102, #103, #105 |
 
-Feature #99 closes with #106 (pane executor via herdr, milestone 0.4.0, Stage 4) and #165.
+Feature #99 closes with #106 (pane executor via herdr, milestone 0.4.0; re-scoped with the runner, see Stage 4) and #165.
 
-## Stage 4 — Session API (Feature #61 in Epic #166; #62–#65, #69 and #106 in milestone 0.4.0)
+## Stage 4 — harness adapters and runner (Feature #61 in Epic #166; milestones 0.2.0 to 0.4.0)
 
-Workflow-independent executor: a driver asks the bus to run a session and restart it with a fresh start prompt. Unattended overnight runs of an apm-hub Epic build on it (apm-hub #398). Headless first; pane mode is served by the herdr plugin (#106).
+Decision of 2026-10-27 (dromos#131, [simplification plan](https://github.com/GravionLabs/apm-hub/blob/release/next/docs/simplification-plan.md)): dromos owns the control flow, apm-hub is content (skills and prompts). The runner is a program: `dromos run epic|feature|pbi <nr>` reads the issue hierarchy, plans where something is missing, selects the next approved and unblocked PBI, and calls one flat harness session per step (Claude, Copilot) through one adapter interface. GitHub stays the source of truth for issue state; the bus keeps events and metrics. Order and sizes: [simplification work plan](https://github.com/GravionLabs/apm-hub/blob/release/next/docs/simplification-workplan.md) (dromos items B1 to B21; milestones 0.2.0 B1-B6b, 0.3.0 B7-B17, 0.4.0 B18-B21).
 
-| Order | Issue | Title | Size | Depends on |
-| --- | --- | --- | --- | --- |
-| 1 | #62 | `session.*` event types in the schema | S | #39 |
-| 2 | #63 | `sessions` table and session manager | M | #41 |
-| 3 | #64 | headless executor | M | #62, #63 |
-| 4 | #65 | HTTP endpoints, restart, input | M | #64, #42 |
-| 5 | #69 | docs and driver conformance test (headless only) | S | #65 |
-| 6 | #106 | pane executor via herdr (closes Feature #99; includes the bus-side claim handling of the closed #67) | M | #65, #101 |
-
-Headless mode (#62–#65) works without herdr and is enough for overnight runs. Pane idle detection (#66) is parked with dromos-mux.
+This replaces the earlier Session API (`session.*` events, `sessions` table, headless executor, HTTP endpoints with restart and input: #62-#65, #69, #106), which was a workflow-independent executor driven from outside. Pane mode stays with the herdr plugin (#106 is re-scoped to the pane harness, see Stage 3b); idle detection (#66) stays parked with dromos-mux.
 
 ## Stage 6 — validation (Epic #166, Feature #29; milestone 0.2.0)
 
 #30 integration test with mocked `gh`, #31 headless/bus end-to-end checklist (no panes or role steps). Both can start; they close 0.2.0. The herdr workspace is validated separately by #165 (Stage 3b).
 
 ## Stage 7 — self-learning (Epic #159)
+
+Kept by the decision of 2026-10-27; the runner (Stage 4) emits the events it learns from.
 
 dromos supplies what a single repo's retro cannot: structured outcome data, cross-repo queries, approval of retro candidates through `attention`, and export of approved lessons. The analysis itself stays in apm-hub's retro (GravionLabs/apm-hub#576, #577); the repo-local lessons contract is GravionLabs/apm-hub#661. apm-hub works without dromos. Blocked by Epic #132 (Stage 2b); not yet planned into PBIs or milestones.
 
