@@ -1,0 +1,25 @@
+[
+  {
+    "type": "system",
+    "subtype": "init",
+    "session_id": "s-1",
+    "claude_code_version": "2.1.311",
+    "model": "claude-sonnet-5-5",
+    "cwd": "/work/wt"
+  },
+  {
+    "type": "result",
+    "subtype": "error_max_turns",
+    "is_error": true,
+    "duration_ms": 900,
+    "num_turns": 50,
+    "session_id": "s-1",
+    "total_cost_usd": 0.4,
+    "usage": {
+      "input_tokens": 900,
+      "output_tokens": 300
+    },
+    "errors": ["hit the turn limit"],
+    "permission_denials": []
+  }
+]
