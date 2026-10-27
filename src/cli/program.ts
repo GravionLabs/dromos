@@ -3,7 +3,7 @@ import { runEventsCommand } from '../cli-events.js';
 import { type Config, loadConfig } from '../config.js';
 import { type RunningServe, reportStartupError, serve } from '../serve.js';
 import { runAttentionCli } from './attention.js';
-import { runRunCli } from './run.js';
+import { runPlanCli, runRunCli } from './run.js';
 
 /** A pass-through subcommand: receives its raw args, resolves to an exit code. */
 type Action = (args: string[]) => Promise<number>;
@@ -85,8 +85,13 @@ export function buildProgram(
   passThrough('attention', 'answer or list attention requests', runAttentionCli);
   passThrough(
     'run',
-    'run and inspect runs (run pbi <nr>, run plan <nr>, run export <issue>, run metrics)',
+    'run and inspect runs (run pbi <nr>, run feature|epic <nr>, run plan <nr>, run export <issue>, run metrics)',
     runRunCli,
+  );
+  passThrough(
+    'plan',
+    'plan a Feature into PBIs or a PBI into Tasks (plan feature|pbi <nr>)',
+    runPlanCli,
   );
 
   return program;

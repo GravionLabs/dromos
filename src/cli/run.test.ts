@@ -17,7 +17,7 @@ import { type Db, openDb } from '../db.js';
 import { recordEvent } from '../event-store.js';
 import { EVENTS_SCHEMA_PATH } from '../events/export-schema.js';
 import { BusEventSchema } from '../events/schema.js';
-import { runRunCli } from './run.js';
+import { type InterruptSource, runPlanCli, runRunCli } from './run.js';
 
 interface JsonSchemaNode {
   properties?: Record<string, { const?: unknown }>;
@@ -480,6 +480,168 @@ describe('dromos run plan', () => {
     expect(res.code).toBe(2);
     expect(finished(res.stdout)?.data?.unansweredQuestions).toBe(1);
     expect(res.created).toEqual([]);
+  });
+});
+
+describe('dromos plan feature|pbi', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'dromos-plan-cli-'));
+  const run = async (argv: string[], title: string) => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const code = await runPlanCli(argv, {
+      db,
+      out: (t) => stdout.push(t),
+      err: (l) => stderr.push(l),
+      plan: {
+        isTty: false,
+        ops: {
+          repoSlug: async () => 'o/r',
+          readIssue: async () => ({
+            number: 40,
+            title,
+            body: 'b',
+            labels: [],
+            subIssues: [],
+            blockedBy: [],
+          }),
+          makeHarness: () => ({
+            version: async () => null,
+            runPhase: async () => ({
+              result: { items: [], questions: [], assumptions: [] },
+              events: [],
+              usage: null,
+            }),
+          }),
+          readComments: async () => [],
+          createIssues: async () => [],
+          writePlan: () => {},
+        },
+      },
+    });
+    return { code, stdout: stdout.join(''), stderr: stderr.join('\n') };
+  };
+
+  it('plans a Feature with plan feature and stops', async () => {
+    const res = await run(['feature', '40', '--repo', repo], '[Feature] feat: f');
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain('"outcome":"planned"');
+  });
+
+  it('refuses plan pbi on a Feature', async () => {
+    const res = await run(['pbi', '40', '--repo', repo], '[Feature] feat: f');
+    expect(res.code).toBe(3);
+    expect(res.stdout).toContain("#40 is not a PBI: '[Feature] feat: f'");
+  });
+
+  it.each([
+    [[], /missing kind, expected feature or pbi/],
+    [['epic', '1'], /unknown kind epic/],
+    [['feature'], /plan feature needs <nr>/],
+  ])('rejects %j with exit code 2 and the plan usage', async (argv, message) => {
+    const res = await run(argv, '[Feature] f');
+    expect(res.code).toBe(2);
+    expect(res.stderr).toMatch(message);
+    expect(res.stderr).toContain('usage: dromos plan feature|pbi <nr>');
+  });
+});
+
+describe('dromos run feature|epic', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'dromos-run-group-'));
+  const feature = {
+    number: 10,
+    title: '[Feature] feat: f',
+    body: '',
+    labels: ['approved'],
+    subIssues: [{ number: 11, title: '[PBI] a', state: 'OPEN' }],
+    blockedBy: [],
+  };
+  const pbi = { ...feature, number: 11, title: '[PBI] a', labels: [], subIssues: [] };
+  const fakeSignals = () => {
+    const listeners: (() => void)[] = [];
+    const source: InterruptSource = {
+      on: (_e, l) => listeners.push(l),
+      off: (_e, l) => listeners.splice(listeners.indexOf(l), 1),
+    };
+    return {
+      source,
+      listeners,
+      fire: () => {
+        for (const l of [...listeners]) l();
+      },
+    };
+  };
+  const run = async (
+    args: string[],
+    isTty: boolean,
+    runPbi: () => Promise<number> = async () => 0,
+    signals = fakeSignals(),
+  ) => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const released: number[] = [];
+    const exits: number[] = [];
+    const code = await runRunCli(['feature', '10', '--repo', repo, ...args], {
+      db,
+      out: (t) => stdout.push(t),
+      err: (l) => stderr.push(l),
+      group: {
+        isTty,
+        signals: signals.source,
+        exit: (c) => exits.push(c),
+        releaseClaim: async (_repo, n) => {
+          released.push(n);
+        },
+        ops: {
+          repoSlug: async () => 'o/r',
+          readIssue: async (_s, n) => (n === 10 ? feature : pbi),
+          runPbi,
+        },
+      },
+    });
+    return { code, stdout: stdout.join(''), stderr: stderr.join('\n'), released, exits, signals };
+  };
+
+  it('prints the report as text on a TTY', async () => {
+    const res = await run([], true);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain('group: run PBI #11');
+    expect(res.stdout).toContain('group done\n  ran #11 exit 0: [PBI] a');
+  });
+
+  it('writes JSON lines off a TTY and removes its Ctrl-C handler', async () => {
+    const res = await run([], false);
+    const last = JSON.parse(res.stdout.trim().split('\n').at(-1) as string);
+    expect(last).toMatchObject({ type: 'group.finished', outcome: 'done', ran: [{ issue: 11 }] });
+    expect(res.signals.listeners).toEqual([]);
+  });
+
+  it('Ctrl-C once lets the PBI finish; twice releases its claim and exits 130', async () => {
+    const signals = fakeSignals();
+    const res = await run(
+      [],
+      false,
+      async () => {
+        signals.fire();
+        signals.fire();
+        await new Promise((r) => setTimeout(r, 0));
+        return 3;
+      },
+      signals,
+    );
+    expect(res.stderr).toContain('interrupted, finishing #11; Ctrl-C again to stop now');
+    expect(res.released).toEqual([11]);
+    expect(res.exits).toEqual([130]);
+    expect(res.code).toBe(130);
+  });
+
+  it.each([
+    [['--format', 'xml'], /--format must be text or json/],
+    [['--harness', 'gemini'], /--harness must be/],
+    [['--nope', 'x'], /unknown option --nope/],
+  ])('rejects %j with exit code 2', async (args, message) => {
+    const res = await run(args, true);
+    expect(res.code).toBe(2);
+    expect(res.stderr).toMatch(message);
   });
 });
 
