@@ -105,7 +105,7 @@ curl 'http://127.0.0.1:4777/events?issue=135&type=progress,usage&limit=500'
 
 ## GET /runs/{issue}/metrics and GET /runs/metrics
 
-`GET /runs/{issue}/metrics?since=&until=` returns the `RunMetrics` of one issue (event counts, durations, usage, per-agent counts). An issue without events answers `200` with empty metrics. `GET /runs/metrics?issues=1,2,3` or `?since=[&until=]` returns `{ runs, aggregate }`: one object per issue plus sums and means. With `since` and no `issues`, the issues are the distinct issues of events in the window.
+`GET /runs/{issue}/metrics?since=&until=` returns the `RunMetrics` of one issue (event counts, durations, usage, per-agent counts). An issue without events answers `200` with empty metrics. `GET /runs/metrics?issues=1,2,3` or `?since=[&until=]` returns `{ runs, aggregate }`: one object per issue plus sums and means. With `since` and no `issues`, the issues are the distinct issues of events in the window. The same data is on the command line: `dromos run metrics [--issues <n,…>] [--since <date>] [--format json|table]`. Fields and contract: [docs/run-metrics.md](docs/run-metrics.md).
 
 - `since` is inclusive and `until` exclusive, both ISO-8601 as for `GET /events`. `issues` is a comma-separated list of non-negative integers, at most 100. The multi route needs `issues` or `since`.
 - Missing usage is reported as `usd: null, measured: false`, never estimated.
