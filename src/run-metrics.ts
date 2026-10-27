@@ -188,7 +188,8 @@ export function computeRunMetrics(issue: number, events: readonly EventRecord[])
   for (const e of sorted) {
     const d = isRecord(e.data) ? e.data : {};
     if (e.kind === 'phase.finished' || e.kind === 'phase.failed') {
-      const phase = typeof d.phase === 'string' ? d.phase : 'unspecified';
+      // The runner names phases `implementer #<task>` and `reviewer #<pbi>`; the role is the part before the number.
+      const phase = typeof d.phase === 'string' ? d.phase.replace(/ #\d+$/, '') : 'unspecified';
       bump(phaseSeconds, phase, num(d.durationMs) / 1000);
       if (e.kind === 'phase.finished') unansweredQuestions += num(d.unansweredQuestions);
       if (isRecord(d.usage)) {

@@ -271,6 +271,26 @@ describe('computeRunMetrics runner events', () => {
     runner('2026-01-01T00:06:00.000Z', 'run.state', { state: 'blocked', round: 1, previous: null }),
   ];
 
+  it('groups the runner phase names `implementer #<task>` and `reviewer #<pbi>` by role', () => {
+    const m = computeRunMetrics(7, [
+      phaseEnd('2026-01-01T00:01:00.000Z', 'phase.finished', 'implementer #11', 10000, {
+        inputTokens: 1,
+        outputTokens: 2,
+        costUsd: 0.1,
+      }),
+      phaseEnd('2026-01-01T00:02:00.000Z', 'phase.finished', 'implementer #12', 20000, {
+        inputTokens: 3,
+        outputTokens: 4,
+        costUsd: 0.2,
+      }),
+      phaseEnd('2026-01-01T00:03:00.000Z', 'phase.finished', 'reviewer #7', 5000, null),
+    ]);
+    expect(m.durations.phases).toEqual({ implementer: 30, reviewer: 5 });
+    expect(m.usage.byRole).toEqual({
+      implementer: { phases: 2, inputTokens: 4, outputTokens: 6, usd: expect.closeTo(0.3, 6) },
+    });
+  });
+
   it('sums phase durations, usage per role, fix rounds, questions and findings', () => {
     const m = computeRunMetrics(7, events);
     expect(m.durations.phases).toEqual({ implementer: 150, planner: 60 });
