@@ -2053,6 +2053,63 @@ pub enum BusEvent {
         run_id: ::std::option::Option<BusEventRunId>,
         source: BusEventSource,
     },
+    #[serde(rename = "phase.started")]
+    PhaseStarted {
+        #[serde(
+            rename = "agentId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        agent_id: ::std::option::Option<BusEventAgentId>,
+        at: BusEventAt,
+        data: PhaseStartedData,
+        id: i64,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        issue: ::std::option::Option<i64>,
+        #[serde(
+            rename = "runId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        run_id: ::std::option::Option<BusEventRunId>,
+        source: BusEventSource,
+    },
+    #[serde(rename = "phase.finished")]
+    PhaseFinished {
+        #[serde(
+            rename = "agentId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        agent_id: ::std::option::Option<BusEventAgentId>,
+        at: BusEventAt,
+        data: PhaseFinishedData,
+        id: i64,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        issue: ::std::option::Option<i64>,
+        #[serde(
+            rename = "runId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        run_id: ::std::option::Option<BusEventRunId>,
+        source: BusEventSource,
+    },
+    #[serde(rename = "phase.failed")]
+    PhaseFailed {
+        #[serde(
+            rename = "agentId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        agent_id: ::std::option::Option<BusEventAgentId>,
+        at: BusEventAt,
+        data: PhaseFailedData,
+        id: i64,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        issue: ::std::option::Option<i64>,
+        #[serde(
+            rename = "runId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        run_id: ::std::option::Option<BusEventRunId>,
+        source: BusEventSource,
+    },
 }
 ///`BusEventAgentId`
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -2868,6 +2925,572 @@ impl ::std::convert::TryFrom<::std::string::String> for HookEventState {
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
     }
+}
+///`PhaseFailedData`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PhaseFailedData {
+    #[serde(rename = "durationMs")]
+    pub duration_ms: i64,
+    pub harness: PhaseHarness,
+    pub model: PhaseFailedDataModel,
+    pub phase: PhaseFailedDataPhase,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub usage: ::std::option::Option<PhaseUsage>,
+}
+///`PhaseFailedDataModel`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PhaseFailedDataModel(::std::string::String);
+impl ::std::ops::Deref for PhaseFailedDataModel {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PhaseFailedDataModel> for ::std::string::String {
+    fn from(value: PhaseFailedDataModel) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for PhaseFailedDataModel {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for PhaseFailedDataModel {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for PhaseFailedDataModel {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PhaseFailedDataModel {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`PhaseFailedDataPhase`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PhaseFailedDataPhase(::std::string::String);
+impl ::std::ops::Deref for PhaseFailedDataPhase {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PhaseFailedDataPhase> for ::std::string::String {
+    fn from(value: PhaseFailedDataPhase) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for PhaseFailedDataPhase {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for PhaseFailedDataPhase {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for PhaseFailedDataPhase {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PhaseFailedDataPhase {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`PhaseFinishedData`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PhaseFinishedData {
+    #[serde(rename = "durationMs")]
+    pub duration_ms: i64,
+    pub harness: PhaseHarness,
+    pub model: PhaseFinishedDataModel,
+    pub phase: PhaseFinishedDataPhase,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub usage: ::std::option::Option<PhaseUsage>,
+}
+///`PhaseFinishedDataModel`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PhaseFinishedDataModel(::std::string::String);
+impl ::std::ops::Deref for PhaseFinishedDataModel {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PhaseFinishedDataModel> for ::std::string::String {
+    fn from(value: PhaseFinishedDataModel) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for PhaseFinishedDataModel {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for PhaseFinishedDataModel {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for PhaseFinishedDataModel {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PhaseFinishedDataModel {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`PhaseFinishedDataPhase`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PhaseFinishedDataPhase(::std::string::String);
+impl ::std::ops::Deref for PhaseFinishedDataPhase {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PhaseFinishedDataPhase> for ::std::string::String {
+    fn from(value: PhaseFinishedDataPhase) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for PhaseFinishedDataPhase {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for PhaseFinishedDataPhase {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for PhaseFinishedDataPhase {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PhaseFinishedDataPhase {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`PhaseHarness`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PhaseHarness {
+    pub name: PhaseHarnessName,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub sdk: ::std::option::Option<PhaseHarnessSdk>,
+    #[serde(deserialize_with = "::std::option::Option::deserialize")]
+    pub version: ::std::option::Option<PhaseHarnessVersion>,
+}
+///`PhaseHarnessName`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PhaseHarnessName(::std::string::String);
+impl ::std::ops::Deref for PhaseHarnessName {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PhaseHarnessName> for ::std::string::String {
+    fn from(value: PhaseHarnessName) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for PhaseHarnessName {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for PhaseHarnessName {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for PhaseHarnessName {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PhaseHarnessName {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`PhaseHarnessSdk`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PhaseHarnessSdk(::std::string::String);
+impl ::std::ops::Deref for PhaseHarnessSdk {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PhaseHarnessSdk> for ::std::string::String {
+    fn from(value: PhaseHarnessSdk) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for PhaseHarnessSdk {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for PhaseHarnessSdk {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for PhaseHarnessSdk {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PhaseHarnessSdk {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`PhaseHarnessVersion`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PhaseHarnessVersion(::std::string::String);
+impl ::std::ops::Deref for PhaseHarnessVersion {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PhaseHarnessVersion> for ::std::string::String {
+    fn from(value: PhaseHarnessVersion) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for PhaseHarnessVersion {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for PhaseHarnessVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for PhaseHarnessVersion {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PhaseHarnessVersion {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`PhaseStartedData`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PhaseStartedData {
+    pub harness: PhaseHarness,
+    pub model: PhaseStartedDataModel,
+    pub phase: PhaseStartedDataPhase,
+}
+///`PhaseStartedDataModel`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PhaseStartedDataModel(::std::string::String);
+impl ::std::ops::Deref for PhaseStartedDataModel {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PhaseStartedDataModel> for ::std::string::String {
+    fn from(value: PhaseStartedDataModel) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for PhaseStartedDataModel {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for PhaseStartedDataModel {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for PhaseStartedDataModel {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PhaseStartedDataModel {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`PhaseStartedDataPhase`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct PhaseStartedDataPhase(::std::string::String);
+impl ::std::ops::Deref for PhaseStartedDataPhase {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<PhaseStartedDataPhase> for ::std::string::String {
+    fn from(value: PhaseStartedDataPhase) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for PhaseStartedDataPhase {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for PhaseStartedDataPhase {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for PhaseStartedDataPhase {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for PhaseStartedDataPhase {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`PhaseUsage`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PhaseUsage {
+    #[serde(rename = "costUsd", deserialize_with = "::std::option::Option::deserialize")]
+    pub cost_usd: ::std::option::Option<f64>,
+    #[serde(rename = "inputTokens")]
+    pub input_tokens: i64,
+    #[serde(rename = "outputTokens")]
+    pub output_tokens: i64,
 }
 ///`ProgressData`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
@@ -3809,4 +4432,7 @@ pub const BUS_EVENT_TYPES: &[&str] = &[
     "review.result",
     "attempt.started",
     "attempt.settled",
+    "phase.started",
+    "phase.finished",
+    "phase.failed",
 ];
