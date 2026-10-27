@@ -118,6 +118,18 @@ describe('runPlan', () => {
     ]);
   });
 
+  it('emits outcome.questions with the count and the taken recommendations', async () => {
+    const s = setup();
+    expect(await s.run({ assumeRecommended: true })).toBe(EXIT_DONE);
+    const event = s.events.find((e) => e.type === 'outcome.questions');
+    expect(event).toEqual({ type: 'outcome.questions', data: { count: 2, assumed: 2 } });
+    expect(s.events.indexOf(event as RunPlanEvent)).toBeLessThan(
+      s.events.findIndex((e) => e.type === 'phase.finished'),
+    );
+    const stored = s.db.queryEvents({ issue: 40, limit: 20 }).events;
+    expect(stored.some((e) => e.kind === 'outcome.questions')).toBe(true);
+  });
+
   it('answers by --answer without a prompt', async () => {
     const s = setup();
     const written: string[] = [];

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { PhaseUsageSchema } from '../events/schema.js';
 import { modelFor, type RunnerConfig, testCommand } from './config.js';
 import type { Harness, HarnessName, PhaseInput, Usage } from './harness.js';
+import { type OutcomeEvent, parseTestSummary } from './outcome.js';
 import {
   type RunEvent,
   type RunInput,
@@ -63,6 +64,7 @@ export type PhaseEnd = PhaseEventData & {
 };
 export type ImplementerEvent =
   | RunEvent
+  | OutcomeEvent
   | { type: 'phase.started'; data: PhaseEventData }
   | { type: 'phase.finished'; data: PhaseEnd }
   | { type: 'phase.failed'; data: PhaseEnd };
@@ -221,6 +223,7 @@ export async function runImplementerPhase(
   const implemented = apply(state, { type: 'implemented' });
   const run = deps.runTests ?? runShell;
   const outcome = await run(testCommand(config), deps.cwd);
+  send(parseTestSummary(outcome.output));
   if (outcome.passed) {
     return { ...apply(implemented.state, { type: 'tests_passed' }), usage };
   }

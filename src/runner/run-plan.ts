@@ -16,6 +16,7 @@ import {
 import { CliHarness } from './harness/cli.js';
 import type { Harness, HarnessName } from './harness.js';
 import type { PhaseEnd, PhaseEventData } from './implementer.js';
+import type { OutcomeEvent } from './outcome.js';
 import { createPermissions } from './permissions.js';
 import {
   type CreatedIssue,
@@ -50,6 +51,7 @@ const TIMEOUT_MS = 30 * 60 * 1000;
 const SOURCE = 'dromos';
 
 export type RunPlanEvent =
+  | OutcomeEvent
   | { type: 'phase.started'; data: PhaseEventData }
   | { type: 'phase.finished'; data: PhaseEnd & { unansweredQuestions: number } }
   | { type: 'phase.failed'; data: PhaseEnd }
@@ -199,6 +201,13 @@ export async function runPlan(options: RunPlanOptions): Promise<number> {
     const path = planPath(options.repo, options.issue);
     ops.writePlan(path, plan);
     const unanswered = resolution.unanswered.length;
+    emit({
+      type: 'outcome.questions',
+      data: {
+        count: planned.plan.questions.length,
+        assumed: resolution.answered.filter((a) => a.assumed).length,
+      },
+    });
     emit({
       type: 'phase.finished',
       data: {
