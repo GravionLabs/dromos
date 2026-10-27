@@ -53,7 +53,7 @@ Unblocks apm-hub 2.8.0 (#591, #592) at #135–#137; #138 is what #103 (herdr) an
 | #32 | CLI `serve` (the `role` subcommand is dropped) | — |
 | #28 | `dromos log` | ~#32 |
 
-Pull-model tools removed (B16): the MCP tools `start_run`, `submit_implementation`, `submit_review`, `open_pr` and `status` and the old state machine are gone. The bus-side lease (`http-lease`, `run-lease`) goes in its own item. `post`, `ack` and `inbox` stay: `src/server.ts` registers them.
+Pull-model tools removed (B16): the MCP tools `start_run`, `submit_implementation`, `submit_review`, `open_pr` and `status` and the old state machine are gone. The bus-side lease (`http-lease`, `run-lease`, `lease`) is gone too (B17); worktree ownership is the runner's claim, and `src/state-dir.ts` keeps only `resolveStateDir`. `post`, `ack` and `inbox` stay: `src/server.ts` registers them.
 
 0.2.0 closes with Stage 2b, this stage and #30, #31 (Feature #29, validation, see Stage 6). #131 records the re-scope decisions: role mode closed, dromos-mux parked, herdr primary, bus core epic, self-learning #159, and the decision of 2026-10-27 that dromos owns the control flow and apm-hub is content (Stage 4).
 

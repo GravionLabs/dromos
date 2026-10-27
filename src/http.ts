@@ -26,7 +26,6 @@ import {
   isIngestType,
 } from './events/schema.js';
 import { startNoticeSweep } from './notice-sweep.js';
-import { startLeaseRenewal } from './run-lease.js';
 import {
   aggregateRunMetrics,
   collectEvents,
@@ -856,14 +855,12 @@ export async function startHttp({
   });
 
   const address = server.address() as AddressInfo;
-  const stopLeaseRenewal = await startLeaseRenewal(db, log);
   const stopNoticeSweep = startNoticeSweep(db, events, log);
 
   return {
     server,
     url: `http://${host}:${address.port}`,
     async close() {
-      stopLeaseRenewal();
       stopNoticeSweep();
       await Promise.all([...sessions.values()].map((s) => s.transport.close()));
       sessions.clear();
