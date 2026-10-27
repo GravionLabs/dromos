@@ -90,5 +90,15 @@ error case and tests). Claude Code 2.1.311 with `sonnet` (Sonnet 5.5), Copilot C
 
 ## Decision
 
-_Open: owner decides (Copilot via SDK as in B5, via the CLI adapter only, or Claude-only for
-0.4.0). Record it here and in dromos#131, then edit B5 to match._
+**Copilot via the CLI adapter only for 0.4.0** (decided 2026-10-27). Both harnesses finished 4 of 4
+runs with a commit and green tests and without permission stalls, so the SDK adapter (B5 as
+written) is not needed now. The SDK stays an option if per-call permission callbacks for Copilot
+become necessary; the CLI can only apply the flag allowlist.
+
+Follow-ups that B5 (#219) now covers instead of the SDK adapter:
+
+- `models` in `.dromos/config.json` is one map for every harness; a Copilot run needs a Copilot
+  model id or `auto` (`sonnet` and `claude-sonnet-4.5` are rejected). Make the model per harness.
+  The id of a Sonnet 5.5 model in Copilot is still unknown (`claude-sonnet-5.5` and
+  `claude-sonnet-5-5` are rejected by 1.0.104); until then use `auto`.
+- Copilot usage from the text footer (`Tokens ↑ … ↓ …`) or from `--output-format json`, else `null`.
