@@ -38,6 +38,7 @@ export const PlanSchema = z.strictObject({
   questions: z.array(PlanQuestionSchema),
   assumptions: z.array(z.string().min(1)),
 });
+export type PlanQuestion = z.infer<typeof PlanQuestionSchema>;
 export type Plan = z.infer<typeof PlanSchema>;
 export type PlanItem = z.infer<typeof PlanItemSchema>;
 
@@ -152,9 +153,16 @@ async function databaseId(repo: string, number: number): Promise<string> {
 }
 
 /** `Parent Feature: #N` as the first body line, then the item body. */
-export function issueBody(level: PlanLevel, parent: number, item: PlanItem): string {
+export function issueBody(
+  level: PlanLevel,
+  parent: number,
+  item: PlanItem,
+  assumptions: string[] = [],
+): string {
   const parentLevel = level === 'PBI' ? 'Feature' : 'PBI';
-  return `Parent ${parentLevel}: #${String(parent)}\n\n${item.body}`;
+  const head = `Parent ${parentLevel}: #${String(parent)}\n\n${item.body}`;
+  if (assumptions.length === 0) return head;
+  return `${head}\n\n## Assumptions\n\n${assumptions.map((a) => `- ${a}`).join('\n')}`;
 }
 
 /**
@@ -167,6 +175,8 @@ export async function createPlanIssues(
   parent: number,
   level: PlanLevel,
   plan: Plan,
+  /** Assumption lines, written under `## Assumptions` of each issue. */
+  assumptions: string[] = [],
 ): Promise<CreatedIssue[]> {
   validatePlan(plan);
   const created = new Map<string, CreatedIssue & { id: string }>();
@@ -179,7 +189,7 @@ export async function createPlanIssues(
       '--title',
       `[${level}] ${item.title}`,
       '--body',
-      issueBody(level, parent, item),
+      issueBody(level, parent, item, assumptions),
       '--label',
       NEEDS_APPROVAL_LABEL,
     ]);
