@@ -1,6 +1,7 @@
 # Release branch pushes handled by the reusable workflow release-branch.yml of GravionLabs/ci:
 # keeps the release PR open and current, labels the issues merged into the branch, sets their project Status
 # to `In release` and keeps the project field Needs current.
+# It also closes open `task` issues named by `Refs #n` in the pushed commits (see docs/task-issue-closing.md).
 # GH_PAT is a classic PAT with the scope `repo` (needed: PRs created with GITHUB_TOKEN do not trigger the required checks).
 # PROJECT_TOKEN (optional, classic PAT with scope `project`) is used for project Status and Needs; it falls back to GH_PAT.
 name: Release branch
