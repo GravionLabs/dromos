@@ -3061,6 +3061,11 @@ pub struct PhaseFinishedData {
     pub harness: PhaseHarness,
     pub model: PhaseFinishedDataModel,
     pub phase: PhaseFinishedDataPhase,
+    #[serde(
+        rename = "unansweredQuestions",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub unanswered_questions: ::std::option::Option<i64>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub usage: ::std::option::Option<PhaseUsage>,
 }
