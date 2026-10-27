@@ -40,6 +40,9 @@ function run(opts: Partial<EventsOptions>, deps: Partial<EventsDeps> = {}) {
   return code.then((c) => ({ code: c, out, err }));
 }
 
+const json = (body: unknown, status = 200) =>
+  (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+
 describe('runEventsCommand', () => {
   it('maps filters to the query string and prints parseable JSON', async () => {
     const a = recordEvent(bus.db, bus.events, 'src-a', event(7001, 'progress', 'agent-x'));
@@ -103,7 +106,9 @@ describe('runEventsCommand', () => {
   });
 
   it('table has a header, one line per event and no data column', async () => {
-    const r = await run({ issue: '7001', table: true });
+    const t1 = recordEvent(bus.db, bus.events, 'tbl-src', event(7100, 'progress', 'tbl-agent'));
+    recordEvent(bus.db, bus.events, 'tbl-src', event(null, 'agent.state'));
+    const r = await run({ source: 'tbl-src', table: true, after: String(t1.id - 1) });
     const lines = r.out.trimEnd().split('\n');
     expect(lines[0]?.split(/\s+/)).toEqual([
       'id',
@@ -114,16 +119,25 @@ describe('runEventsCommand', () => {
       'agentId',
     ]);
     expect(lines).toHaveLength(3);
-    expect(lines[1]).toContain('src-a');
-    expect(lines[1]).toContain('agent-x');
-    expect(lines[2]).toContain('-');
+    const cells = lines[1]?.split(/\s+/) ?? [];
+    expect(cells[1]).toMatch(/^\d{4}-\d\d-\d\dT/);
+    expect(cells.filter((_, i) => i !== 1)).toEqual([
+      String(t1.id),
+      '7100',
+      'tbl-src',
+      'progress',
+      'tbl-agent',
+    ]);
+    expect(lines[2]?.split(/\s+/).slice(2)).toEqual(['-', 'tbl-src', 'agent.state', '-']);
     expect(r.out).not.toContain('built');
   });
 
   it('defaults to table on a TTY and JSON otherwise; --json overrides a TTY', async () => {
-    expect((await run({ issue: '7002' }, { isTTY: true })).out).toMatch(/^id /);
-    expect((await run({ issue: '7002' }, { isTTY: false })).out).toMatch(/^\{/);
-    expect((await run({ issue: '7002', json: true }, { isTTY: true })).out).toMatch(/^\{/);
+    recordEvent(bus.db, bus.events, 'tty-src', event(7200));
+    const q = { source: 'tty-src' };
+    expect((await run(q, { isTTY: true })).out).toMatch(/^id /);
+    expect((await run(q, { isTTY: false })).out).toMatch(/^\{/);
+    expect((await run({ ...q, json: true }, { isTTY: true })).out).toMatch(/^\{/);
   });
 
   it('prints the server error to stderr and exits 2 on 400', async () => {
@@ -137,5 +151,48 @@ describe('runEventsCommand', () => {
     const r = await run({ url: 'http://127.0.0.1:1' });
     expect(r.code).toBe(1);
     expect(r.err).toContain('bus not running at http://127.0.0.1:1');
+  });
+
+  it('strips terminal escape sequences from table cells', async () => {
+    const row = {
+      id: 1,
+      role: 'a\u001b[31mred',
+      kind: 'k\u0007',
+      data: {},
+      createdAt: '2030-01-01T00:00:00.000Z',
+      agentId: 'x\u009by',
+      issue: 1,
+      runId: null,
+    };
+    const r = await run({ table: true }, { fetch: json({ events: [row], next: null }) });
+    const bad = [...r.out].filter((c) => {
+      const n = c.charCodeAt(0);
+      return c !== '\n' && (n < 0x20 || (n >= 0x7f && n <= 0x9f));
+    });
+    expect(bad).toEqual([]);
+    expect(r.out).toContain('a?[31mred');
+  });
+
+  it('stops with exit 1 when --all gets a non-advancing cursor', async () => {
+    const r = await run({ all: true, after: '5' }, { fetch: json({ events: [], next: 5 }) });
+    expect(r.code).toBe(1);
+    expect(r.err).toContain('non-advancing cursor');
+  });
+
+  it('exits 1 on a non-400 failure with and without an error body', async () => {
+    const withBody = await run({}, { fetch: json({ error: 'forbidden' }, 403) });
+    expect(withBody.code).toBe(1);
+    expect(withBody.err).toContain('forbidden');
+    const noBody = await run(
+      {},
+      { fetch: (async () => new Response('oops', { status: 500 })) as unknown as typeof fetch },
+    );
+    expect(noBody.code).toBe(1);
+    expect(noBody.err).toContain('HTTP 500');
+  });
+
+  it('exits 1 on a 200 response that is not an event page', async () => {
+    const r = await run({}, { fetch: json({ nope: true }) });
+    expect(r.code).toBe(1);
   });
 });

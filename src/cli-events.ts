@@ -52,15 +52,19 @@ const QUERY_PARAMS = [
 
 const COLUMNS = ['id', 'createdAt', 'issue', 'source', 'type', 'agentId'] as const;
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g;
+const clean = (value: string): string => value.replace(CONTROL, '?');
+
 /** Renders events as an aligned table with a header row; `data` is omitted. */
 export function formatTable(events: EventRow[]): string {
   const rows = events.map((e) => [
     String(e.id),
-    e.createdAt,
+    clean(e.createdAt),
     e.issue === null ? '-' : String(e.issue),
-    e.role,
-    e.kind,
-    e.agentId ?? '-',
+    clean(e.role),
+    clean(e.kind),
+    e.agentId === null ? '-' : clean(e.agentId),
   ]);
   const all = [[...COLUMNS] as string[], ...rows];
   const widths = COLUMNS.map((_, i) => Math.max(...all.map((r) => (r[i] as string).length)));
@@ -103,12 +107,17 @@ export async function runEventsCommand(opts: EventsOptions, deps: EventsDeps): P
       | null;
     if (!res.ok || body === null || !Array.isArray(body.events)) {
       const detail = typeof body?.error === 'string' ? body.error : `HTTP ${res.status}`;
-      stderr(`dromos: ${detail}`);
+      stderr(`dromos: ${clean(detail)}`);
       return res.status === 400 ? 2 : 1;
     }
     events.push(...body.events);
     next = body.next ?? null;
     if (!opts.all || next === null) break;
+    const last = Number(params.get('after') ?? 0);
+    if (!Number.isFinite(next) || next <= last) {
+      stderr(`dromos: server returned a non-advancing cursor (${next}); stopping`);
+      return 1;
+    }
     params.set('after', String(next));
   }
 
