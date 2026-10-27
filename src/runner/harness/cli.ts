@@ -151,6 +151,23 @@ function sumUsage(usages: readonly Usage[]): Usage | null {
   };
 }
 
+/**
+ * The reply contract as prompt text, from the phase schema: the model is never told the format
+ * otherwise, and the schemas are strict. A string schema (free text) needs none.
+ */
+function replyFormat(schema: z.ZodType): string {
+  const { $schema: _ignored, ...json } = z.toJSONSchema(schema, { io: 'input' }) as Record<
+    string,
+    unknown
+  >;
+  if (json.type === 'string') return '';
+  return (
+    '\n\n## Reply format\n\nEnd your final message with exactly one JSON object and no other ' +
+    'keys, matching this JSON Schema:\n\n```json\n' +
+    `${JSON.stringify(json, null, 2)}\n\`\`\``
+  );
+}
+
 /** JSON values a reply may carry: the whole text, fenced blocks (last first), the last bare object. */
 function jsonCandidates(text: string): unknown[] {
   const found: unknown[] = [];
@@ -212,7 +229,8 @@ export class CliHarness implements Harness {
   async runPhase(input: PhaseInput): Promise<PhaseOutput> {
     const events: RunEvent[] = [];
     const usages: Usage[] = [];
-    let prompt = input.prompt;
+    const base = `${input.prompt}${replyFormat(input.schema)}`;
+    let prompt = base;
     for (let attempt = 0; ; attempt++) {
       const { text, usage } = await this.exec({ ...input, prompt });
       events.push({
@@ -226,7 +244,7 @@ export class CliHarness implements Harness {
       if (attempt >= RETRIES) {
         throw new Error(`${parsed.error}\nreply tail: ${text.slice(-300)}`);
       }
-      prompt = `${input.prompt}\n\nYour previous reply was rejected: ${parsed.error}\nAnswer again with only the JSON object that matches the contract.`;
+      prompt = `${base}\n\nYour previous reply was rejected: ${parsed.error}\nAnswer again with only the JSON object in the reply format above.`;
     }
   }
 
