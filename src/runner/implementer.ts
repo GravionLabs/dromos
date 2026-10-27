@@ -64,7 +64,7 @@ export type PhaseEnd = PhaseEventData & {
 export type ImplementerEvent =
   | RunEvent
   | { type: 'phase.started'; data: PhaseEventData }
-  | { type: 'phase.finished'; data: PhaseEnd }
+  | { type: 'phase.finished'; data: PhaseEnd & { unansweredQuestions?: number } }
   | { type: 'phase.failed'; data: PhaseEnd };
 
 export interface ImplementerDeps {

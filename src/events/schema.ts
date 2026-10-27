@@ -407,7 +407,13 @@ export const PhaseFinishedEventSchema = z
   .strictObject({
     ...envelope,
     type: z.literal('phase.finished'),
-    data: z.strictObject(phaseEnd).meta({ id: 'PhaseFinishedData' }),
+    data: z
+      .strictObject({
+        ...phaseEnd,
+        /** Planner phase only: questions still unanswered after prompt, flags and defaults. */
+        unansweredQuestions: z.number().int().min(0).optional(),
+      })
+      .meta({ id: 'PhaseFinishedData' }),
   })
   .meta({ id: 'PhaseFinishedEvent' });
 
