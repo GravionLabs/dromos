@@ -380,6 +380,53 @@ describe('agent.run', () => {
   });
 });
 
+describe('phase event types', () => {
+  const PHASE = ['phase.started', 'phase.finished', 'phase.failed'] as const;
+  const fixtureOf = {
+    'phase.started': 'phase-started.json',
+    'phase.finished': 'phase-finished.json',
+    'phase.failed': 'phase-failed.json',
+  } as const;
+  const withData = (f: string, patch: Record<string, unknown>) => {
+    const e = readFixture(f);
+    e.data = { ...(e.data as object), ...patch };
+    return BusEventSchema.safeParse(e).success;
+  };
+
+  it.each(PHASE)('%s parses its fixture, is a bus type and is not ingestable', (type) => {
+    expect(BusEventSchema.safeParse(readFixture(fixtureOf[type])).success).toBe(true);
+    expect(BUS_EVENT_TYPES).toContain(type);
+    expect(isIngestType(type)).toBe(false);
+  });
+
+  it.each(PHASE)('%s rejects an unknown data key and an empty phase', (type) => {
+    expect(withData(fixtureOf[type], { extra: 1 })).toBe(false);
+    expect(withData(fixtureOf[type], { phase: '' })).toBe(false);
+    expect(withData(fixtureOf[type], { harness: { name: 'claude' } })).toBe(false);
+  });
+
+  it('allows a null harness version and sdk', () => {
+    expect(
+      withData('phase-started.json', { harness: { name: 'copilot', version: null, sdk: null } }),
+    ).toBe(true);
+  });
+
+  it.each(['phase-finished.json', 'phase-failed.json'])('%s bounds duration and usage', (f) => {
+    expect(withData(f, { durationMs: -1 })).toBe(false);
+    expect(withData(f, { durationMs: 0 })).toBe(true);
+    expect(withData(f, { usage: null })).toBe(true);
+    expect(withData(f, { usage: undefined })).toBe(false);
+    expect(withData(f, { usage: { inputTokens: -1, outputTokens: 0, costUsd: null } })).toBe(false);
+    expect(withData(f, { usage: { inputTokens: 1, outputTokens: 0, costUsd: null } })).toBe(true);
+    expect(withData(f, { usage: { inputTokens: 1, outputTokens: 0, costUsd: -0.1 } })).toBe(false);
+  });
+
+  it('phase.started carries no duration or usage', () => {
+    expect(withData('phase-started.json', { durationMs: 1 })).toBe(false);
+    expect(withData('phase-started.json', { usage: null })).toBe(false);
+  });
+});
+
 describe('workflow event types', () => {
   const SERVER_OWNED = [
     'run.state',
@@ -579,6 +626,9 @@ describe('events JSON Schema', () => {
       '#/definitions/ReviewResultEvent',
       '#/definitions/AttemptStartedEvent',
       '#/definitions/AttemptSettledEvent',
+      '#/definitions/PhaseStartedEvent',
+      '#/definitions/PhaseFinishedEvent',
+      '#/definitions/PhaseFailedEvent',
     ]);
   });
 

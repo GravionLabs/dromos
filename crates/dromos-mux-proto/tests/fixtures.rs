@@ -131,6 +131,18 @@ fn external_fixtures_map_to_their_variants() {
         BusEvent::AttemptSettled { .. }
     ));
     assert!(matches!(
+        load("phase-started.json"),
+        BusEvent::PhaseStarted { .. }
+    ));
+    assert!(matches!(
+        load("phase-finished.json"),
+        BusEvent::PhaseFinished { .. }
+    ));
+    assert!(matches!(
+        load("phase-failed.json"),
+        BusEvent::PhaseFailed { .. }
+    ));
+    assert!(matches!(
         load("agent-state-last-output.json"),
         BusEvent::AgentState { .. }
     ));
@@ -240,6 +252,27 @@ fn rejects_invalid_workflow_event_data() {
         "missing evidence",
         "data.evidence",
         Edit::Remove,
+    );
+    assert_field_rejected(
+        "phase-finished.json",
+        "negative duration",
+        "data.durationMs",
+        Edit::Set(json!(-1)),
+    );
+    assert_field_rejected(
+        "phase-finished.json",
+        "missing usage",
+        "data.usage",
+        Edit::Remove,
+    );
+    assert_accepted("phase-failed.json", "null usage", |e| {
+        e["data"]["usage"] = Value::Null
+    });
+    assert_field_rejected(
+        "phase-started.json",
+        "empty phase",
+        "data.phase",
+        Edit::Set(json!("")),
     );
     assert_field_rejected(
         "agent-state.json",
@@ -977,7 +1010,10 @@ mod event_wrapper {
                 "gate.result",
                 "review.result",
                 "attempt.started",
-                "attempt.settled"
+                "attempt.settled",
+                "phase.started",
+                "phase.finished",
+                "phase.failed"
             ]
         );
     }

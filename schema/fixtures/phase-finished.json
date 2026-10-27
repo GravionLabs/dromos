@@ -1,0 +1,24 @@
+{
+  "id": 70,
+  "type": "phase.finished",
+  "at": "2026-10-27T10:00:00.000Z",
+  "source": "dromos",
+  "agentId": null,
+  "issue": 214,
+  "runId": "run-214",
+  "data": {
+    "phase": "implementer",
+    "harness": {
+      "name": "claude",
+      "version": "2.5.0",
+      "sdk": "claude-agent-sdk"
+    },
+    "model": "claude-sonnet-5-5",
+    "durationMs": 84213,
+    "usage": {
+      "inputTokens": 120345,
+      "outputTokens": 8210,
+      "costUsd": 0.62
+    }
+  }
+}

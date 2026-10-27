@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
 use crate::BusEvent;
-use crate::generated::{ProgressDataFieldsValue, QueueItemDataState};
+use crate::generated::{PhaseUsage, ProgressDataFieldsValue, QueueItemDataState};
 
 /// `type` values the generated [`BusEvent`] knows, taken from the generated
 /// [`BUS_EVENT_TYPES`](crate::BUS_EVENT_TYPES) so a new variant can never fall into
@@ -123,8 +123,8 @@ impl std::error::Error for ConstraintError {}
 pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
     use BusEvent::{
         AgentRegistered, AgentRun, AgentState, AttemptSettled, AttemptStarted, Attention,
-        AttentionAcked, AttentionAnswered, GateResult, HookBusy, HookIdle, Progress, QueueItem,
-        ReviewResult, RunState, Usage,
+        AttentionAcked, AttentionAnswered, GateResult, HookBusy, HookIdle, PhaseFailed,
+        PhaseFinished, PhaseStarted, Progress, QueueItem, ReviewResult, RunState, Usage,
     };
     let (agent_id, run_id) = match event {
         HookIdle {
@@ -173,6 +173,15 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
             agent_id, run_id, ..
         }
         | AttemptSettled {
+            agent_id, run_id, ..
+        }
+        | PhaseStarted {
+            agent_id, run_id, ..
+        }
+        | PhaseFinished {
+            agent_id, run_id, ..
+        }
+        | PhaseFailed {
             agent_id, run_id, ..
         } => (
             agent_id.as_ref().map(|v| v.as_str()),
@@ -257,6 +266,59 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
         }
         // Closed enums, timestamps and `NonZeroU64` counters: nothing free-form to check.
         AgentState { .. } | RunState { .. } | AttemptStarted { .. } | AttemptSettled { .. } => {}
+        PhaseStarted { data, .. } => {
+            texts.push(("data.phase", data.phase.as_str()));
+            texts.push(("data.model", data.model.as_str()));
+            texts.push(("data.harness.name", data.harness.name.as_str()));
+            texts.extend(
+                data.harness
+                    .version
+                    .as_ref()
+                    .map(|v| ("data.harness.version", v.as_str())),
+            );
+            texts.extend(
+                data.harness
+                    .sdk
+                    .as_ref()
+                    .map(|v| ("data.harness.sdk", v.as_str())),
+            );
+        }
+        PhaseFinished { data, .. } => {
+            check_phase_end(data.duration_ms, data.usage.as_ref())?;
+            texts.push(("data.phase", data.phase.as_str()));
+            texts.push(("data.model", data.model.as_str()));
+            texts.push(("data.harness.name", data.harness.name.as_str()));
+            texts.extend(
+                data.harness
+                    .version
+                    .as_ref()
+                    .map(|v| ("data.harness.version", v.as_str())),
+            );
+            texts.extend(
+                data.harness
+                    .sdk
+                    .as_ref()
+                    .map(|v| ("data.harness.sdk", v.as_str())),
+            );
+        }
+        PhaseFailed { data, .. } => {
+            check_phase_end(data.duration_ms, data.usage.as_ref())?;
+            texts.push(("data.phase", data.phase.as_str()));
+            texts.push(("data.model", data.model.as_str()));
+            texts.push(("data.harness.name", data.harness.name.as_str()));
+            texts.extend(
+                data.harness
+                    .version
+                    .as_ref()
+                    .map(|v| ("data.harness.version", v.as_str())),
+            );
+            texts.extend(
+                data.harness
+                    .sdk
+                    .as_ref()
+                    .map(|v| ("data.harness.sdk", v.as_str())),
+            );
+        }
         GateResult { data, .. } => {
             if data.duration_ms < 0 {
                 return Err(ConstraintError::OutOfRange {
@@ -364,6 +426,37 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
         Some((field, _)) => Err(ConstraintError::ForbiddenCharacter { field }),
         None => Ok(()),
     }
+}
+
+/// Ranges shared by `phase.finished` and `phase.failed`.
+fn check_phase_end(duration_ms: i64, usage: Option<&PhaseUsage>) -> Result<(), ConstraintError> {
+    if duration_ms < 0 {
+        return Err(ConstraintError::OutOfRange {
+            field: "data.durationMs",
+            rule: ">= 0",
+        });
+    }
+    if let Some(u) = usage {
+        if u.input_tokens < 0 {
+            return Err(ConstraintError::OutOfRange {
+                field: "data.usage.inputTokens",
+                rule: ">= 0",
+            });
+        }
+        if u.output_tokens < 0 {
+            return Err(ConstraintError::OutOfRange {
+                field: "data.usage.outputTokens",
+                rule: ">= 0",
+            });
+        }
+        if u.cost_usd.is_some_and(|c| c.is_nan() || c < 0.0) {
+            return Err(ConstraintError::OutOfRange {
+                field: "data.usage.costUsd",
+                rule: ">= 0",
+            });
+        }
+    }
+    Ok(())
 }
 
 impl Serialize for Event {
