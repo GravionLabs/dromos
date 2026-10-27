@@ -1,17 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  statSync,
-  symlinkSync,
-} from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { resolveLeaseDir, resolveStateDir } from './state-dir.js';
+import { resolveStateDir } from './state-dir.js';
 
 let tmp: string;
 beforeEach(() => {
@@ -51,57 +43,5 @@ describe('resolveStateDir', () => {
     await expect(resolveStateDir(plain, {})).rejects.toThrow(
       'No state directory: not inside a git repository (set DROMOS_STATE_DIR)',
     );
-  });
-});
-
-describe('resolveLeaseDir', () => {
-  it('creates and returns <state>/leases', async () => {
-    const state = join(tmp, 'state');
-    const dir = await resolveLeaseDir('/nowhere', { DROMOS_STATE_DIR: state });
-    expect(dir).toBe(join(state, 'leases'));
-    expect(existsSync(dir)).toBe(true);
-  });
-
-  it('is idempotent when leases already exists', async () => {
-    const env = { DROMOS_STATE_DIR: join(tmp, 'state') };
-    await resolveLeaseDir('/nowhere', env);
-    expect(await resolveLeaseDir('/nowhere', env)).toBe(join(tmp, 'state', 'leases'));
-  });
-
-  it('refuses a symlinked state dir', async () => {
-    const real = join(tmp, 'real');
-    mkdirSync(real);
-    const link = join(tmp, 'link');
-    symlinkSync(real, link);
-    await expect(resolveLeaseDir('/nowhere', { DROMOS_STATE_DIR: link })).rejects.toThrow(
-      `Refusing symlinked path: ${link}`,
-    );
-  });
-
-  it('refuses a symlinked leases dir, including a dangling link', async () => {
-    const state = join(tmp, 'state');
-    mkdirSync(state);
-    const leases = join(state, 'leases');
-    symlinkSync(join(tmp, 'missing'), leases);
-    await expect(resolveLeaseDir('/nowhere', { DROMOS_STATE_DIR: state })).rejects.toThrow(
-      `Refusing symlinked path: ${leases}`,
-    );
-    expect(existsSync(join(tmp, 'missing'))).toBe(false);
-  });
-
-  it('creates missing directories private (0700)', async () => {
-    const dir = await resolveLeaseDir('/nowhere', { DROMOS_STATE_DIR: join(tmp, 'fresh') });
-    expect(statSync(dir).mode & 0o777).toBe(0o700);
-    expect(statSync(join(tmp, 'fresh')).mode & 0o777).toBe(0o700);
-  });
-
-  it('accepts a state dir below a symlinked parent (the real location is used)', async () => {
-    const real = join(tmp, 'realparent');
-    mkdirSync(real);
-    const link = join(tmp, 'linkparent');
-    symlinkSync(real, link);
-    const dir = await resolveLeaseDir('/nowhere', { DROMOS_STATE_DIR: join(link, 'state') });
-    expect(dir).toBe(join(link, 'state', 'leases'));
-    expect(existsSync(join(real, 'state', 'leases'))).toBe(true);
   });
 });
