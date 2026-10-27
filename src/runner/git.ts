@@ -62,6 +62,11 @@ export async function openRunWorktree(
   return { path, branch, base };
 }
 
+/** Publishes the run branch: `gh pr create` needs it on the remote. */
+export async function pushRunBranch(worktree: RunWorktree): Promise<void> {
+  await execa('git', ['-C', worktree.path, 'push', '--set-upstream', 'origin', worktree.branch]);
+}
+
 /** `pr_opened` removes the worktree (the branch lives on in the PR); `blocked` keeps it for the next look. */
 export async function finishRunWorktree(
   repoPath: string,

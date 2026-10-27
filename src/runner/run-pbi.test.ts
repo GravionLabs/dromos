@@ -63,6 +63,9 @@ function setup(
       calls.push(`finish:${outcome}`);
       return outcome === 'pr_opened';
     },
+    pushBranch: async () => {
+      calls.push('push');
+    },
     makeHarness: () => harness,
     createPr: async () => {
       calls.push('pr');
@@ -121,7 +124,7 @@ describe('runPbi', () => {
       outcome: 'pr_opened',
       pr: { number: 9, draft: false },
     });
-    expect(s.calls).toEqual(['claim', 'worktree', 'pr', 'release', 'finish:pr_opened']);
+    expect(s.calls).toEqual(['claim', 'worktree', 'push', 'pr', 'release', 'finish:pr_opened']);
   });
 
   it('stores phase events with the run id', async () => {
