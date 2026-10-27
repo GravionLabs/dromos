@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadRunnerConfig, RunnerConfigError, testCommand } from './config.js';
+import { loadRunnerConfig, modelFor, RunnerConfigError, testCommand } from './config.js';
 
 describe('loadRunnerConfig', () => {
   let dir: string;
@@ -27,11 +27,20 @@ describe('loadRunnerConfig', () => {
     expect(loadRunnerConfig(dir)).toEqual({
       harness: 'claude',
       models: {
-        planner: 'opus',
-        implementer: 'sonnet',
-        implementerRound2: 'opus',
-        reviewer: 'sonnet',
-        retro: 'opus',
+        claude: {
+          planner: 'opus',
+          implementer: 'sonnet',
+          implementerRound2: 'opus',
+          reviewer: 'sonnet',
+          retro: 'opus',
+        },
+        copilot: {
+          planner: 'auto',
+          implementer: 'auto',
+          implementerRound2: 'auto',
+          reviewer: 'auto',
+          retro: 'auto',
+        },
       },
       skills: {
         planner: ['planner'],
@@ -48,7 +57,7 @@ describe('loadRunnerConfig', () => {
   it('merges a partial file over the defaults', () => {
     write({
       harness: 'copilot',
-      models: { implementer: 'gpt-5' },
+      models: { copilot: { implementer: 'gpt-5' } },
       skills: { reviewer: ['code-review', 'rust-test'] },
       test: { related: 'pnpm test --changed', full: 'pnpm test' },
       parallel: 1,
@@ -56,12 +65,22 @@ describe('loadRunnerConfig', () => {
     });
     const config = loadRunnerConfig(dir);
     expect(config.harness).toBe('copilot');
-    expect(config.models).toMatchObject({ implementer: 'gpt-5', planner: 'opus' });
+    expect(config.models.copilot).toMatchObject({ implementer: 'gpt-5', planner: 'auto' });
+    expect(config.models.claude.planner).toBe('opus');
     expect(config.skills.reviewer).toEqual(['code-review', 'rust-test']);
     expect(config.skills.planner).toEqual(['planner']);
     expect(config.test).toEqual({ related: 'pnpm test --changed', full: 'pnpm test' });
     expect(config.parallel).toBe(1);
     expect(config.allow).toEqual(['pnpm run lint']);
+  });
+
+  it('picks the model per harness, claude-cli sharing the claude models', () => {
+    write({ models: { copilot: { implementer: 'gpt-5.4' } } });
+    const config = loadRunnerConfig(dir);
+    expect(modelFor(config, 'claude', 'implementer')).toBe('sonnet');
+    expect(modelFor(config, 'claude-cli', 'planner')).toBe('opus');
+    expect(modelFor(config, 'copilot', 'implementer')).toBe('gpt-5.4');
+    expect(modelFor(config, 'copilot', 'reviewer')).toBe('auto');
   });
 
   it('uses test.full when test.related is absent', () => {
@@ -74,8 +93,10 @@ describe('loadRunnerConfig', () => {
   it.each([
     ['unknown harness', { harness: 'gemini' }],
     ['unknown top-level key', { paralel: 2 }],
-    ['unknown role', { models: { architect: 'opus' } }],
-    ['empty model', { models: { planner: '' } }],
+    ['unknown role', { models: { claude: { architect: 'opus' } } }],
+    ['role outside a harness', { models: { planner: 'opus' } }],
+    ['unknown harness in models', { models: { gemini: {} } }],
+    ['empty model', { models: { copilot: { planner: '' } } }],
     ['zero parallel', { parallel: 0 }],
     ['fractional parallel', { parallel: 1.5 }],
     ['skills not a list', { skills: { planner: 'planner' } }],

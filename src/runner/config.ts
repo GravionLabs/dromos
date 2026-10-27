@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { HarnessNameSchema } from './harness.js';
+import { type HarnessName, HarnessNameSchema } from './harness.js';
 
 /** Runner config of the *target* repository; separate from the bus server's `dromos.config.json`. */
 export const RUNNER_CONFIG_PATH = join('.dromos', 'config.json');
@@ -12,16 +12,41 @@ export type Role = (typeof ROLES)[number];
 const model = z.string().min(1);
 const skillList = z.array(z.string().min(1));
 
+/** One model per role; ids are passed verbatim to the harness and intentionally not validated. */
+const roleModels = (defaults: Record<Role, string>) =>
+  z
+    .strictObject({
+      planner: model.default(defaults.planner),
+      implementer: model.default(defaults.implementer),
+      implementerRound2: model.default(defaults.implementerRound2),
+      reviewer: model.default(defaults.reviewer),
+      retro: model.default(defaults.retro),
+    })
+    .prefault({});
+
+const CLAUDE_MODELS: Record<Role, string> = {
+  planner: 'opus',
+  implementer: 'sonnet',
+  implementerRound2: 'opus',
+  reviewer: 'sonnet',
+  retro: 'opus',
+};
+/** `auto` lets Copilot pick; a Sonnet id of Copilot is not known yet (see docs/spike.md). */
+const COPILOT_MODELS: Record<Role, string> = {
+  planner: 'auto',
+  implementer: 'auto',
+  implementerRound2: 'auto',
+  reviewer: 'auto',
+  retro: 'auto',
+};
+
 export const RunnerConfigSchema = z.strictObject({
   harness: HarnessNameSchema.default('claude'),
-  /** Passed verbatim to the harness; intentionally not validated. */
+  /** Models per harness family: `claude-cli` uses `claude`; Copilot takes its own model ids or `auto`. */
   models: z
     .strictObject({
-      planner: model.default('opus'),
-      implementer: model.default('sonnet'),
-      implementerRound2: model.default('opus'),
-      reviewer: model.default('sonnet'),
-      retro: model.default('opus'),
+      claude: roleModels(CLAUDE_MODELS),
+      copilot: roleModels(COPILOT_MODELS),
     })
     .prefault({}),
   /** Skills exposed to a role; `implementerRound2` uses the `implementer` skills. */
@@ -48,6 +73,11 @@ export type RunnerConfig = z.infer<typeof RunnerConfigSchema>;
 
 export class RunnerConfigError extends Error {
   override name = 'RunnerConfigError';
+}
+
+/** The model of `role` for `harness`; `claude` and `claude-cli` share the Claude models. */
+export function modelFor(config: RunnerConfig, harness: HarnessName, role: Role): string {
+  return config.models[harness === 'copilot' ? 'copilot' : 'claude'][role];
 }
 
 /** The command that runs tests for a change: `test.related` when set, else `test.full`. */

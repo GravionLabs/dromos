@@ -38,7 +38,16 @@ export function buildArgs(
       ...tools,
     ];
   }
-  const args = ['-p', input.prompt, '--model', input.model, '--allow-tool', 'write'];
+  const args = [
+    '-p',
+    input.prompt,
+    '--model',
+    input.model,
+    '--output-format',
+    'json',
+    '--allow-tool',
+    'write',
+  ];
   for (const c of commands) args.push('--allow-tool', `shell(${c})`);
   return args;
 }
@@ -67,6 +76,61 @@ function parseClaude(stdout: string): { text: string; usage: Usage | null } {
           inputTokens: usage.input_tokens ?? 0,
           outputTokens: usage.output_tokens ?? 0,
           costUsd: total_cost_usd ?? null,
+        }
+      : null,
+  };
+}
+
+const COUNT = z.number().int().min(0);
+const CopilotEventSchema = z.looseObject({ type: z.string(), data: z.unknown().optional() });
+const CopilotMessageSchema = z.looseObject({
+  content: z.string().optional(),
+  toolRequests: z.array(z.unknown()).optional(),
+});
+const CopilotUsageSchema = z.looseObject({
+  accountingSnapshot: z.looseObject({
+    modelMetrics: z.record(
+      z.string(),
+      z.looseObject({ usage: z.object({ inputTokens: COUNT, outputTokens: COUNT }).partial() }),
+    ),
+  }),
+});
+
+/**
+ * Parses `copilot --output-format json` (JSONL): the text is the last assistant message that is not
+ * a tool request, the usage the sum over the models of the last `session.usage_checkpoint`. Copilot
+ * reports credits, not dollars, so `costUsd` stays `null`; no checkpoint gives `usage: null`.
+ */
+function parseCopilot(stdout: string): { text: string; usage: Usage | null } {
+  let text: string | null = null;
+  let metrics: z.infer<typeof CopilotUsageSchema> | null = null;
+  for (const line of stdout.split('\n')) {
+    if (!line.trim()) continue;
+    let json: unknown;
+    try {
+      json = JSON.parse(line);
+    } catch {
+      throw new Error(`unexpected copilot output, not JSON: ${line.slice(0, 200)}`);
+    }
+    const event = CopilotEventSchema.parse(json);
+    if (event.type === 'assistant.message') {
+      const message = CopilotMessageSchema.safeParse(event.data);
+      if (message.success && !message.data.toolRequests?.length) text = message.data.content ?? '';
+    } else if (event.type === 'session.usage_checkpoint') {
+      const usage = CopilotUsageSchema.safeParse(event.data);
+      if (usage.success) metrics = usage.data;
+    }
+  }
+  if (text === null) throw new Error('copilot output has no final assistant message');
+  const models = metrics ? Object.values(metrics.accountingSnapshot.modelMetrics) : [];
+  const reported = models.length > 0 && models.every((m) => m.usage.outputTokens !== undefined);
+  return {
+    text: text.trim(),
+    usage: reported
+      ? {
+          inputTokens: models.reduce((sum, m) => sum + (m.usage.inputTokens ?? 0), 0),
+          outputTokens: models.reduce((sum, m) => sum + (m.usage.outputTokens ?? 0), 0),
+          costUsd: null,
         }
       : null,
   };
@@ -108,8 +172,7 @@ export class CliHarness implements Harness {
       throw new Error(`${this.bin} exited with ${String(res.exitCode)}: ${tail}`);
     }
     const stdout = String(res.stdout);
-    const { text, usage } =
-      this.name === 'copilot' ? { text: stdout.trim(), usage: null } : parseClaude(stdout);
+    const { text, usage } = this.name === 'copilot' ? parseCopilot(stdout) : parseClaude(stdout);
     const event: RunEvent = {
       at: new Date().toISOString(),
       kind: 'message',

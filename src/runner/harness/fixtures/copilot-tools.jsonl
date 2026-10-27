@@ -1,0 +1,5 @@
+{"type":"assistant.message","data":{"messageId":"m1","model":"a","content":"","toolRequests":[{"name":"bash"}]}}
+{"type":"session.usage_checkpoint","data":{"totalPremiumRequests":1,"accountingSnapshot":{"modelMetrics":{"a":{"requests":{"count":1,"cost":1},"usage":{"inputTokens":1000,"outputTokens":40,"cacheReadTokens":0,"cacheWriteTokens":0,"reasoningTokens":0}}}}}}
+{"type":"assistant.message","data":{"messageId":"m2","model":"b","content":"{\"answer\": 4}","toolRequests":[]}}
+{"type":"session.usage_checkpoint","data":{"totalPremiumRequests":1,"accountingSnapshot":{"modelMetrics":{"a":{"requests":{"count":1,"cost":1},"usage":{"inputTokens":1000,"outputTokens":40,"cacheReadTokens":0,"cacheWriteTokens":0,"reasoningTokens":0}},"b":{"requests":{"count":1,"cost":1},"usage":{"inputTokens":2000,"outputTokens":60,"cacheReadTokens":0,"cacheWriteTokens":0,"reasoningTokens":0}}}}}}
+{"type":"result","sessionId":"s-1","exitCode":0,"usage":{"premiumRequests":1}}
