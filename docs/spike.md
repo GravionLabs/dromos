@@ -54,3 +54,51 @@ where that is acceptable.
 | Copilot CLI | not installed on the development machine | `-p`, `--model`, `--allow-tool` taken from its documentation, **not verified**; check `copilot --help` before the first run and adjust `buildArgs` in `src/runner/harness/cli.ts` |
 
 The unit tests use a fake binary on `PATH` and never call a real client. A live run is manual.
+
+## Results
+
+Measured 2026-10-27 against a throwaway repository (private, plain Node, `node --test`) with two
+Tasks: **S** (add `subtract` plus a test) and **M** (new `stats.js` with `mean`, `median`, `mode`,
+error case and tests). Claude Code 2.1.311 with `sonnet` (Sonnet 5.5), Copilot CLI 1.0.104 with
+`--model auto`; the model Copilot picked is not reported, so times are only roughly comparable.
+`npm test` was green in every worktree and every run produced exactly one commit.
+
+| Harness | Task | Run | Wall time | Commit + tests | Usage |
+|---|---|---|---|---|---|
+| claude | S | 1 | 20 s | yes | 14 in / 1145 out tokens, $0.086 |
+| claude | S | 2 | 35 s | yes | 14 in / 1166 out, $0.086 |
+| claude | S | 3 | 23 s | yes | 14 in / 1147 out, $0.035 |
+| claude | M | 1 | 44 s | yes | 16 in / 2977 out, $0.108 |
+| copilot | S | 1 | 57 s | yes | `null` |
+| copilot | S | 2 | 112 s | yes | `null` |
+| copilot | S | 3 | 43 s | yes | `null` |
+| copilot | M | 1 | 85 s | yes | `null` |
+
+- **JSON validity:** Claude's `--output-format json` parsed in all 4 runs. Copilot has no JSON
+  result in the spike (`text` output is taken as is), so there is nothing to validate; its
+  `--output-format json` (JSONL) was not tried.
+- **Permission stalls:** none in either harness (8/8 runs finished without a prompt). The allowlist
+  flags were sufficient for these Tasks; they only used file edits and `npm test`.
+- **Usage:** Claude reports tokens and cost. Copilot's adapter records `null`, but its text output
+  ends with a footer (`AI Credits`, `Tokens ↑ … ↓ …`), so token counts are available by parsing it
+  or via JSONL output.
+- **Flags:** `-p`, `--model` and `--allow-tool` exist in Copilot 1.0.104. `claude-sonnet-4.5` is
+  rejected ("not available"), so the config model must be a Copilot model id or `auto`.
+- **Flakiness:** Copilot's wall time varied 2.6x on the same S Task (43 s to 112 s); Claude 1.7x.
+  Copilot was roughly 2x slower on average.
+- Not covered: git guardrails (do not apply in the spike), failure paths, larger Tasks.
+
+## Decision
+
+**Copilot via the CLI adapter only for 0.4.0** (decided 2026-10-27). Both harnesses finished 4 of 4
+runs with a commit and green tests and without permission stalls, so the SDK adapter (B5 as
+written) is not needed now. The SDK stays an option if per-call permission callbacks for Copilot
+become necessary; the CLI can only apply the flag allowlist.
+
+Follow-ups that B5 (#219) now covers instead of the SDK adapter:
+
+- `models` in `.dromos/config.json` is one map for every harness; a Copilot run needs a Copilot
+  model id or `auto` (`sonnet` and `claude-sonnet-4.5` are rejected). Make the model per harness.
+  The id of a Sonnet 5.5 model in Copilot is still unknown (`claude-sonnet-5.5` and
+  `claude-sonnet-5-5` are rejected by 1.0.104); until then use `auto`.
+- Copilot usage from the text footer (`Tokens ↑ … ↓ …`) or from `--output-format json`, else `null`.
