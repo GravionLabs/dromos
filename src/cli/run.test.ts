@@ -213,8 +213,8 @@ describe('dromos run export errors', () => {
   });
 });
 
-describe('src/index.ts run dispatch', () => {
-  const index = fileURLToPath(new URL('../index.ts', import.meta.url));
+describe('src/cli.ts run dispatch', () => {
+  const index = fileURLToPath(new URL('../cli.ts', import.meta.url));
 
   it('reads bus.db from the configured dataDir and prints the export', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dromos-run-idx-'));

@@ -154,8 +154,8 @@ describe('dromos attention misc', () => {
     expect(err).toEqual(['dromos: bus not running at http://127.0.0.1:1']);
   });
 
-  it('src/index.ts dispatches `attention` to the CLI instead of starting the server', () => {
-    const r = spawnSync(process.execPath, ['--import', 'tsx', 'src/index.ts', 'attention'], {
+  it('src/cli.ts dispatches `attention` to the CLI instead of starting the server', () => {
+    const r = spawnSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', 'attention'], {
       encoding: 'utf8',
     });
     expect(r.status).toBe(2);
