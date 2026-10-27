@@ -4,6 +4,7 @@ import { type Config, loadConfig } from '../config.js';
 import { type RunningServe, reportStartupError, serve } from '../serve.js';
 import { runAttentionCli } from './attention.js';
 import { runPlanCli, runRunCli } from './run.js';
+import { runStatusCli } from './status.js';
 
 /** A pass-through subcommand: receives its raw args, resolves to an exit code. */
 type Action = (args: string[]) => Promise<number>;
@@ -92,6 +93,11 @@ export function buildProgram(
     'plan',
     'plan a Feature into PBIs or a PBI into Tasks (plan feature|pbi <nr>)',
     runPlanCli,
+  );
+  passThrough(
+    'status',
+    'status table of an Epic, Feature or PBI from GitHub and the event store (status <nr>)',
+    runStatusCli,
   );
 
   return program;
