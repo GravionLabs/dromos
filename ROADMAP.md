@@ -53,7 +53,7 @@ Unblocks apm-hub 2.8.0 (#591, #592) at #135–#137; #138 is what #103 (herdr) an
 | #32 | CLI `serve` (the `role` subcommand is dropped) | — |
 | #28 | `dromos log` | ~#32 |
 
-Pull-model tools marked for removal (B16): the MCP tools `start_run`, `submit_implementation`, `submit_review`, `open_pr` and `status` (`src/tools/{submit,review,pr,runs,status}`), the old state machine `src/state-machine.ts` and the bus-side lease (`http-lease`, `run-lease`) go once the runner owns worktrees and the PR. `post`, `ack` and `inbox` stay only if the herdr plugin uses them.
+Pull-model tools removed (B16): the MCP tools `start_run`, `submit_implementation`, `submit_review`, `open_pr` and `status` and the old state machine are gone. The bus-side lease (`http-lease`, `run-lease`) goes in its own item. `post`, `ack` and `inbox` stay: `src/server.ts` registers them.
 
 0.2.0 closes with Stage 2b, this stage and #30, #31 (Feature #29, validation, see Stage 6). #131 records the re-scope decisions: role mode closed, dromos-mux parked, herdr primary, bus core epic, self-learning #159, and the decision of 2026-10-27 that dromos owns the control flow and apm-hub is content (Stage 4).
 
@@ -121,7 +121,7 @@ Features #45 (core) and #50 (sidebar and attention) hold these PBIs. Epic #56 (p
 
 | Closed | Reason | Successor |
 | --- | --- | --- |
-| #20 (Feature), #21 #22 #23 #24 #25 #33 | own interactive role mode, superseded by the apm-hub orchestrator and agents | apm-hub orchestrator and agents; `start_run`, `submit_*`, `open_pr`, `status` stay as bus API |
+| #20 (Feature), #21 #22 #23 #24 #25 #33 | own interactive role mode, superseded by the apm-hub orchestrator and agents | apm-hub orchestrator and agents |
 | #32 (`role` part) | same | `serve` only |
 | #48 | `dromos-mux up` | #101 |
 | #51 | mux SSE client | #100, #102 |

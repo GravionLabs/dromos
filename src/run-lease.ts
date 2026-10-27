@@ -2,7 +2,6 @@
 import { claimLease, releaseLease, renewLease } from './lease.js';
 import type { RunState } from './schemas.js';
 import { resolveLeaseDir } from './state-dir.js';
-import { isTerminal } from './state-machine.js';
 
 export type RunLeaseClaim = {
   repoPath: string;
@@ -12,6 +11,10 @@ export type RunLeaseClaim = {
 };
 
 export type RunLeaseRef = { repoPath: string; worktreePath: string; issueNumber: number };
+
+function isTerminal(state: RunState): boolean {
+  return state === 'pr_opened' || state === 'blocked';
+}
 
 type OnError = (message: string) => void;
 

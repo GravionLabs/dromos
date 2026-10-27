@@ -32,10 +32,11 @@ describe('dromos server', () => {
     expect(tools.map((t) => t.name)).toContain('ping');
   });
 
-  it('lists the open_pr tool', async () => {
+  it('lists the messaging tools and no pull-model tools', async () => {
     const client = await bus.connect('orchestrator');
-    const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name)).toContain('open_pr');
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    expect(names).toEqual(expect.arrayContaining(['post', 'ack', 'inbox']));
+    expect(names).not.toContain('open_pr');
   });
 
   it('serves /health', async () => {

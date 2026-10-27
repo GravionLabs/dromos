@@ -8,7 +8,7 @@ What it offers:
 - **History and metrics**: stored events with query and per-run metrics for apm-hub's retro (planned).
 - **Attention**: gates and questions with an id and state that a human answers (planned).
 - **Runner**: `dromos run epic|feature|pbi <nr>` owns the control flow and calls one flat harness session (Claude, Copilot) per step; apm-hub supplies only the skills and prompts (planned, see [ROADMAP.md](ROADMAP.md) Stage 4).
-- **MCP tools** as the bus API (the pull-model tools `start_run`, `submit_*`, `open_pr` and `status` are marked for removal once the runner lands): `start_run`, `submit_implementation`, `submit_review`, `open_pr`, `status`, `post`, `ack`, `inbox`. The deterministic gate (build, tests, lint, round limit, "PR only after approval") is enforced by the bus itself.
+- **MCP tools** at `/mcp/<role>`: `ping`, `whoami` and the messaging tools `post`, `ack`, `inbox`. The pull-model tools (`start_run`, `submit_implementation`, `submit_review`, `open_pr`, `status`) are gone: the runner owns worktrees, the gate (build, tests, lint), the round limit and the pull request.
 
 dromos does not provide its own interactive role workflow (orchestrator, implementer and reviewer terminals started by dromos): that was dropped, apm-hub's orchestrator and agents cover it. The workspace is the herdr plugin (`dromos-herdr`, primary). The Rust multiplexer `dromos-mux` is parked: the code stays in the repository but is not on the roadmap.
 
@@ -127,7 +127,7 @@ An ingested `attention` event creates an attention row (same id as the event) in
 
 ## Task message payload
 
-A `post` with `type: "task"` must carry a typed payload; an invalid one is rejected with an error and nothing is stored. `inbox` returns task payloads typed. Extra keys (for example `worktreePath`, `branch`, `baseBranch`, `instructions` from `start_run`) are kept. All other message types accept any JSON payload.
+A `post` with `type: "task"` must carry a typed payload; an invalid one is rejected with an error and nothing is stored. `inbox` returns task payloads typed. Extra keys (for example `worktreePath`, `branch`, `baseBranch`, `instructions`) are kept. All other message types accept any JSON payload.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -146,7 +146,7 @@ A `post` with `type: "task"` must carry a typed payload; an invalid one is rejec
   "objective": "Implement #12: Add export",
   "constraints": ["Work only in the worktree"],
   "ownership": ["src/export/**"],
-  "outputFormat": "Commits on feat/12-export, then submit_implementation",
+  "outputFormat": "Commits on feat/12-export",
   "editsAllowed": true,
   "validation": ["pnpm test"],
   "forbidden": ["push to the base branch"],
@@ -210,19 +210,11 @@ dromos run pbi <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--forma
 
 The herdr plugin (Epic #98) is the workspace for interactive work; apm-hub orchestrator runs report to the bus through `$DROMOS_URL`.
 
-Config: `dromos.config.json` in the working directory (or the file named by `DROMOS_CONFIG`), merged over defaults. See `dromos.config.example.json` for host, port, `maxRounds`, gate commands, base branch, `branchPrefix` (default `conventional`, see `start_run`), `worktreeDir` (relative path, no `..`, default `.worktrees`).
+Config: `dromos.config.json` in the working directory (or the file named by `DROMOS_CONFIG`), merged over defaults. See `dromos.config.example.json` for host, port, `maxRounds`, gate commands, base branch, `branchPrefix` (default `conventional`: `<type>/<issue>-<slug>`), `worktreeDir` (relative path, no `..`, default `.worktrees`).
 
 ## Workflow
 
-The MCP tools stay as bus API until the runner replaces them (marked for removal in ROADMAP.md, Stage 3).
-
-1. `start_run(issue)`: create worktree and branch `<type>/<issue>-<slug>` (`fix` for issues labelled `bug` or titled `fix...`/`[bug]...`, otherwise `feat`; e.g. `feat/14-add-start-run`). Set `branchPrefix` to a fixed string such as `agent` to get `agent/<issue>-<slug>` instead. Post the task to the implementer role. The worktree lives at `<repoPath>/<worktreeDir>/<issue>` (default `.worktrees/<issue>`); `start_run` refuses unless `<worktreeDir>/` is git-ignored in that repository.
-2. `submit_implementation`: the bus runs build, tests and lint. Red goes back to the implementer.
-3. `submit_review`: schema-validated verdict. Blocking findings go back to the implementer.
-4. After the round limit (default 3) the run is `blocked` and the orchestrator is notified.
-5. `open_pr`: allowed only once the run is `approved`. The bus never merges.
-
-A `status` tool reports the state of a run.
+`dromos run pbi <nr>` drives the workflow: it creates the worktree and branch `<type>/<issue>-<slug>` (`fix` for issues labelled `bug` or titled `fix...`/`[bug]...`, otherwise `feat`; set `branchPrefix` to a fixed string such as `agent` to get `agent/<issue>-<slug>`), runs the implementer and reviewer steps through a harness, runs the gate commands, stops as `blocked` after the round limit (default 3) and opens the pull request once the review approves. The worktree lives at `<repoPath>/<worktreeDir>/<issue>` (default `.worktrees/<issue>`). The bus never merges.
 
 ## Roadmap
 
