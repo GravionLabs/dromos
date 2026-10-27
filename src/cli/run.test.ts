@@ -254,3 +254,24 @@ describe('src/cli.ts run dispatch', () => {
     }
   });
 });
+
+describe('dromos run task usage', () => {
+  const run = async (args: string[]) => {
+    const lines: string[] = [];
+    const code = await runRunCli(args, { db, err: (l) => lines.push(l) });
+    return { code, text: lines.join('\n') };
+  };
+
+  it.each([
+    [['task'], /task needs <issue>/],
+    [['task', 'x', '--harness', 'claude'], /positive integer/],
+    [['task', '5'], /--harness must be claude or copilot/],
+    [['task', '5', '--harness', 'gemini'], /--harness must be claude or copilot/],
+    [['task', '5', '--harness', 'claude', '--nope', 'x'], /unknown option/],
+  ])('rejects %j with exit code 2', async (args, message) => {
+    const res = await run(args);
+    expect(res.code).toBe(2);
+    expect(res.text).toMatch(message);
+    expect(res.text).toContain('dromos run task <issue>');
+  });
+});
