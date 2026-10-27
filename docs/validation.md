@@ -8,8 +8,10 @@ Runs of `dromos run pbi <nr> --harness <name>` on real PBIs (issue #225). Target
 |---|-----|---------|---------|----|----------|------|---------|
 | 1 | #230 | claude | `blocked` (blocked by #229) | none | 1 s | 0 | none; the runner correctly refused a blocked PBI |
 | 2 | #231 | claude | `pr_opened`, no fix round | [#264](https://github.com/GravionLabs/dromos/pull/264), merged | 120 s | 0.46 USD (implementer 0.35, reviewer 0.11) | #265, #266, #267 |
+| 3 | #232 | claude | `pr_opened`, no fix round | [#268](https://github.com/GravionLabs/dromos/pull/268) | 123 s | 0.37 USD (implementer 0.26, reviewer 0.11) | #267 again |
 
 ## Notes
 
 - **Run 2, #231:** 20 files, +18/-4523 lines; CI green. The reviewer returned `review.clean` in round 0, yet the PR deleted `run-events.integration.test.ts` whole and dropped a coverage gate (#266), left out the `grep` evidence the acceptance criteria demand (#265) and said "Not delivered: Nothing" next to six open notes (#267).
 - Candidates are chosen from open PBIs whose blockers are closed; the runner refuses blocked ones.
+- **Run 3, #232:** 10 files, +8/-1152 lines; matches the acceptance criteria, no scope creep. Again "Not delivered: Nothing" next to four open review notes (#267). One note says the agent did not run build or tests, while the PR body reports `npm test: passed` (the runner's own result).
