@@ -3,6 +3,10 @@ description: A large body of work spanning multiple features, tied to a spec/ADR
 title: "[Epic] "
 labels: ["epic"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [docs/decisions](../tree/main/docs/decisions) and [docs/out-of-scope](../tree/main/docs/out-of-scope) before proposing, so settled decisions are not re-opened.
   - type: textarea
     id: goal
     attributes:

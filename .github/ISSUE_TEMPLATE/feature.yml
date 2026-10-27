@@ -3,6 +3,10 @@ description: A user-facing or system capability, part of an Epic.
 title: "[Feature] "
 labels: ["feature"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [docs/decisions](../tree/main/docs/decisions) and [docs/out-of-scope](../tree/main/docs/out-of-scope) before proposing, so settled decisions are not re-opened.
   - type: input
     id: epic
     attributes:

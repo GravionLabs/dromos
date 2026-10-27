@@ -14,6 +14,8 @@ dromos does not provide its own interactive role workflow (orchestrator, impleme
 
 Architecture: dromos owns the control flow, apm-hub is content. The runner reads the issue hierarchy from GitHub, plans, selects the next approved PBI and calls harness sessions; the bus keeps events and metrics. GitHub stays the source of truth for issue state.
 
+Decision records live in [docs/decisions](docs/decisions/README.md); declined requests in [docs/out-of-scope](docs/out-of-scope/). Check both before proposing a change.
+
 ```
  runner (dromos run) ──► harness sessions (Claude, Copilot; skills from apm-hub)
         │                          │
