@@ -8,9 +8,9 @@ import type { Decision, RunEvent } from './harness.js';
 // through (variable forms such as `g${x}it`, unwrapped runners such as ssh or `find -exec`).
 
 /**
- * Command prefixes the narrow permission set allows. `git` and `gh` are limited to the subcommands the
- * pipeline uses. `gh api` can do what `gh pr merge` does, and `git push` also matches a forced push
- * (the guardrails below deny those to `main` and `release/*`); pwsh and the build tools run arbitrary code.
+ * Command prefixes the narrow permission set allows. `git` is limited to the subcommands the
+ * pipeline uses. `gh` is not allowed: the runner owns all GitHub access (`github.ts`). `git push` also matches a
+ * forced push (the guardrails below deny those to `main` and `release/*`); pwsh and the build tools run arbitrary code.
  */
 export const ALLOWED_COMMANDS: readonly string[] = [
   'git status',
@@ -29,18 +29,6 @@ export const ALLOWED_COMMANDS: readonly string[] = [
   'git merge-base',
   'git ls-files',
   'git remote',
-  'gh issue view',
-  'gh issue list',
-  'gh issue create',
-  'gh issue edit',
-  'gh issue close',
-  'gh issue comment',
-  'gh pr create',
-  'gh pr view',
-  'gh pr list',
-  'gh pr diff',
-  'gh repo view',
-  'gh api',
   'pwsh',
   'pnpm',
   'npm',
