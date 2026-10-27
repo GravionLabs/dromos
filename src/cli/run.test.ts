@@ -482,3 +482,44 @@ describe('dromos run plan', () => {
     expect(res.created).toEqual([]);
   });
 });
+
+describe('dromos run metrics', () => {
+  function seedRunner(issue: number, fingerprint: string) {
+    const finding = { fingerprint, blocking: true, fixed: false };
+    db.insertEvent('dromos', 'outcome.finding', finding, { issue });
+    db.insertEvent('dromos', 'outcome.fixRound', { cause: 'review_findings' }, { issue });
+  }
+
+  it('prints runs and aggregate as JSON by default, for the issues asked', async () => {
+    seedRunner(7, 'aa');
+    seedRunner(8, 'aa');
+    seedRunner(9, 'zz');
+    const r = await cli(['metrics', '--issues', '7,8']);
+    expect(r.code).toBe(0);
+    const doc = JSON.parse(r.out);
+    expect(doc.runs.map((m: { issue: number }) => m.issue)).toEqual([7, 8]);
+    expect(doc.aggregate.fixRounds).toBe(2);
+    expect(doc.aggregate.repeatedFindings).toEqual([{ fingerprint: 'aa', runs: [7, 8], count: 2 }]);
+  });
+
+  it('prints a table with --format table', async () => {
+    seedRunner(7, 'aa');
+    const r = await cli(['metrics', '--issues', '7', '--format', 'table']);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain('#7');
+    expect(r.out).toContain('fix rounds');
+    expect(r.out).toContain('total');
+  });
+
+  it('filters by --since', async () => {
+    seedRunner(7, 'aa');
+    const r = await cli(['metrics', '--since', '2999-01-01T00:00Z']);
+    expect(JSON.parse(r.out).runs).toEqual([]);
+  });
+
+  it('exits 2 without issues or since, on a bad format and on a bad date', async () => {
+    expect((await cli(['metrics'])).code).toBe(2);
+    expect((await cli(['metrics', '--issues', '7', '--format', 'xml'])).code).toBe(2);
+    expect((await cli(['metrics', '--since', 'yesterday'])).code).toBe(2);
+  });
+});

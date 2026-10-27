@@ -4,6 +4,8 @@ import { createInterface } from 'node:readline/promises';
 import { loadConfig } from '../config.js';
 import { type Db, type EventRecord, openDb } from '../db.js';
 import { toJsonExport, toMermaid } from '../export/run-export.js';
+import { collectRunsMetrics, formatMetricsTable } from '../run-metrics.js';
+import { parseMultiRunMetricsQuery } from '../run-metrics-query.js';
 import { HarnessNameSchema } from '../runner/harness.js';
 import { parseAnswerFlags, ttySelectPrompt } from '../runner/questions.js';
 import { EXIT_ERROR, type RunPbiEvent, type RunPbiOps, runPbi } from '../runner/run-pbi.js';
@@ -32,7 +34,7 @@ export interface RunCliIo {
 const FORMATS = ['json', 'mermaid'];
 const PAGE = 1000;
 const USAGE =
-  'usage: dromos run export <issue> [--format json|mermaid] [--out FILE]\n       dromos run task <issue> --harness claude|copilot [--repo PATH]\n       dromos run pbi <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--dry-run] [--force]\n       dromos run plan <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--answer <id>=<value>]... [--assume-recommended]';
+  'usage: dromos run export <issue> [--format json|mermaid] [--out FILE]\n       dromos run task <issue> --harness claude|copilot [--repo PATH]\n       dromos run pbi <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--dry-run] [--force]\n       dromos run plan <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--answer <id>=<value>]... [--assume-recommended]\n       dromos run metrics [--issues <n,…>] [--since <date>] [--format json|table]';
 
 class UsageError extends Error {}
 
@@ -258,6 +260,25 @@ export async function runRunCli(argv: string[], io: RunCliIo = {}): Promise<numb
       } finally {
         lines?.close();
       }
+    }
+    if (sub === 'metrics') {
+      const { positional, flags } = parseArgs(rest, ['issues', 'since', 'format']);
+      if (positional.length > 0) throw new UsageError('metrics takes no positional arguments');
+      const format = flags.get('format') ?? 'json';
+      if (format !== 'json' && format !== 'table') {
+        throw new UsageError('--format must be json or table');
+      }
+      const params = new URLSearchParams();
+      for (const name of ['issues', 'since'] as const) {
+        const value = flags.get(name);
+        if (value !== undefined) params.set(name, value);
+      }
+      const parsed = parseMultiRunMetricsQuery(params);
+      if ('error' in parsed) throw new UsageError(parsed.error);
+      db = io.db ?? openDb(join(loadConfig().dataDir, 'bus.db'));
+      const result = collectRunsMetrics(db, parsed);
+      out(format === 'json' ? `${JSON.stringify(result, null, 2)}\n` : formatMetricsTable(result));
+      return 0;
     }
     if (sub !== 'export') {
       throw new UsageError(sub === undefined ? 'missing subcommand' : `unknown subcommand ${sub}`);

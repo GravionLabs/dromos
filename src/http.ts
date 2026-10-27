@@ -26,12 +26,7 @@ import {
   isIngestType,
 } from './events/schema.js';
 import { startNoticeSweep } from './notice-sweep.js';
-import {
-  aggregateRunMetrics,
-  collectEvents,
-  computeRunMetrics,
-  type RunMetrics,
-} from './run-metrics.js';
+import { collectEvents, collectRunsMetrics, computeRunMetrics } from './run-metrics.js';
 import { parseMultiRunMetricsQuery, parseSingleRunMetricsQuery } from './run-metrics-query.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
@@ -442,29 +437,7 @@ export async function startHttp({
       sendJson(res, 200, computeRunMetrics(issue, collectEvents(db, { issue, ...parsed.window })));
       return;
     }
-    const runs: RunMetrics[] = [];
-    if (parsed.issues) {
-      for (const n of parsed.issues) {
-        runs.push(computeRunMetrics(n, collectEvents(db, { issue: n, ...parsed.window })));
-      }
-    } else {
-      const byIssue = new Map<number, ReturnType<typeof collectEvents>>();
-      for (const e of collectEvents(db, parsed.window)) {
-        if (e.issue !== null) {
-          const list = byIssue.get(e.issue) ?? [];
-          list.push(e);
-          byIssue.set(e.issue, list);
-        }
-      }
-      for (const n of [...byIssue.keys()].sort((a, b) => a - b)) {
-        runs.push(computeRunMetrics(n, byIssue.get(n) ?? []));
-      }
-    }
-    // Requested issues without events stay listed but must not drag the aggregate means down.
-    sendJson(res, 200, {
-      runs,
-      aggregate: aggregateRunMetrics(runs.filter((r) => r.events > 0)),
-    });
+    sendJson(res, 200, collectRunsMetrics(db, parsed));
   }
 
   async function handleEvent(req: IncomingMessage, res: ServerResponse): Promise<void> {
