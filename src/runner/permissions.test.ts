@@ -299,9 +299,6 @@ describe('allowlist', () => {
   it.each([
     'git status',
     'git push origin feat/215-x',
-    'gh issue view 215 --json title',
-    'gh pr create --base release/next',
-    'gh api repos/o/r/issues',
     'pnpm test',
     'pnpm run build && pnpm run lint',
     'npx vitest run',
@@ -317,7 +314,9 @@ describe('allowlist', () => {
 
   it.each([
     'gh pr merge 5',
-    'gh issue delete 1',
+    'gh issue view 215',
+    'gh pr create --base release/next',
+    'gh api repos/o/r/issues',
     'git rebase main',
     'git stash',
     'rm -rf node_modules',
