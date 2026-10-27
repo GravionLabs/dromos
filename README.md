@@ -27,7 +27,7 @@ Decision records live in [docs/decisions](docs/decisions/README.md); declined re
 
 ## Status
 
-Early development. Implemented: project foundation and messaging (`post`, `ack`, `inbox`, `/events`, `/events/stream`, bus log) over streamable HTTP at `/mcp/<role>`, `POST /ingest`, agent instances and the workflow core. The `dromos` CLI (`serve`, `run pbi`, `run feature|epic`, `run plan`, `plan`, `run export`, `attention`) is installed as the `dromos` bin. Everything else below is **planned**, including `dromos log`. Order of work: [ROADMAP.md](ROADMAP.md); the bus core is Epic #166.
+Early development. Implemented: project foundation and messaging (`post`, `ack`, `inbox`, `/events`, `/events/stream`, bus log) over streamable HTTP at `/mcp/<role>`, `POST /ingest`, agent instances and the workflow core. The `dromos` CLI (`serve`, `run pbi`, `run feature|epic`, `run plan`, `plan`, `status`, `run export`, `attention`) is installed as the `dromos` bin. Everything else below is **planned**, including `dromos log`. Order of work: [ROADMAP.md](ROADMAP.md); the bus core is Epic #166.
 
 ## Event stream
 
@@ -227,6 +227,12 @@ dromos run feature|epic <nr> [--harness claude|claude-cli|copilot] [--repo PATH]
 ```
 
 `dromos run feature` and `dromos run epic` first plan every open Feature that has no sub-issues yet (as `dromos run plan` without a TTY: open questions go to the issue and the Feature is skipped). Then they run, one after another as `dromos run pbi` does, every open PBI that is approved (label `approved` on the PBI or on its Feature; PBIs created by the planner carry `needs-approval` until then), not claimed (`in-progress`, unless `--force`) and not blocked by an open issue, in dependency order; each PBI is re-read right before it runs. PBIs directly under an Epic count as a Feature with the Epic's approval. The run never waits for a human: unapproved, claimed and blocked PBIs and Features with open questions are skipped and listed in the final `group.finished` report. Ctrl-C lets the running PBI unwind (its claim is released, its worktree kept) and starts no further PBI; a second Ctrl-C releases the claim of the running PBI and exits at once. All state lives on GitHub, so starting the run again continues it. Exit codes: 0 every selected PBI opened a pull request, 1 at least one PBI run was blocked or failed, 2 usage error, 3 error, 130 interrupted.
+
+```
+dromos status <nr> [--repo PATH] [--format text|json]
+```
+
+`dromos status` prints one table for an Epic, Feature or PBI: the issue, its children and, for an Epic, the PBIs of its Features. Per row: level, open or closed, the workflow labels (`needs-approval`, `approved`, `in-progress`, `needs-decision`), open blockers, the newest pull request of the issue's branch `<type>/<nr>-<slug>` with its state (open, draft, merged, closed) and the header of the last runner run from the local event store (run id, start, harness, model per phase, last phase event). It reads GitHub and the store only and writes nothing; it replaces the status table of the apm-hub orchestrator (`Write-StatusTable.ps1`). `--format json` prints the same rows as JSON; off a TTY the output is JSON whatever `--format` says. Exit codes: 0 printed, 2 usage error, 3 error.
 
 The herdr plugin (Epic #98) is the workspace for interactive work; apm-hub orchestrator runs report to the bus through `$DROMOS_URL`.
 
