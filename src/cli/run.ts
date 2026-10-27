@@ -74,6 +74,8 @@ export function formatPlanEvent(event: RunPlanEvent): string {
       const issues = (event.issues ?? []).map((i) => `#${String(i.number)}`).join(', ');
       return `${event.outcome}${event.reason ? `: ${event.reason}` : ''}${event.plan ? ` (plan ${event.plan})` : ''}${issues ? ` created ${issues}` : ''}`;
     }
+    case 'attention':
+      return `attention ${event.data.kind}: ${event.data.summary}`;
     case 'phase.finished':
       return `${event.type} ${event.data.phase} (${event.data.model}), ${String(event.data.unansweredQuestions)} unanswered question(s)`;
     default:

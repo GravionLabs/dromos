@@ -404,6 +404,10 @@ describe('dromos run plan', () => {
             version: async () => null,
             runPhase: async () => ({ result: plan, events: [], usage: null }),
           }),
+          readComments: async () => [],
+          comment: async () => {},
+          addLabel: async () => {},
+          removeLabel: async () => {},
           createIssues: async (_slug, _parent, _level, _plan, assumptions = []) => {
             created.push(assumptions);
             return [];
@@ -473,7 +477,7 @@ describe('dromos run plan', () => {
 
   it('off a TTY leaves questions unanswered and reports the count in phase.finished', async () => {
     const res = await run([], false);
-    expect(res.code).toBe(1);
+    expect(res.code).toBe(2);
     expect(finished(res.stdout)?.data?.unansweredQuestions).toBe(1);
     expect(res.created).toEqual([]);
   });

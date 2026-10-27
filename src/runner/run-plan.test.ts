@@ -7,8 +7,15 @@ import type { RunnerIssue } from './github.js';
 import type { Harness } from './harness.js';
 import type { Plan, PlanLevel } from './planner.js';
 import { ttySelectPrompt } from './questions.js';
-import { EXIT_BLOCKED, EXIT_DONE, EXIT_ERROR } from './run-pbi.js';
-import { planLevel, planPath, type RunPlanEvent, type RunPlanOps, runPlan } from './run-plan.js';
+import { EXIT_DONE, EXIT_ERROR } from './run-pbi.js';
+import {
+  EXIT_NEEDS_DECISION,
+  planLevel,
+  planPath,
+  type RunPlanEvent,
+  type RunPlanOps,
+  runPlan,
+} from './run-plan.js';
 
 const feature: RunnerIssue = {
   number: 40,
@@ -39,6 +46,7 @@ function setup(answer: unknown = plan, ops: Partial<RunPlanOps> = {}) {
   const repo = mkdtempSync(join(tmpdir(), 'dromos-plan-'));
   const events: RunPlanEvent[] = [];
   const created: Created[] = [];
+  const gh: string[] = [];
   const harness: Harness & { version(): Promise<string | null> } = {
     version: async () => '1.0.0',
     runPhase: async () => {
@@ -58,6 +66,16 @@ function setup(answer: unknown = plan, ops: Partial<RunPlanOps> = {}) {
         repoSlug: async () => 'o/r',
         readIssue: async () => feature,
         makeHarness: () => harness,
+        readComments: async () => [],
+        comment: async (_slug, n, body) => {
+          gh.push(`comment ${String(n)}\n${body}`);
+        },
+        addLabel: async (_slug, n, label) => {
+          gh.push(`add ${String(n)} ${label}`);
+        },
+        removeLabel: async (_slug, n, label) => {
+          gh.push(`remove ${String(n)} ${label}`);
+        },
         createIssues: async (_slug, parent, level, p, assumptions = []) => {
           created.push({ parent, level, plan: p, assumptions });
           return [{ key: 'a', number: 41, url: 'https://github.com/o/r/issues/41' }];
@@ -68,7 +86,7 @@ function setup(answer: unknown = plan, ops: Partial<RunPlanOps> = {}) {
   const finished = () => events.find((e) => e.type === 'phase.finished');
   const last = () => events.at(-1);
   const savedPlan = () => JSON.parse(readFileSync(planPath(repo, 40), 'utf8')) as Plan;
-  return { repo, events, created, db, run, finished, last, savedPlan };
+  return { repo, events, created, gh, db, run, finished, last, savedPlan };
 }
 
 describe('planLevel', () => {
@@ -129,11 +147,71 @@ describe('runPlan', () => {
 
   it('counts unanswered questions in phase.finished and creates no issue', async () => {
     const s = setup();
-    expect(await s.run({ answers: new Map([['q1', 'pg']]) })).toBe(EXIT_BLOCKED);
+    expect(await s.run({ answers: new Map([['q1', 'pg']]) })).toBe(EXIT_NEEDS_DECISION);
     expect(s.finished()).toMatchObject({ data: { unansweredQuestions: 1 } });
     expect(s.created).toEqual([]);
     expect(s.last()).toMatchObject({ type: 'run.finished', outcome: 'questions_open' });
     expect((s.last() as { reason: string }).reason).toMatch(/1 open question\(s\): q2/);
+  });
+
+  it('headless: one comment with a section per question, needs-decision, attention, exit 2', async () => {
+    const s = setup();
+    expect(await s.run()).toBe(2);
+    expect(s.created).toEqual([]);
+    const posted = s.gh.filter((g) => g.startsWith('comment'));
+    expect(posted).toHaveLength(1);
+    const body = posted[0] as string;
+    expect(body).toContain('- **First**');
+    expect(body).toContain('### q1: Which db?');
+    expect(body).toContain('- sqlite (recommended)\n- pg');
+    expect(body).toContain('### q2: Which ui?');
+    expect(body).toContain('Recommendation: cli.');
+    expect(s.gh).toContain('add 40 needs-decision');
+    expect(s.events.find((e) => e.type === 'attention')).toMatchObject({
+      data: { kind: 'QUESTION', pr: null },
+    });
+    const stored = s.db.queryEvents({ issue: 40, limit: 10 }).events;
+    expect(stored.some((e) => e.kind === 'attention')).toBe(true);
+  });
+
+  it('does not post a comment with --assume-recommended', async () => {
+    const s = setup();
+    expect(await s.run({ assumeRecommended: true })).toBe(EXIT_DONE);
+    expect(s.gh).toEqual([]);
+  });
+
+  it('reads /answer comments, removes needs-decision and creates the issues', async () => {
+    const s = setup(plan, {
+      readIssue: async () => ({ ...feature, labels: ['needs-decision'] }),
+      readComments: async () => [
+        'Answer with `/answer q1 <value>`.',
+        '/answer q1 pg\n/answer q2 web',
+        '/answer q2 cli',
+      ],
+    });
+    expect(await s.run()).toBe(EXIT_DONE);
+    expect(s.gh).toEqual(['remove 40 needs-decision']);
+    expect(s.created).toHaveLength(1);
+    expect(s.savedPlan().assumptions).toEqual(['single user']);
+  });
+
+  it('keeps asking for questions the comments leave open', async () => {
+    const s = setup(plan, { readComments: async () => ['/answer q1 pg'] });
+    expect(await s.run()).toBe(EXIT_NEEDS_DECISION);
+    expect(s.gh.find((g) => g.startsWith('comment'))).not.toContain('### q1');
+  });
+
+  it('ignores comment answers to unknown ids; flags win over comments', async () => {
+    const s = setup(plan, {
+      readComments: async () => ['/answer zz 1\n/answer q1 pg\n/answer q2 web'],
+    });
+    expect(await s.run({ answers: new Map([['q2', 'cli']]) })).toBe(EXIT_DONE);
+  });
+
+  it('exits 3 when a commented answer is not an option', async () => {
+    const s = setup(plan, { readComments: async () => ['/answer q1 typo'] });
+    expect(await s.run()).toBe(EXIT_ERROR);
+    expect(s.created).toEqual([]);
   });
 
   it('stores phase.finished with the count on the bus', async () => {
