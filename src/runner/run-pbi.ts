@@ -2,7 +2,13 @@ import type { Db } from '../db.js';
 import { BusEventSchema } from '../events/schema.js';
 import { repoFromPath } from '../github.js';
 import { loadRunnerConfig, modelFor, ROLES, type Role, type RunnerConfig } from './config.js';
-import { type BranchType, finishRunWorktree, openRunWorktree, type RunWorktree } from './git.js';
+import {
+  type BranchType,
+  finishRunWorktree,
+  openRunWorktree,
+  pushRunBranch,
+  type RunWorktree,
+} from './git.js';
 import {
   ClaimError,
   type CreatePrInput,
@@ -68,6 +74,7 @@ export interface RunPbiOps {
   releaseIssue: typeof releaseIssue;
   openWorktree: typeof openRunWorktree;
   finishWorktree: typeof finishRunWorktree;
+  pushBranch: typeof pushRunBranch;
   makeHarness: (name: HarnessName) => Harness & { version(): Promise<string | null> };
   createPr: (repo: string, input: CreatePrInput) => Promise<PullRequest>;
   comment: (repo: string, number: number, body: string) => Promise<void>;
@@ -96,6 +103,7 @@ const defaultOps: RunPbiOps = {
   releaseIssue,
   openWorktree: openRunWorktree,
   finishWorktree: finishRunWorktree,
+  pushBranch: pushRunBranch,
   makeHarness: (name) => new CliHarness({ name }),
   createPr,
   comment,
@@ -251,13 +259,20 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
     state = implemented;
     let pr: (PullRequest & { draft: boolean }) | undefined;
     if (state.state.kind === 'reviewing') {
+      const opened = worktree;
       const reviewed = await runReviewPhase(
         {
           ...deps,
           repo: slug,
           base: worktree.base,
           branch: worktree.branch,
-          github: { createPr: ops.createPr, comment: ops.comment },
+          github: {
+            createPr: async (repo, input) => {
+              await ops.pushBranch(opened);
+              return ops.createPr(repo, input);
+            },
+            comment: ops.comment,
+          },
           listCommits: ops.listCommits,
         },
         pbi,
