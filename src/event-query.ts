@@ -1,9 +1,11 @@
 import type { AttentionQuery, AttentionState, EventQuery } from './db.js';
+import { PROGRESS_KINDS } from './events/schema.js';
 
 const ALLOWED_KEYS = new Set([
   'issue',
   'type',
   'source',
+  'kind',
   'agentId',
   'since',
   'until',
@@ -106,6 +108,18 @@ export function parseEventQuery(params: URLSearchParams): ParsedEventQuery {
       }
       query[field] = list;
     }
+  }
+  const kindRaw = params.get('kind');
+  if (kindRaw !== null) {
+    const list = listParam('kind', kindRaw);
+    if (typeof list === 'string') {
+      return { error: list };
+    }
+    const bad = list.find((k) => !(PROGRESS_KINDS as readonly string[]).includes(k));
+    if (bad !== undefined) {
+      return { error: `kind must be one of ${PROGRESS_KINDS.join(', ')}` };
+    }
+    query.kinds = list;
   }
   const agentId = params.get('agentId');
   if (agentId !== null) {

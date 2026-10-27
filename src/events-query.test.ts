@@ -58,6 +58,30 @@ describe('GET /events filters', () => {
     expect((await page('?issue=9001&agentId=agent-x')).events.map((e) => e.id)).toEqual([b.id]);
   });
 
+  it('filters progress events by data.kind and ANDs with other filters', async () => {
+    const withKind = (issue: number, kind?: string) =>
+      recordEvent(bus.db, bus.events, 'src-k', {
+        ...progress(issue),
+        data: { line: 'x', agent: 'orchestrator', ...(kind ? { kind } : {}) },
+      });
+    const t = withKind(9010, 'task');
+    const w = withKind(9010, 'wave');
+    withKind(9010);
+    withKind(9011, 'task');
+    const other = recordEvent(bus.db, bus.events, 'src-k', {
+      ...progress(9010),
+      type: 'agent.state',
+      data: { state: 'idle' },
+    });
+    const ids = async (qs: string) => (await page(`?issue=9010&${qs}`)).events.map((e) => e.id);
+    expect(await ids('kind=task')).toEqual([t.id]);
+    expect(await ids('kind=task,wave')).toEqual([t.id, w.id]);
+    expect(await ids('kind=task&type=agent.state')).toEqual([]);
+    expect(await ids('kind=task&type=progress,agent.state')).toEqual([t.id]);
+    expect(other.id).toBeGreaterThan(w.id);
+    expect(await ids('kind=gate')).toEqual([]);
+  });
+
   it('returns stored stream rows and next null on a single page', async () => {
     const row = recordEvent(bus.db, bus.events, 'src-shape', progress(9003, 'ag'));
     const body = await page('?issue=9003');
@@ -139,6 +163,10 @@ describe('GET /events errors', () => {
     ['empty type entry', '?type=a,,b', 'type'],
     ['empty source', '?source=', 'source'],
     ['empty agentId', '?agentId=', 'agentId'],
+    ['unknown kind', '?kind=bogus', 'kind'],
+    ['empty kind', '?kind=', 'kind'],
+    ['repeated kind', '?kind=task&kind=wave', 'kind'],
+    ['empty kind entry', '?kind=task,', 'kind'],
     ['since number', '?since=1', 'since'],
     ['since garbage', '?since=2030-13-45T99:99', 'since'],
     ['until date only', '?until=2030-01-01', 'until'],
