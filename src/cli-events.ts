@@ -2,6 +2,7 @@ export interface EventsOptions {
   issue?: string;
   type?: string;
   source?: string;
+  kind?: string;
   agentId?: string;
   since?: string;
   until?: string;
@@ -43,6 +44,7 @@ const QUERY_PARAMS = [
   ['issue', 'issue'],
   ['type', 'type'],
   ['source', 'source'],
+  ['kind', 'kind'],
   ['agentId', 'agentId'],
   ['since', 'since'],
   ['until', 'until'],

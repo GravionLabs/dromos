@@ -42,6 +42,7 @@ export function buildProgram(
     .option('--issue <n>', 'issue number')
     .option('--type <a,b>', 'event type(s), comma-separated')
     .option('--source <a,b>', 'event source(s), comma-separated')
+    .option('--kind <a,b>', 'progress data.kind(s), comma-separated')
     .option('--agent-id <id>', 'agent id')
     .option('--since <iso>', 'inclusive lower bound on createdAt')
     .option('--until <iso>', 'exclusive upper bound on createdAt')
