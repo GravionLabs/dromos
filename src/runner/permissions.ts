@@ -18,6 +18,8 @@ export const ALLOWED_COMMANDS: readonly string[] = [
   'git log',
   'git show',
   'git add',
+  'git rm',
+  'git mv',
   'git commit',
   'git checkout',
   'git switch',
