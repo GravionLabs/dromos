@@ -1,4 +1,5 @@
 import { Command, CommanderError } from 'commander';
+import { runEventsCommand } from '../cli-events.js';
 import { type Config, loadConfig } from '../config.js';
 import { type RunningServe, reportStartupError, serve } from '../serve.js';
 import { runAttentionCli } from './attention.js';
@@ -33,6 +34,42 @@ export function buildProgram(
         if (!reportStartupError(error, config)) throw error;
         onResult(1);
       }
+    });
+
+  program
+    .command('events')
+    .description('query the bus event log (GET /events)')
+    .option('--issue <n>', 'issue number')
+    .option('--type <a,b>', 'event type(s), comma-separated')
+    .option('--source <a,b>', 'event source(s), comma-separated')
+    .option('--agent-id <id>', 'agent id')
+    .option('--since <iso>', 'inclusive lower bound on createdAt')
+    .option('--until <iso>', 'exclusive upper bound on createdAt')
+    .option('--after <id>', 'only events with an id greater than this')
+    .option('--limit <n>', 'page size, 1 to 1000')
+    .option('--all', 'follow pages until all matching events are printed')
+    .option('--json', 'print JSON (default when stdout is not a TTY)')
+    .option('--table', 'print a table (default on a TTY)')
+    .option('--url <base>', 'bus base URL (default DROMOS_URL, else host and port from config)')
+    .action(async (opts: Record<string, string | boolean | undefined>) => {
+      const { agentId, url, ...rest } = opts;
+      const base =
+        (url as string | undefined) ??
+        process.env.DROMOS_URL ??
+        (() => {
+          const c = loadConfig();
+          return `http://${c.host}:${c.port}`;
+        })();
+      onResult(
+        await runEventsCommand(
+          { ...rest, agentId: agentId as string | undefined, url: base },
+          {
+            stdout: (t) => process.stdout.write(t),
+            stderr: (t) => process.stderr.write(`${t}\n`),
+            isTTY: process.stdout.isTTY,
+          },
+        ),
+      );
     });
 
   const passThrough = (name: string, description: string, run: Action): void => {

@@ -7,9 +7,9 @@ import type { RunningServe } from '../serve.js';
 import { buildProgram, runCli } from './program.js';
 
 describe('buildProgram', () => {
-  it('registers serve, attention and run but no role or up', () => {
+  it('registers serve, events, attention and run but no role or up', () => {
     const names = buildProgram().commands.map((c) => c.name());
-    expect(names).toEqual(['serve', 'attention', 'run']);
+    expect(names).toEqual(['serve', 'events', 'attention', 'run']);
   });
 });
 

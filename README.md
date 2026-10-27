@@ -189,7 +189,10 @@ Start the bus and follow its log:
 dromos serve
 dromos log
 dromos run export <issue> --format json|mermaid [--out FILE]
+dromos events --issue 135 --type progress,agent.state --limit 50 --table
 ```
+
+`dromos events` queries `GET /events` with the same filters (`--issue`, `--type`, `--source`, `--agent-id`, `--since`, `--until`, `--after`, `--limit`) and prints JSON (`{events,next}`, default when stdout is not a TTY, or `--json`) or a table of id, createdAt, issue, source, type and agentId (`--table`, default on a TTY). `--all` follows `next` until every matching event is printed. The bus URL comes from `--url`, else `$DROMOS_URL`, else the configured host and port. A rejected query prints the server error and exits 2; an unreachable bus prints a hint and exits 1.
 
 `dromos run export` reads one issue's events from the local store and prints a JSON export (schema version, issue, `exportedAt`, events) or a Mermaid flowchart of its subagent tree, without network access. An unknown issue prints nothing and exits 1.
 
