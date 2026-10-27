@@ -10,6 +10,7 @@ targets:
 dependencies:
   apm:
     - GravionLabs/apm-hub/packages/ts#a9e08c1aca9e81c6395dd1ab096f8fcb9a829c27
+    - GravionLabs/apm-hub/packages/rust#62d8b8c30f3a3ef646826617699f3774f17298a9
   mcp: []
 includes: auto
 scripts: {}
