@@ -1,13 +1,21 @@
 import { Command, CommanderError } from 'commander';
 import { type Config, loadConfig } from '../config.js';
-import { reportStartupError, serve } from '../serve.js';
+import { type RunningServe, reportStartupError, serve } from '../serve.js';
 import { runAttentionCli } from './attention.js';
 import { runRunCli } from './run.js';
 
 /** A pass-through subcommand: receives its raw args, resolves to an exit code. */
 type Action = (args: string[]) => Promise<number>;
 
-export function buildProgram(onResult: (code: number) => void = () => {}): Command {
+export interface CliHooks {
+  /** Called with the running server after `serve` started (lets tests close it). */
+  onServe?: (running: RunningServe) => void;
+}
+
+export function buildProgram(
+  onResult: (code: number) => void = () => {},
+  hooks: CliHooks = {},
+): Command {
   const program = new Command('dromos')
     .description('Local MCP bus coordinating interactive agents')
     .exitOverride();
@@ -19,7 +27,8 @@ export function buildProgram(onResult: (code: number) => void = () => {}): Comma
       let config: Config | undefined;
       try {
         config = loadConfig();
-        await serve(config);
+        const running = await serve(config);
+        hooks.onServe?.(running);
       } catch (error) {
         if (!reportStartupError(error, config)) throw error;
         onResult(1);
@@ -42,11 +51,11 @@ export function buildProgram(onResult: (code: number) => void = () => {}): Comma
 }
 
 /** Runs the dromos CLI; resolves to the exit code once the command finished (`serve` resolves after startup). */
-export async function runCli(argv: string[]): Promise<number> {
+export async function runCli(argv: string[], hooks: CliHooks = {}): Promise<number> {
   let code = 0;
   const program = buildProgram((c) => {
     code = c;
-  });
+  }, hooks);
   if (argv.length === 0) {
     process.stdout.write(program.helpInformation());
     return 0;

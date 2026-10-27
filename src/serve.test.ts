@@ -49,6 +49,33 @@ describe('serve', () => {
 describe('reportStartupError', () => {
   afterEach(() => vi.restoreAllMocks());
 
+  const listenError = (code: string, syscall: string) =>
+    Object.assign(new Error(code), { code, syscall });
+
+  it('reports EACCES on listen as a permission error with host and port', () => {
+    const write = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    expect(
+      reportStartupError(listenError('EACCES', 'listen'), { host: '127.0.0.1', port: 80 }),
+    ).toBe(true);
+    expect(write).toHaveBeenCalledWith(
+      'dromos: cannot listen on 127.0.0.1:80: permission denied\n',
+    );
+  });
+
+  it('does not treat EACCES from another syscall (e.g. opening the db) as a listen failure', () => {
+    const write = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    expect(reportStartupError(listenError('EACCES', 'open'))).toBe(false);
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('names the configured address generically when no config was loaded', () => {
+    const write = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    expect(reportStartupError(listenError('EADDRINUSE', 'listen'))).toBe(true);
+    expect(write).toHaveBeenCalledWith(
+      'dromos: cannot listen on the configured address: address already in use\n',
+    );
+  });
+
   it('leaves unexpected errors unreported', () => {
     const write = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     expect(reportStartupError(new Error('boom'))).toBe(false);

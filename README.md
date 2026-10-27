@@ -20,7 +20,7 @@ dromos does not provide its own interactive role workflow (orchestrator, impleme
 
 ## Status
 
-Early development. Implemented: project foundation and messaging (`post`, `ack`, `inbox`, `/events`, `/events/stream`, bus log) over streamable HTTP at `/mcp/<role>`, `POST /ingest`, agent instances and the workflow core. Everything else below is **planned**, except `dromos log`. Order of work: [ROADMAP.md](ROADMAP.md); the bus core is Epic #166.
+Early development. Implemented: project foundation and messaging (`post`, `ack`, `inbox`, `/events`, `/events/stream`, bus log) over streamable HTTP at `/mcp/<role>`, `POST /ingest`, agent instances and the workflow core. The `dromos` CLI (`serve`, `run export`, `attention`) is installed as the `dromos` bin. Everything else below is **planned**, including `dromos log`. Order of work: [ROADMAP.md](ROADMAP.md); the bus core is Epic #166.
 
 ## Event stream
 

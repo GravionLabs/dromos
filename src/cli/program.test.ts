@@ -3,8 +3,8 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { RunningServe } from '../serve.js';
 import { buildProgram, runCli } from './program.js';
-import { runRunCli } from './run.js';
 
 describe('buildProgram', () => {
   it('registers serve, attention and run but no role or up', () => {
@@ -56,14 +56,34 @@ describe('runCli', () => {
     expect(String(err.mock.calls[0]?.[0])).toMatch(/^dromos: /);
   });
 
-  it('forwards run args to the existing run parser', async () => {
+  it('forwards run args unchanged to the run parser', async () => {
+    const err = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    expect(await runCli(['run', 'export', '--bogus', 'x'])).toBe(2);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('unknown option --bogus'));
+  });
+
+  it('forwards attention args unchanged to the attention parser', async () => {
+    const err = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    expect(await runCli(['attention'])).toBe(2);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('missing subcommand'));
+  });
+
+  it('serve starts the bus and answers /health', async () => {
+    const probe = createServer();
+    await new Promise<void>((r) => probe.listen(0, '127.0.0.1', r));
+    const { port } = probe.address() as { port: number };
+    await new Promise((r) => probe.close(r));
+    const dir = mkdtempSync(join(tmpdir(), 'dromos-cli-'));
+    const file = join(dir, 'dromos.config.json');
+    writeFileSync(file, JSON.stringify({ port, dataDir: 'data' }));
+    vi.stubEnv('DROMOS_CONFIG', file);
     vi.spyOn(process.stderr, 'write').mockReturnValue(true);
-    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
-    vi.stubEnv('DROMOS_CONFIG', join(tmpdir(), 'dromos-missing-config.json'));
-    const expected = await runRunCli([]);
-    expect(await runCli(['run'])).toBe(expected);
-    expect(await runCli(['run', 'export', '--bogus', 'x'])).toBe(
-      await runRunCli(['export', '--bogus', 'x']),
-    );
+    let running: RunningServe | undefined;
+    try {
+      expect(await runCli(['serve'], { onServe: (r) => (running = r) })).toBe(0);
+      expect((await fetch(`http://127.0.0.1:${port}/health`)).status).toBe(200);
+    } finally {
+      await running?.close();
+    }
   });
 });

@@ -37,8 +37,8 @@ export function reportStartupError(
     process.stderr.write(`dromos: ${error.message}\n`);
     return true;
   }
-  const code = (error as NodeJS.ErrnoException | null)?.code;
-  if (code === 'EADDRINUSE' || code === 'EACCES') {
+  const { code, syscall } = (error ?? {}) as NodeJS.ErrnoException;
+  if ((code === 'EADDRINUSE' || code === 'EACCES') && syscall === 'listen') {
     const where = config ? `${config.host}:${config.port}` : 'the configured address';
     const reason = code === 'EADDRINUSE' ? 'address already in use' : 'permission denied';
     process.stderr.write(`dromos: cannot listen on ${where}: ${reason}\n`);
