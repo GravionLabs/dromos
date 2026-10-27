@@ -25,7 +25,7 @@ Architecture: dromos owns the control flow, apm-hub is content. The runner reads
 
 ## Status
 
-Early development. Implemented: project foundation and messaging (`post`, `ack`, `inbox`, `/events`, `/events/stream`, bus log) over streamable HTTP at `/mcp/<role>`, `POST /ingest`, agent instances and the workflow core. The `dromos` CLI (`serve`, `run export`, `attention`) is installed as the `dromos` bin. Everything else below is **planned**, including `dromos log`. Order of work: [ROADMAP.md](ROADMAP.md); the bus core is Epic #166.
+Early development. Implemented: project foundation and messaging (`post`, `ack`, `inbox`, `/events`, `/events/stream`, bus log) over streamable HTTP at `/mcp/<role>`, `POST /ingest`, agent instances and the workflow core. The `dromos` CLI (`serve`, `run pbi`, `run export`, `attention`) is installed as the `dromos` bin. Everything else below is **planned**, including `dromos log`. Order of work: [ROADMAP.md](ROADMAP.md); the bus core is Epic #166.
 
 ## Event stream
 
@@ -201,6 +201,12 @@ dromos events --issue 135 --type progress,agent.state --limit 50 --table
 `dromos events` queries `GET /events` with the same filters (`--issue`, `--type`, `--source`, `--kind`, `--agent-id`, `--since`, `--until`, `--after`, `--limit`) and prints JSON (`{events,next}`, default when stdout is not a TTY, or `--json`) or a table of id, createdAt, issue, source, type and agentId (`--table`, default on a TTY). `--all` follows `next` until every matching event is printed. The bus URL comes from `--url`, else `$DROMOS_URL`, else the configured host and port. A rejected query prints the server error and exits 2; an unreachable bus prints a hint and exits 1.
 
 `dromos run export` reads one issue's events from the local store and prints a JSON export (schema version, issue, `exportedAt`, events) or a Mermaid flowchart of its subagent tree, without network access. An unknown issue prints nothing and exits 1.
+
+```
+dromos run pbi <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--dry-run] [--force]
+```
+
+`dromos run pbi` claims the PBI, implements it in a worktree, reviews it (one fix round) and opens the pull request. The first line and first event is the run header (harness, versions, models per role). `--format json` streams events as JSON lines; text output is for a TTY only, so off a TTY the output is JSON lines whatever `--format` says. `--dry-run` prints the steps without starting a harness or writing to GitHub. `--force` takes over a PBI that already carries `in-progress`. Exit codes: 0 pull request opened (or dry run), 1 blocked, 2 usage error, 3 error.
 
 The herdr plugin (Epic #98) is the workspace for interactive work; apm-hub orchestrator runs report to the bus through `$DROMOS_URL`.
 

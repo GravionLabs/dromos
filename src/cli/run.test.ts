@@ -275,3 +275,91 @@ describe('dromos run task usage', () => {
     expect(res.text).toContain('dromos run task <issue>');
   });
 });
+
+describe('dromos run pbi', () => {
+  const pbiIssue = {
+    number: 5,
+    title: '[PBI] feat: thing',
+    body: '## Acceptance Criteria\n\n- [ ] a',
+    labels: [],
+    subIssues: [],
+    blockedBy: [],
+  };
+  const ops = {
+    repoSlug: async () => 'o/r',
+    readIssue: async () => pbiIssue,
+  };
+  const repo = mkdtempSync(join(tmpdir(), 'dromos-run-pbi-'));
+  const run = async (args: string[], isTty: boolean) => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const code = await runRunCli(['pbi', '5', '--repo', repo, ...args], {
+      db,
+      out: (t) => stdout.push(t),
+      err: (l) => stderr.push(l),
+      pbi: { ops, isTty },
+    });
+    return { code, stdout: stdout.join(''), stderr: stderr.join('\n') };
+  };
+
+  it.each([
+    [['pbi'], /pbi needs <nr>/],
+    [['pbi', 'x'], /positive integer/],
+    [['pbi', '5', '--harness', 'gemini'], /--harness must be/],
+    [['pbi', '5', '--format', 'xml'], /--format must be text or json/],
+    [['pbi', '5', '--nope'], /unknown option --nope/],
+  ])('rejects %j with exit code 2', async (args, message) => {
+    const lines: string[] = [];
+    expect(await runRunCli(args, { db, err: (l) => lines.push(l) })).toBe(2);
+    expect(lines.join('\n')).toMatch(message);
+  });
+
+  it('streams JSON lines with the run header first, even with --format json off a TTY', async () => {
+    const res = await run(['--dry-run', '--format', 'json'], true);
+    expect(res.code).toBe(0);
+    const events = res.stdout
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as { type: string });
+    expect(events[0]).toMatchObject({
+      type: 'run.header',
+      issue: 5,
+      dryRun: true,
+      harness: { name: 'claude' },
+      models: { implementer: 'sonnet' },
+    });
+    expect(events.at(-1)).toMatchObject({ type: 'run.finished', outcome: 'dry_run' });
+  });
+
+  it('prints text on a TTY, header line first', async () => {
+    const res = await run(['--dry-run'], true);
+    const lines = res.stdout.trim().split('\n');
+    expect(lines[0]).toMatch(/^run pbi-5-\S+ #5 o\/r \(dry run\): harness claude; planner=opus/);
+    expect(lines.at(-1)).toBe('dry_run');
+  });
+
+  it('writes JSON lines without a TTY and says so for --format text', async () => {
+    const res = await run(['--dry-run', '--format', 'text'], false);
+    expect(JSON.parse(res.stdout.split('\n')[0] as string)).toMatchObject({ type: 'run.header' });
+    expect(res.stderr).toMatch(/not a TTY/);
+  });
+
+  it('exits 3 when the run cannot start', async () => {
+    const lines: string[] = [];
+    const code = await runRunCli(['pbi', '5', '--repo', repo, '--dry-run'], {
+      db,
+      out: () => {},
+      err: (l) => lines.push(l),
+      pbi: {
+        isTty: false,
+        ops: {
+          repoSlug: async () => {
+            throw new Error('no remote');
+          },
+        },
+      },
+    });
+    expect(code).toBe(3);
+    expect(lines.join('\n')).toMatch(/no remote/);
+  });
+});

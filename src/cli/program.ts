@@ -83,7 +83,7 @@ export function buildProgram(
       .action(async (args: string[]) => onResult(await run(args)));
   };
   passThrough('attention', 'answer or list attention requests', runAttentionCli);
-  passThrough('run', 'inspect runs (run export <issue>)', runRunCli);
+  passThrough('run', 'run and inspect runs (run pbi <nr>, run export <issue>)', runRunCli);
 
   return program;
 }
