@@ -136,6 +136,59 @@ function parseCopilot(stdout: string): { text: string; usage: Usage | null } {
   };
 }
 
+/** One retry with the validation error appended, then the phase fails. */
+const RETRIES = 1;
+
+/** Usage over all attempts of a phase; `null` when no attempt reported any. */
+function sumUsage(usages: readonly Usage[]): Usage | null {
+  if (usages.length === 0) return null;
+  return {
+    inputTokens: usages.reduce((sum, u) => sum + u.inputTokens, 0),
+    outputTokens: usages.reduce((sum, u) => sum + u.outputTokens, 0),
+    costUsd: usages.every((u) => u.costUsd !== null)
+      ? usages.reduce((sum, u) => sum + (u.costUsd ?? 0), 0)
+      : null,
+  };
+}
+
+/** JSON values a reply may carry: the whole text, fenced blocks (last first), the last bare object. */
+function jsonCandidates(text: string): unknown[] {
+  const found: unknown[] = [];
+  const add = (raw: string): boolean => {
+    try {
+      found.push(JSON.parse(raw));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  add(text.trim());
+  const fenced = [...text.matchAll(/```(?:json)?\s*\n([\s\S]*?)```/g)].map((m) => m[1] ?? '');
+  for (const block of fenced.reverse()) add(block.trim());
+  const end = text.lastIndexOf('}');
+  for (let start = text.lastIndexOf('{', end); start >= 0 && end > start; ) {
+    if (add(text.slice(start, end + 1))) break;
+    start = text.lastIndexOf('{', start - 1);
+  }
+  return found;
+}
+
+/** Validates a reply against the phase schema; a string schema takes the text as it is. */
+function parseReply(
+  text: string,
+  schema: z.ZodType,
+): { ok: true; value: unknown } | { ok: false; error: string } {
+  const raw = schema.safeParse(text);
+  if (raw.success) return { ok: true, value: raw.data };
+  let error = `reply is not JSON: ${z.prettifyError(raw.error)}`;
+  for (const candidate of jsonCandidates(text)) {
+    const res = schema.safeParse(candidate);
+    if (res.success) return { ok: true, value: res.data };
+    error = `reply does not match the contract: ${z.prettifyError(res.error)}`;
+  }
+  return { ok: false, error };
+}
+
 export class CliHarness implements Harness {
   readonly name: HarnessName;
   private readonly bin: string;
@@ -157,6 +210,27 @@ export class CliHarness implements Harness {
   }
 
   async runPhase(input: PhaseInput): Promise<PhaseOutput> {
+    const events: RunEvent[] = [];
+    const usages: Usage[] = [];
+    let prompt = input.prompt;
+    for (let attempt = 0; ; attempt++) {
+      const { text, usage } = await this.exec({ ...input, prompt });
+      events.push({
+        at: new Date().toISOString(),
+        kind: 'message',
+        summary: (text || '(empty)').slice(0, 500),
+      });
+      if (usage) usages.push(usage);
+      const parsed = parseReply(text, input.schema);
+      if (parsed.ok) return { result: parsed.value, events, usage: sumUsage(usages) };
+      if (attempt >= RETRIES) {
+        throw new Error(`${parsed.error}\nreply tail: ${text.slice(-300)}`);
+      }
+      prompt = `${input.prompt}\n\nYour previous reply was rejected: ${parsed.error}\nAnswer again with only the JSON object that matches the contract.`;
+    }
+  }
+
+  private async exec(input: PhaseInput): Promise<{ text: string; usage: Usage | null }> {
     const res = await execa(this.bin, buildArgs(this.name, input, this.commands), {
       cwd: input.cwd,
       env: this.env,
@@ -172,12 +246,6 @@ export class CliHarness implements Harness {
       throw new Error(`${this.bin} exited with ${String(res.exitCode)}: ${tail}`);
     }
     const stdout = String(res.stdout);
-    const { text, usage } = this.name === 'copilot' ? parseCopilot(stdout) : parseClaude(stdout);
-    const event: RunEvent = {
-      at: new Date().toISOString(),
-      kind: 'message',
-      summary: (text || '(empty)').slice(0, 500),
-    };
-    return { result: input.schema.parse(text), events: [event], usage };
+    return this.name === 'copilot' ? parseCopilot(stdout) : parseClaude(stdout);
   }
 }

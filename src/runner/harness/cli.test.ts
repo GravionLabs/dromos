@@ -143,6 +143,58 @@ describe('CliHarness', () => {
     ).rejects.toThrow(/timed out/);
   });
 
+  describe('object schemas', () => {
+    const schema = z.strictObject({ status: z.enum(['done', 'failed']), summary: z.string() });
+    const objectInput = (): PhaseInput => ({ ...input(), schema });
+    /** A fake `claude` whose n-th call prints `envelopes[n]` (the last one repeats). */
+    const claudeReplying = (...results: string[]): NodeJS.ProcessEnv => {
+      results.forEach((result, i) => {
+        writeFileSync(join(dir, `reply${String(i)}.json`), JSON.stringify({ result }));
+      });
+      return fakeCli(
+        'claude',
+        `n=$(cat "${dir}/n" 2>/dev/null || echo 0); echo $((n+1)) > "${dir}/n"; ` +
+          `f="${dir}/reply$n.json"; [ -f "$f" ] || f="${dir}/reply${String(results.length - 1)}.json"; ` +
+          `echo "$@" >> "${dir}/args"; cat "$f"`,
+      );
+    };
+    const reply = { status: 'done', summary: 'renamed keys' };
+
+    it.each([
+      ['bare JSON', JSON.stringify(reply)],
+      ['fenced JSON', `All done.\n\n\`\`\`json\n${JSON.stringify(reply)}\n\`\`\`\n`],
+      ['JSON after prose', `I committed the change. ${JSON.stringify(reply)}`],
+    ])('parses %s', async (_name, text) => {
+      const env = claudeReplying(text);
+      const out = await new CliHarness({ name: 'claude', env }).runPhase(objectInput());
+      expect(out.result).toEqual(reply);
+    });
+
+    it('retries once with the validation error and sums the usage', async () => {
+      const env = claudeReplying('no json here', JSON.stringify(reply));
+      const out = await new CliHarness({ name: 'claude', env }).runPhase(objectInput());
+      expect(out.result).toEqual(reply);
+      expect(out.events).toHaveLength(2);
+      expect(readFileSync(join(dir, 'n'), 'utf8').trim()).toBe('2');
+      expect(readFileSync(join(dir, 'args'), 'utf8')).toContain('Your previous reply was rejected');
+    });
+
+    it('fails after the retry and keeps the reply tail in the error', async () => {
+      const env = claudeReplying('still no json');
+      await expect(new CliHarness({ name: 'claude', env }).runPhase(objectInput())).rejects.toThrow(
+        /reply tail: still no json/,
+      );
+      expect(readFileSync(join(dir, 'n'), 'utf8').trim()).toBe('2');
+    });
+
+    it('rejects JSON that does not match the contract', async () => {
+      const env = claudeReplying(JSON.stringify({ status: 'maybe', summary: 1 }));
+      await expect(new CliHarness({ name: 'claude', env }).runPhase(objectInput())).rejects.toThrow(
+        /does not match the contract/,
+      );
+    });
+  });
+
   it('reads the version, null when the binary fails', async () => {
     const env = fakeCli('claude', 'echo "2.1.0 (Claude Code)"');
     expect(await new CliHarness({ name: 'claude', env }).version()).toBe('2.1.0 (Claude Code)');
