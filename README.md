@@ -1,21 +1,26 @@
 # dromos
 
-Local event bus for coding agents. dromos collects the events of unattended [apm-hub](https://github.com/GravionLabs/apm-hub) orchestrator loops and of the herdr plugin, keeps their history and run metrics, tracks attention (questions and gates that wait for a human) and runs sessions. Formerly `agent-bus`; the old `agent-bus.config.json` still loads with a deprecation warning for one release.
+Local event bus for coding agents. dromos collects the events of unattended [apm-hub](https://github.com/GravionLabs/apm-hub) orchestrator loops and of the herdr plugin, keeps their history and run metrics, tracks attention (questions and gates that wait for a human) and, with the runner, drives harness sessions. Formerly `agent-bus`; the old `agent-bus.config.json` still loads with a deprecation warning for one release.
 
 What it offers:
 
 - **Events**: a typed event stream (`GET /events/stream`) and `POST /ingest` for producers such as apm-hub hooks. The bus works without any terminal.
 - **History and metrics**: stored events with query and per-run metrics for apm-hub's retro (planned).
 - **Attention**: gates and questions with an id and state that a human answers (planned).
-- **Sessions**: a driver asks the bus to run a session headless and restart it with a fresh start prompt (planned).
-- **MCP tools** as the bus API: `start_run`, `submit_implementation`, `submit_review`, `open_pr`, `status`, `post`, `ack`, `inbox`. The deterministic gate (build, tests, lint, round limit, "PR only after approval") is enforced by the bus itself.
+- **Runner**: `dromos run epic|feature|pbi <nr>` owns the control flow and calls one flat harness session (Claude, Copilot) per step; apm-hub supplies only the skills and prompts (planned, see [ROADMAP.md](ROADMAP.md) Stage 4).
+- **MCP tools** as the bus API (the pull-model tools `start_run`, `submit_*`, `open_pr` and `status` are marked for removal once the runner lands): `start_run`, `submit_implementation`, `submit_review`, `open_pr`, `status`, `post`, `ack`, `inbox`. The deterministic gate (build, tests, lint, round limit, "PR only after approval") is enforced by the bus itself.
 
 dromos does not provide its own interactive role workflow (orchestrator, implementer and reviewer terminals started by dromos): that was dropped, apm-hub's orchestrator and agents cover it. The workspace is the herdr plugin (`dromos-herdr`, primary). The Rust multiplexer `dromos-mux` is parked: the code stays in the repository but is not on the roadmap.
 
+Architecture: dromos owns the control flow, apm-hub is content. The runner reads the issue hierarchy from GitHub, plans, selects the next approved PBI and calls harness sessions; the bus keeps events and metrics. GitHub stays the source of truth for issue state.
+
 ```
- apm-hub loops (hooks, POST /ingest) ─┐
- herdr plugin (events, attention)    ─┼──► dromos ──► SQLite history, metrics, sessions, gate, gh
- MCP clients (start_run, submit_*)   ─┘
+ runner (dromos run) ──► harness sessions (Claude, Copilot; skills from apm-hub)
+        │                          │
+        └──── events, usage ───────┤
+                                   ▼
+ apm-hub hooks (POST /ingest) ──► bus ──► SQLite history, metrics, attention
+ herdr plugin (events, attention) ─┘
 ```
 
 ## Status
@@ -83,6 +88,7 @@ curl 'http://127.0.0.1:4777/events?issue=135&type=progress,usage&limit=500'
 | `issue` | Issue number (non-negative integer). |
 | `type` | Event `kind`; comma-separated list matches any. |
 | `source` | Event `role`; comma-separated list matches any. |
+| `kind` | Progress `data.kind` (`phase`, `task`, `wave`, `fix-round`, `ruling`, `gate`, `loop`, `complete`, `subagent`, `other`); comma-separated list matches any. Only `progress` events match, ones without `data.kind` never do; an unknown value is a 400. |
 | `agentId` | Exact agent id. |
 | `since` | ISO-8601 date-time, inclusive lower bound on `createdAt`. |
 | `until` | ISO-8601 date-time, exclusive upper bound on `createdAt`. |
@@ -92,7 +98,7 @@ curl 'http://127.0.0.1:4777/events?issue=135&type=progress,usage&limit=500'
 - Filters combine with AND. Order is always ascending `id`.
 - Pagination: when more events match, `next` is the id of the last event in the page; pass it as `after` for the next page. `next` is `null` on the last page. Pages never repeat or skip an event.
 - `since` and `until` need a `YYYY-MM-DDTHH:MM` prefix (a bare number or date is invalid) and are normalized to UTC; give an explicit `Z` or offset, since a value without one is read as server local time.
-- `400 { error }` names the parameter: unknown or repeated parameters, a non-integer `issue`, `after` or `limit`, `limit` outside 1..1000, empty list entries or empty `agentId`, an invalid `since` or `until`.
+- `400 { error }` names the parameter: unknown or repeated parameters, a non-integer `issue`, `after` or `limit`, `limit` outside 1..1000, empty list entries, an unknown `kind` or empty `agentId`, an invalid `since` or `until`.
 - `403 { error }` for a `Host` or `Origin` that is not loopback or the configured bind host. Binds to 127.0.0.1; no authentication. Methods other than `GET` and `POST` answer 405 (`POST /events` is unchanged).
 
 ## GET /runs/{issue}/metrics and GET /runs/metrics
@@ -192,7 +198,7 @@ dromos run export <issue> --format json|mermaid [--out FILE]
 dromos events --issue 135 --type progress,agent.state --limit 50 --table
 ```
 
-`dromos events` queries `GET /events` with the same filters (`--issue`, `--type`, `--source`, `--agent-id`, `--since`, `--until`, `--after`, `--limit`) and prints JSON (`{events,next}`, default when stdout is not a TTY, or `--json`) or a table of id, createdAt, issue, source, type and agentId (`--table`, default on a TTY). `--all` follows `next` until every matching event is printed. The bus URL comes from `--url`, else `$DROMOS_URL`, else the configured host and port. A rejected query prints the server error and exits 2; an unreachable bus prints a hint and exits 1.
+`dromos events` queries `GET /events` with the same filters (`--issue`, `--type`, `--source`, `--kind`, `--agent-id`, `--since`, `--until`, `--after`, `--limit`) and prints JSON (`{events,next}`, default when stdout is not a TTY, or `--json`) or a table of id, createdAt, issue, source, type and agentId (`--table`, default on a TTY). `--all` follows `next` until every matching event is printed. The bus URL comes from `--url`, else `$DROMOS_URL`, else the configured host and port. A rejected query prints the server error and exits 2; an unreachable bus prints a hint and exits 1.
 
 `dromos run export` reads one issue's events from the local store and prints a JSON export (schema version, issue, `exportedAt`, events) or a Mermaid flowchart of its subagent tree, without network access. An unknown issue prints nothing and exits 1.
 
@@ -202,7 +208,7 @@ Config: `dromos.config.json` in the working directory (or the file named by `DRO
 
 ## Workflow
 
-The MCP tools stay as bus API.
+The MCP tools stay as bus API until the runner replaces them (marked for removal in ROADMAP.md, Stage 3).
 
 1. `start_run(issue)`: create worktree and branch `<type>/<issue>-<slug>` (`fix` for issues labelled `bug` or titled `fix...`/`[bug]...`, otherwise `feat`; e.g. `feat/14-add-start-run`). Set `branchPrefix` to a fixed string such as `agent` to get `agent/<issue>-<slug>` instead. Post the task to the implementer role. The worktree lives at `<repoPath>/<worktreeDir>/<issue>` (default `.worktrees/<issue>`); `start_run` refuses unless `<worktreeDir>/` is git-ignored in that repository.
 2. `submit_implementation`: the bus runs build, tests and lint. Red goes back to the implementer.
@@ -214,7 +220,7 @@ A `status` tool reports the state of a run.
 
 ## Roadmap
 
-[ROADMAP.md](ROADMAP.md) lists the stages and their dependencies: bus core (Epic #166: events, Session API, CLI, validation), history and attention for unattended apm-hub loops (Epic #132), the herdr plugin (Epic #98), self-learning (Epic #159). dromos-mux (Epics #36, #56) is parked at the end.
+[ROADMAP.md](ROADMAP.md) lists the stages and their dependencies: bus core (Epic #166: events, harness adapters and runner, CLI, validation), history and attention for unattended apm-hub loops (Epic #132), the herdr plugin (Epic #98), self-learning (Epic #159). dromos-mux (Epics #36, #56) is parked at the end.
 
 ## Tech
 

@@ -1,0 +1,2 @@
+{"type":"assistant.message","data":{"messageId":"m2","model":"mai-code-1.1-flash","content":"ok","toolRequests":[]}}
+{"type":"result","sessionId":"s-1","exitCode":0,"usage":{"premiumRequests":1}}

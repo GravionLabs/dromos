@@ -214,6 +214,8 @@ export interface EventQuery {
   /** Matches `role` (the API's `source`). */
   sources?: string[];
   agentId?: string;
+  /** Matches `data.kind` of progress events (the API's `kind`). */
+  kinds?: string[];
   /** Inclusive lower bound on `created_at`, normalized ISO UTC. */
   since?: string;
   /** Exclusive upper bound on `created_at`, normalized ISO UTC. */
@@ -789,6 +791,12 @@ export function openDb(file: string): Db {
       if (query.agentId !== undefined) {
         where.push('agent_id = ?');
         params.push(query.agentId);
+      }
+      if (query.kinds !== undefined) {
+        where.push(
+          `kind = 'progress' AND json_extract(data_json, '$.kind') IN (${query.kinds.map(() => '?').join(', ')})`,
+        );
+        params.push(...query.kinds);
       }
       if (query.since !== undefined) {
         where.push('created_at >= ?');

@@ -1,0 +1,4 @@
+{"type":"session.auto_mode_resolved","data":{"chosenModel":"mai-code-1.1-flash"}}
+{"type":"assistant.message","data":{"messageId":"m2","model":"mai-code-1.1-flash","content":"ok","toolRequests":[]}}
+{"type":"session.usage_checkpoint","data":{"totalPremiumRequests":1,"accountingSnapshot":{"modelMetrics":{"mai-code-1.1-flash":{"requests":{"count":1,"cost":1},"usage":{"inputTokens":14171,"outputTokens":5,"cacheReadTokens":0,"cacheWriteTokens":0,"reasoningTokens":0}}}}}}
+{"type":"result","sessionId":"s-1","exitCode":0,"usage":{"premiumRequests":1}}

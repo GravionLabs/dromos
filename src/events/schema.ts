@@ -366,6 +366,60 @@ export const AttemptSettledEventSchema = z
   })
   .meta({ id: 'AttemptSettledEvent' });
 
+/** Token usage and cost of one phase; `costUsd` is null where the harness reports none. */
+export const PhaseUsageSchema = z
+  .strictObject({
+    inputTokens: z.number().int().min(0),
+    outputTokens: z.number().int().min(0),
+    costUsd: z.number().min(0).nullable(),
+  })
+  .meta({ id: 'PhaseUsage' });
+
+const phaseBase = {
+  phase: text(1, 64),
+  harness: z
+    .strictObject({
+      name: text(1, 64),
+      version: text(1, 64).nullable(),
+      sdk: text(1, 64).nullable(),
+    })
+    .meta({ id: 'PhaseHarness' }),
+  model: text(1, 128),
+};
+const phaseEnd = {
+  ...phaseBase,
+  durationMs: z.number().int().min(0),
+  /** Null where the harness reports no usage; never estimated. */
+  usage: PhaseUsageSchema.nullable(),
+};
+
+/** Runner-owned: a phase (planner, implementer, reviewer, retro) of a run started. */
+export const PhaseStartedEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('phase.started'),
+    data: z.strictObject(phaseBase).meta({ id: 'PhaseStartedData' }),
+  })
+  .meta({ id: 'PhaseStartedEvent' });
+
+/** Runner-owned: a phase ended with a result that matched its schema. */
+export const PhaseFinishedEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('phase.finished'),
+    data: z.strictObject(phaseEnd).meta({ id: 'PhaseFinishedData' }),
+  })
+  .meta({ id: 'PhaseFinishedEvent' });
+
+/** Runner-owned: a phase ended without a valid result (error, timeout, schema mismatch). */
+export const PhaseFailedEventSchema = z
+  .strictObject({
+    ...envelope,
+    type: z.literal('phase.failed'),
+    data: z.strictObject(phaseEnd).meta({ id: 'PhaseFailedData' }),
+  })
+  .meta({ id: 'PhaseFailedEvent' });
+
 export const BusEventSchema = z
   .discriminatedUnion('type', [
     HookIdleEventSchema,
@@ -384,6 +438,9 @@ export const BusEventSchema = z
     ReviewResultEventSchema,
     AttemptStartedEventSchema,
     AttemptSettledEventSchema,
+    PhaseStartedEventSchema,
+    PhaseFinishedEventSchema,
+    PhaseFailedEventSchema,
   ])
   .meta({ id: 'BusEvent' });
 export type BusEvent = z.infer<typeof BusEventSchema>;
@@ -405,11 +462,14 @@ export const BUS_EVENT_TYPES = [
   'review.result',
   'attempt.started',
   'attempt.settled',
+  'phase.started',
+  'phase.finished',
+  'phase.failed',
 ] as const satisfies readonly BusEvent['type'][];
 
 /**
  * Event types an external producer may post to `POST /ingest`. Server-owned types (`attention.*`,
- * `run.state`, `gate.result`, `review.result`, `attempt.*`) stay out. Extend this list to open a new type
+ * `run.state`, `gate.result`, `review.result`, `attempt.*`, `phase.*`) stay out. Extend this list to open a new type
  * to ingest; every entry must be a `BusEvent['type']`.
  */
 export const INGEST_TYPES = [

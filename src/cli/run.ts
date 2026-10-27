@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { loadConfig } from '../config.js';
 import { type Db, type EventRecord, openDb } from '../db.js';
 import { toJsonExport, toMermaid } from '../export/run-export.js';
+import { HarnessNameSchema } from '../runner/harness.js';
+import { runSpike, type SpikeOptions } from '../runner/spike.js';
 
 export interface RunCliIo {
   /** Store to read; defaults to `<dataDir>/bus.db` from `loadConfig()`. The caller keeps ownership. */
@@ -11,11 +13,14 @@ export interface RunCliIo {
   out?: (text: string) => void;
   err?: (line: string) => void;
   writeFile?: (path: string, text: string) => void;
+  /** Options of `run task` beyond the arguments; tests inject a fake harness. */
+  spike?: Partial<SpikeOptions>;
 }
 
 const FORMATS = ['json', 'mermaid'];
 const PAGE = 1000;
-const USAGE = 'usage: dromos run export <issue> [--format json|mermaid] [--out FILE]';
+const USAGE =
+  'usage: dromos run export <issue> [--format json|mermaid] [--out FILE]\n       dromos run task <issue> --harness claude|copilot [--repo PATH]';
 
 class UsageError extends Error {}
 
@@ -59,6 +64,25 @@ export async function runRunCli(argv: string[], io: RunCliIo = {}): Promise<numb
 
   let db: Db | undefined;
   try {
+    if (sub === 'task') {
+      const { positional, flags } = parseArgs(rest, ['harness', 'repo']);
+      const [issueArg, ...extra] = positional;
+      if (issueArg === undefined || extra.length > 0) throw new UsageError('task needs <issue>');
+      if (!/^[1-9]\d*$/.test(issueArg)) throw new UsageError('<issue> must be a positive integer');
+      const harness = HarnessNameSchema.safeParse(flags.get('harness'));
+      if (!harness.success) throw new UsageError('--harness must be claude, claude-cli or copilot');
+      db = io.db ?? openDb(join(loadConfig().dataDir, 'bus.db'));
+      const result = await runSpike({
+        issue: Number(issueArg),
+        harness: harness.data,
+        repo: flags.get('repo') ?? process.cwd(),
+        db,
+        ...io.spike,
+      });
+      if (result.ok) out(`${result.message}\n`);
+      else err(result.message);
+      return result.ok ? 0 : 1;
+    }
     if (sub !== 'export') {
       throw new UsageError(sub === undefined ? 'missing subcommand' : `unknown subcommand ${sub}`);
     }
