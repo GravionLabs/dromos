@@ -27,7 +27,7 @@ Decision records live in [docs/decisions](docs/decisions/README.md); declined re
 
 ## Status
 
-Early development. Implemented: project foundation and messaging (`post`, `ack`, `inbox`, `/events`, `/events/stream`, bus log) over streamable HTTP at `/mcp/<role>`, `POST /ingest`, agent instances and the workflow core. The `dromos` CLI (`serve`, `run pbi`, `run export`, `attention`) is installed as the `dromos` bin. Everything else below is **planned**, including `dromos log`. Order of work: [ROADMAP.md](ROADMAP.md); the bus core is Epic #166.
+Early development. Implemented: project foundation and messaging (`post`, `ack`, `inbox`, `/events`, `/events/stream`, bus log) over streamable HTTP at `/mcp/<role>`, `POST /ingest`, agent instances and the workflow core. The `dromos` CLI (`serve`, `run pbi`, `run feature|epic`, `run plan`, `plan`, `run export`, `attention`) is installed as the `dromos` bin. Everything else below is **planned**, including `dromos log`. Order of work: [ROADMAP.md](ROADMAP.md); the bus core is Epic #166.
 
 ## Event stream
 
@@ -215,6 +215,18 @@ dromos run plan <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--form
 ```
 
 `dromos run plan` plans a `[Feature]` into PBIs or a `[PBI]` into Tasks with the planner phase and writes the plan to `.dromos/state/<nr>/plan.json` in the repository. On a TTY every planner question is a select prompt (Enter takes the recommendation). `--answer <id>=<value>` (repeatable, the value must be one of the options) answers without a prompt; `--assume-recommended` takes every remaining recommendation and writes it into the plan and into each created issue under `## Assumptions`. `phase.finished` of the planner carries `unansweredQuestions`. Without a TTY and without `--assume-recommended`, open questions create no issue: the draft plan and every open question (options and recommendation) go into one comment on the issue, the issue gets the label `needs-decision`, an `attention` event is emitted and the run exits 2. Answer with comment lines `/answer <id> <value>`; the next run reads them, removes `needs-decision` and continues. Exit codes: 0 issues created, 2 questions open (or usage error), 3 error.
+
+```
+dromos plan feature|pbi <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--answer <id>=<value>]... [--assume-recommended]
+```
+
+`dromos plan feature <nr>` and `dromos plan pbi <nr>` are `dromos run plan` with a check that the issue is a `[Feature]` or a `[PBI]`: they plan and stop, nothing is implemented.
+
+```
+dromos run feature|epic <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--force]
+```
+
+`dromos run feature` and `dromos run epic` first plan every open Feature that has no sub-issues yet (as `dromos run plan` without a TTY: open questions go to the issue and the Feature is skipped). Then they run, one after another as `dromos run pbi` does, every open PBI that is approved (label `approved` on the PBI or on its Feature; PBIs created by the planner carry `needs-approval` until then), not claimed (`in-progress`, unless `--force`) and not blocked by an open issue, in dependency order; each PBI is re-read right before it runs. PBIs directly under an Epic count as a Feature with the Epic's approval. The run never waits for a human: unapproved, claimed and blocked PBIs and Features with open questions are skipped and listed in the final `group.finished` report. Ctrl-C lets the running PBI unwind (its claim is released, its worktree kept) and starts no further PBI; a second Ctrl-C releases the claim of the running PBI and exits at once. All state lives on GitHub, so starting the run again continues it. Exit codes: 0 every selected PBI opened a pull request, 1 at least one PBI run was blocked or failed, 2 usage error, 3 error, 130 interrupted.
 
 The herdr plugin (Epic #98) is the workspace for interactive work; apm-hub orchestrator runs report to the bus through `$DROMOS_URL`.
 

@@ -8,6 +8,14 @@ import { collectRunsMetrics, formatMetricsTable } from '../run-metrics.js';
 import { parseMultiRunMetricsQuery } from '../run-metrics-query.js';
 import { HarnessNameSchema } from '../runner/harness.js';
 import { parseAnswerFlags, ttySelectPrompt } from '../runner/questions.js';
+import {
+  EXIT_INTERRUPTED,
+  type GroupLevel,
+  type RunGroupEvent,
+  type RunGroupOps,
+  releaseClaim,
+  runGroup,
+} from '../runner/run-group.js';
 import { EXIT_ERROR, type RunPbiEvent, type RunPbiOps, runPbi } from '../runner/run-pbi.js';
 import { type RunPlanEvent, type RunPlanOps, runPlan } from '../runner/run-plan.js';
 import { runSpike, type SpikeOptions } from '../runner/spike.js';
@@ -29,12 +37,32 @@ export interface RunCliIo {
     isTty?: boolean;
     readLine?: () => Promise<string>;
   };
+  /** Options of `run feature|epic`; tests inject fake operations and a fake interrupt source. */
+  group?: {
+    ops?: Partial<RunGroupOps>;
+    isTty?: boolean;
+    /** Ctrl-C source; defaults to `process`. */
+    signals?: InterruptSource;
+    /** Removes the claim of the running PBI on the second Ctrl-C. */
+    releaseClaim?: (repo: string, issue: number) => Promise<void>;
+    /** Called on the second Ctrl-C after the claim is released; defaults to `process.exit`. */
+    exit?: (code: number) => void;
+  };
+}
+
+/** The part of `process` that delivers Ctrl-C. */
+export interface InterruptSource {
+  on: (event: 'SIGINT', listener: () => void) => unknown;
+  off: (event: 'SIGINT', listener: () => void) => unknown;
 }
 
 const FORMATS = ['json', 'mermaid'];
 const PAGE = 1000;
 const USAGE =
-  'usage: dromos run export <issue> [--format json|mermaid] [--out FILE]\n       dromos run task <issue> --harness claude|copilot [--repo PATH]\n       dromos run pbi <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--dry-run] [--force]\n       dromos run plan <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--answer <id>=<value>]... [--assume-recommended]\n       dromos run metrics [--issues <n,…>] [--since <date>] [--format json|table]';
+  'usage: dromos run export <issue> [--format json|mermaid] [--out FILE]\n       dromos run task <issue> --harness claude|copilot [--repo PATH]\n       dromos run pbi <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--dry-run] [--force]\n       dromos run plan <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--answer <id>=<value>]... [--assume-recommended]\n       dromos run feature|epic <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--force]\n       dromos run metrics [--issues <n,…>] [--since <date>] [--format json|table]';
+
+const PLAN_USAGE =
+  'usage: dromos plan feature|pbi <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--answer <id>=<value>]... [--assume-recommended]';
 
 class UsageError extends Error {}
 
@@ -91,6 +119,17 @@ export function formatPlanEvent(event: RunPlanEvent): string {
   }
 }
 
+/** One line of text output for a Feature or Epic run event. */
+export function formatGroupEvent(event: RunGroupEvent): string {
+  if (event.type === 'group.step') return `group: ${event.step}`;
+  const lines = [`group ${event.outcome}${event.reason ? `: ${event.reason}` : ''}`];
+  for (const r of event.ran)
+    lines.push(`  ran #${String(r.issue)} exit ${String(r.code)}: ${r.title}`);
+  for (const s of event.skipped)
+    lines.push(`  skipped #${String(s.issue)} ${s.reason}: ${s.title}`);
+  return lines.join('\n');
+}
+
 /** Reads one line of stdin per call, for the select prompt on a TTY. */
 function stdinLines(): { readLine: () => Promise<string>; close: () => void } {
   const rl = createInterface({
@@ -139,7 +178,28 @@ function readAll(db: Db, issue: number): EventRecord[] {
 }
 
 /** Runs `dromos run ...`; resolves to the process exit code. */
-export async function runRunCli(argv: string[], io: RunCliIo = {}): Promise<number> {
+export function runRunCli(argv: string[], io: RunCliIo = {}): Promise<number> {
+  return runCommand(argv, io);
+}
+
+/** Runs `dromos plan feature|pbi <nr> ...`, the planning half of `dromos run plan`. */
+export function runPlanCli(argv: string[], io: RunCliIo = {}): Promise<number> {
+  const [kind, ...rest] = argv;
+  if (kind !== 'feature' && kind !== 'pbi') {
+    const err = io.err ?? ((line) => process.stderr.write(`${line}\n`));
+    err(
+      `dromos: ${kind === undefined ? 'missing' : `unknown`} kind${kind === undefined ? '' : ` ${kind}`}, expected feature or pbi\n${PLAN_USAGE}`,
+    );
+    return Promise.resolve(2);
+  }
+  return runCommand(['plan', ...rest], io, kind === 'feature' ? 'Feature' : 'PBI');
+}
+
+async function runCommand(
+  argv: string[],
+  io: RunCliIo,
+  planKind?: 'Feature' | 'PBI',
+): Promise<number> {
   const out = io.out ?? ((text) => process.stdout.write(text));
   const err = io.err ?? ((line) => process.stderr.write(`${line}\n`));
   const writeFile = io.writeFile ?? ((path, text) => writeFileSync(path, text, { mode: 0o600 }));
@@ -215,7 +275,11 @@ export async function runRunCli(argv: string[], io: RunCliIo = {}): Promise<numb
         ['answer'],
       );
       const [nr, ...extra] = positional;
-      if (nr === undefined || extra.length > 0) throw new UsageError('plan needs <nr>');
+      if (nr === undefined || extra.length > 0) {
+        throw new UsageError(
+          planKind ? `plan ${planKind.toLowerCase()} needs <nr>` : 'plan needs <nr>',
+        );
+      }
       if (!/^[1-9]\d*$/.test(nr)) throw new UsageError('<nr> must be a positive integer');
       const harnessFlag = flags.get('harness');
       const harness =
@@ -247,6 +311,7 @@ export async function runRunCli(argv: string[], io: RunCliIo = {}): Promise<numb
           issue: Number(nr),
           repo: flags.get('repo') ?? process.cwd(),
           harness: harness?.data,
+          kind: planKind,
           resolve: {
             answers,
             assumeRecommended: flags.has('assume-recommended'),
@@ -259,6 +324,80 @@ export async function runRunCli(argv: string[], io: RunCliIo = {}): Promise<numb
         });
       } finally {
         lines?.close();
+      }
+    }
+    if (sub === 'feature' || sub === 'epic') {
+      const level: GroupLevel = sub;
+      const { positional, flags } = parseArgs(
+        rest,
+        ['harness', 'repo', 'format', 'force'],
+        ['force'],
+      );
+      const [nr, ...extra] = positional;
+      if (nr === undefined || extra.length > 0) throw new UsageError(`${sub} needs <nr>`);
+      if (!/^[1-9]\d*$/.test(nr)) throw new UsageError('<nr> must be a positive integer');
+      const harnessFlag = flags.get('harness');
+      const harness =
+        harnessFlag === undefined ? undefined : HarnessNameSchema.safeParse(harnessFlag);
+      if (harness && !harness.success) {
+        throw new UsageError('--harness must be claude, claude-cli or copilot');
+      }
+      const format = flags.get('format');
+      if (format !== undefined && format !== 'text' && format !== 'json') {
+        throw new UsageError('--format must be text or json');
+      }
+      const tty = io.group?.isTty ?? process.stdout.isTTY === true;
+      const json = !tty || format === 'json';
+      if (format === 'text' && !tty) err('dromos: stdout is not a TTY, writing JSON lines');
+      const line =
+        <E>(fmt: (e: E) => string) =>
+        (event: E) =>
+          out(json ? `${JSON.stringify(event)}\n` : `${fmt(event)}\n`);
+      const repo = flags.get('repo') ?? process.cwd();
+
+      // First Ctrl-C: the running PBI unwinds (its claim is released, its worktree kept) and no
+      // further PBI starts. Second Ctrl-C: release the claim of the running PBI and exit at once.
+      const controller = new AbortController();
+      const signals = io.group?.signals ?? process;
+      const exit = io.group?.exit ?? ((code: number) => process.exit(code));
+      let current: number | null = null;
+      const onInterrupt = (): void => {
+        if (!controller.signal.aborted) {
+          controller.abort();
+          err(
+            `dromos: interrupted${current === null ? '' : `, finishing #${String(current)}`}; Ctrl-C again to stop now`,
+          );
+          return;
+        }
+        const pending = current;
+        const release =
+          pending === null
+            ? Promise.resolve()
+            : (io.group?.releaseClaim ?? releaseClaim)(repo, pending).catch(() => undefined);
+        void release.then(() => exit(EXIT_INTERRUPTED));
+      };
+      signals.on('SIGINT', onInterrupt);
+      db = io.db ?? openDb(join(loadConfig().dataDir, 'bus.db'));
+      try {
+        return await runGroup({
+          level,
+          issue: Number(nr),
+          repo,
+          harness: harness?.data,
+          force: flags.has('force'),
+          db,
+          now: io.now,
+          signal: controller.signal,
+          onCurrent: (issue) => {
+            current = issue;
+          },
+          ops: io.group?.ops,
+          emit: line(formatGroupEvent),
+          emitPbi: line(formatEvent),
+          emitPlan: line(formatPlanEvent),
+        });
+      } finally {
+        signals.off('SIGINT', onInterrupt);
       }
     }
     if (sub === 'metrics') {
@@ -306,7 +445,7 @@ export async function runRunCli(argv: string[], io: RunCliIo = {}): Promise<numb
     return 0;
   } catch (error) {
     if (error instanceof UsageError) {
-      err(`dromos: ${error.message}\n${USAGE}`);
+      err(`dromos: ${error.message}\n${planKind ? PLAN_USAGE : USAGE}`);
       return 2;
     }
     throw error;

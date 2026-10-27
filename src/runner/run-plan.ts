@@ -85,6 +85,8 @@ export interface RunPlanOptions {
   repo: string;
   /** Defaults to `harness` of `.dromos/config.json`. */
   harness?: HarnessName;
+  /** `dromos plan feature|pbi`: the issue must be of this kind. */
+  kind?: 'Feature' | 'PBI';
   /** Answers, `--assume-recommended` and the TTY prompt. */
   resolve?: ResolveOptions;
   emit: (event: RunPlanEvent) => void;
@@ -167,6 +169,9 @@ export async function runPlan(options: RunPlanOptions): Promise<number> {
 
     const issue = await ops.readIssue(slug, options.issue);
     const level = planLevel(issue.title);
+    if (options.kind && level !== (options.kind === 'Feature' ? 'PBI' : 'Task')) {
+      throw new Error(`#${String(options.issue)} is not a ${options.kind}: '${issue.title}'`);
+    }
     const model = modelFor(config, harnessName, 'planner');
     const base = { phase: 'planner', harness: info, model };
     emit({ type: 'phase.started', data: base });

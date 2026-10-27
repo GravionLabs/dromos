@@ -257,6 +257,26 @@ describe('runPlan', () => {
     });
   });
 
+  it('exits 3 when the issue is not of the kind asked for (dromos plan pbi on a Feature)', async () => {
+    const s = setup();
+    const events: RunPlanEvent[] = [];
+    const code = await runPlan({
+      issue: 40,
+      repo: s.repo,
+      kind: 'PBI',
+      emit: (e) => events.push(e),
+      ops: { repoSlug: async () => 'o/r', readIssue: async () => feature },
+    });
+    expect(code).toBe(EXIT_ERROR);
+    expect(events).toEqual([
+      {
+        type: 'run.finished',
+        outcome: 'error',
+        reason: "#40 is not a PBI: '[Feature] feat: store'",
+      },
+    ]);
+  });
+
   it('exits 3 for an issue that is neither a Feature nor a PBI', async () => {
     const s = setup(plan, { readIssue: async () => ({ ...feature, title: '[Task] x' }) });
     expect(await s.run()).toBe(EXIT_ERROR);
