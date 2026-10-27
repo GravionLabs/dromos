@@ -5,12 +5,33 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.1.3] — 2026-10-27
+
+### Documentation
+- Decision record, dromos owns control flow and apm-hub is content (#237)
+- Spike measurement and harness decision (#217) (#241)
+
+
+### Features
+- Add kind filter to GET /events (#136) (#203)
+- Harness interface, phase events and runner config (#214) (#238)
+- Permission callback with allowlist and git guardrails (#215) (#239)
+- Spike command, implement one Task through the harness CLIs (#216) (#240)
+- Claude adapter on the Claude Agent SDK (#218) (#242)
+- Copilot CLI usage parsing and per-harness models (#219) (#243)
+- Run state machine for one PBI with bounded rounds (#220) (#244)
+- Worktree, branch and PBI claim per run, GitHub access in one module (#221) (#245)
+- Implementer phase with parallel Tasks and related tests (#222) (#246)
+- Reviewer phase, one fix round, PR (#223) (#249)
+
+
 ## [0.1.2] — 2026-10-27
 
 ### Documentation
 - Feature #12 is closed
 - **roadmap**: Add Stage 7 self-learning (#159)
 - Re-scope ROADMAP and README to bus core, park dromos-mux
+- Update CHANGELOG.md for v0.1.2 [skip ci]
 
 
 ### Features
