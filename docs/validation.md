@@ -12,6 +12,7 @@ Runs of `dromos run pbi <nr> --harness <name>` on real PBIs (issue #225). Target
 | 4 | #226 | claude | `pr_opened`, no fix round | [#269](https://github.com/GravionLabs/dromos/pull/269) | 139 s | 0.52 USD (implementer 0.41, reviewer 0.11) | #267 again, #270 |
 | 5 | #226 (rerun) | claude | `pr_opened`, no fix round | [#272](https://github.com/GravionLabs/dromos/pull/272) | 143 s | 0.37 USD (implementer 0.27, reviewer 0.10) | #267 again |
 | 6 | #227 | claude | `pr_opened`, 1 fix round | [#275](https://github.com/GravionLabs/dromos/pull/275) | 450 s | 2.47 USD (implementer 0.30, reviewer 0.10, fixer opus 2.08) | #267 again, #276 |
+| 7 | #228 | claude | `pr_opened`, no fix round | [#277](https://github.com/GravionLabs/dromos/pull/277) | 182 s | 0.55 USD (implementer 0.41, reviewer 0.14) | #267 again, #278 |
 
 ## Notes
 
@@ -22,3 +23,5 @@ Runs of `dromos run pbi <nr> --harness <name>` on real PBIs (issue #225). Target
 - **Run 4 closed:** PR #269 was closed unmerged; #226 was rerun after #270 was fixed (`.dromos/config.json` sets `test.full` to build, typecheck, lint and test, PR #271).
 - **Run 5, #226 rerun:** 4 files, +456/-1 lines, CI green. The agent excluded the generated `schema/plan.schema.json` from Biome, as `schema/events.schema.json` already is. Same open notes as run 4 (no `needs-approval` label, no resume in `createPlanIssues`, planner not wired in), again under "Not delivered: Nothing" (#267).
 - **Run 6, #227:** first run with a fix round (reviewer: 5 findings, fixer on opus 274 s). 11 files, +927/-9 lines. CI red: `schema-drift` and the three `rust` jobs, because the new `phase.finished` field regenerated `schema/events.schema.json` but not `crates/dromos-mux-proto/src/generated.rs` (#276). The events show no second review after the fix round. "Not delivered: Nothing" again (#267).
+- **Run 6 follow-up:** PR #275 was fixed by hand (`generated.rs` regenerated, +5 lines) and merged; the runner defect is #276.
+- **Run 7, #228:** 7 files, +199/-14 lines, CI green. `/answer` comments are accepted from any commenter (#278). Further notes from the agent, not filed: duplicate question comments on repeated headless runs, exit code 2 used for both open questions and usage errors, attention event carries only the first question. The label `needs-decision` exists, so that note is moot. "Not delivered: Nothing" again (#267).
