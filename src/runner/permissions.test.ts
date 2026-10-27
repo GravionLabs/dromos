@@ -299,6 +299,8 @@ describe('allowlist', () => {
   it.each([
     'git status',
     'git push origin feat/215-x',
+    'git rm -r packages/hooks',
+    'git mv a.md docs/a.md',
     'pnpm test',
     'pnpm run build && pnpm run lint',
     'npx vitest run',
