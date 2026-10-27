@@ -4,7 +4,6 @@ import type { BusEvents } from './bus-events.js';
 import type { Db, EventRecord, Run } from './db.js';
 import { EventValidationError } from './event-store.js';
 import { type ATTEMPT_OUTCOMES, BusEventSchema, type EVIDENCE_TIERS } from './events/schema.js';
-import type { RunPosition } from './state-machine.js';
 
 /** Role and `source` of every server-owned run event. */
 const SOURCE = 'dromos';
@@ -22,6 +21,9 @@ export interface AttemptSettlement {
   outcome: AttemptOutcome;
   evidence: Evidence;
 }
+
+/** State and round of a run at one point of its life. */
+export type RunPosition = Pick<Run, 'state' | 'round'>;
 
 /** The run fields the events carry in their envelope. */
 export type RunRef = Pick<Run, 'id' | 'issueNumber'>;
