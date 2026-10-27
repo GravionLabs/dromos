@@ -16,10 +16,11 @@ Architecture: dromos owns the control flow, apm-hub is content. The runner reads
 
 ```
  runner (dromos run) ──► harness sessions (Claude, Copilot; skills from apm-hub)
-        │                        │
-        └── events, usage ───────┤
- apm-hub hooks (POST /ingest) ──┼──► bus ──► SQLite history, metrics, attention
- herdr plugin (events, attention)┘
+        │                          │
+        └──── events, usage ───────┤
+                                   ▼
+ apm-hub hooks (POST /ingest) ──► bus ──► SQLite history, metrics, attention
+ herdr plugin (events, attention) ─┘
 ```
 
 ## Status

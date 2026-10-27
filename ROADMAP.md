@@ -79,7 +79,7 @@ Feature #99 closes with #106 (pane executor via herdr, milestone 0.4.0; re-scope
 
 Decision of 2026-10-27 (dromos#131, [simplification plan](https://github.com/GravionLabs/apm-hub/blob/release/next/docs/simplification-plan.md)): dromos owns the control flow, apm-hub is content (skills and prompts). The runner is a program: `dromos run epic|feature|pbi <nr>` reads the issue hierarchy, plans where something is missing, selects the next approved and unblocked PBI, and calls one flat harness session per step (Claude, Copilot) through one adapter interface. GitHub stays the source of truth for issue state; the bus keeps events and metrics. Order and sizes: [simplification work plan](https://github.com/GravionLabs/apm-hub/blob/release/next/docs/simplification-workplan.md) (dromos items B1 to B21; milestones 0.2.0 B1-B6b, 0.3.0 B7-B17, 0.4.0 B18-B21).
 
-This replaces the earlier Session API (`session.*` events, `sessions` table, headless executor, HTTP endpoints with restart and input: #62-#65, #69, #106), which was a workflow-independent executor driven from outside. Pane mode stays with the herdr plugin; idle detection (#66) stays parked with dromos-mux.
+This replaces the earlier Session API (`session.*` events, `sessions` table, headless executor, HTTP endpoints with restart and input: #62-#65, #69, #106), which was a workflow-independent executor driven from outside. Pane mode stays with the herdr plugin (#106 is re-scoped to the pane harness, see Stage 3b); idle detection (#66) stays parked with dromos-mux.
 
 ## Stage 6 — validation (Epic #166, Feature #29; milestone 0.2.0)
 
