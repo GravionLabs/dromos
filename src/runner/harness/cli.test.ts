@@ -170,6 +170,21 @@ describe('CliHarness', () => {
       expect(out.result).toEqual(reply);
     });
 
+    it('states the reply format in the prompt and repeats it in the retry', async () => {
+      const env = claudeReplying('no json here', JSON.stringify(reply));
+      await new CliHarness({ name: 'claude', env }).runPhase(objectInput());
+      const args = readFileSync(join(dir, 'args'), 'utf8');
+      expect(args.match(/## Reply format/g)).toHaveLength(2);
+      expect(args).toContain('"summary"');
+      expect(args).toContain('"status"');
+    });
+
+    it('adds no reply format for a string schema', async () => {
+      const env = claudeReplying('free text');
+      await new CliHarness({ name: 'claude', env }).runPhase(input());
+      expect(readFileSync(join(dir, 'args'), 'utf8')).not.toContain('Reply format');
+    });
+
     it('retries once with the validation error and sums the usage', async () => {
       const env = claudeReplying('no json here', JSON.stringify(reply));
       const out = await new CliHarness({ name: 'claude', env }).runPhase(objectInput());
