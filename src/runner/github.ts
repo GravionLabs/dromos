@@ -7,6 +7,7 @@ import { type IssueInfo, viewIssue } from '../github.js';
  */
 
 export const CLAIM_LABEL = 'in-progress';
+export const NEEDS_DECISION_LABEL = 'needs-decision';
 
 export interface IssueRef {
   number: number;
@@ -58,6 +59,18 @@ export async function readIssue(repo: string, number: number): Promise<RunnerIss
     subIssues: parseRefs(subs, `sub-issues of #${String(number)}`),
     blockedBy: parseRefs(blockers, `blockers of #${String(number)}`),
   };
+}
+
+/** Bodies of the comments of an issue, oldest first. */
+export async function readComments(repo: string, number: number): Promise<string[]> {
+  const stdout = await gh(['issue', 'view', String(number), '-R', repo, '--json', 'comments']);
+  let parsed: { comments?: { body?: string }[] };
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new Error(`gh returned malformed JSON for comments of #${String(number)}`);
+  }
+  return (parsed.comments ?? []).map((c) => c.body ?? '');
 }
 
 export async function addLabel(repo: string, number: number, label: string): Promise<void> {

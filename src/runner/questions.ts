@@ -90,6 +90,41 @@ export function withAssumptions(plan: Plan, resolution: QuestionResolution): Pla
   return { ...plan, assumptions: assumptionLines(plan, resolution) };
 }
 
+/**
+ * Answers from `/answer <id> <value>` lines of issue comments, oldest first; a later answer to the
+ * same id wins. The line must start with `/answer`, so the instructions the runner posts (which
+ * quote the command in backticks) are never read back as answers.
+ */
+export function parseAnswerComments(bodies: string[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const body of bodies) {
+    for (const line of body.split(/\r?\n/)) {
+      const m = /^\/answer\s+(\S+)\s+(.+?)\s*$/.exec(line);
+      if (m) map.set(m[1] as string, m[2] as string);
+    }
+  }
+  return map;
+}
+
+/** The issue comment of a headless run: the draft plan and one section per open question. */
+export function questionsComment(plan: Plan, unanswered: PlanQuestion[]): string {
+  const items = plan.items.map((i) => `- **${i.title}**`).join('\n');
+  const sections = unanswered.map((q) => {
+    const options = q.options.includes(q.recommended) ? q.options : [q.recommended, ...q.options];
+    const list = options
+      .map((o) => `- ${o}${o === q.recommended ? ' (recommended)' : ''}`)
+      .join('\n');
+    return `### ${q.id}: ${q.question}\n\n${list}\n\nRecommendation: ${q.recommended}. ${q.why}\n\nAnswer with \`/answer ${q.id} <value>\`.`;
+  });
+  return [
+    'The planner needs decisions before it creates issues. Draft plan:',
+    items,
+    '## Questions',
+    ...sections,
+    'Reply with one `/answer <id> <value>` comment line per question, then run the planner again.',
+  ].join('\n\n');
+}
+
 /** Select prompt on a TTY: numbered options, Enter takes `recommended`. */
 export function ttySelectPrompt(
   out: { write(text: string): unknown },

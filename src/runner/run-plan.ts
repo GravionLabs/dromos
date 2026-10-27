@@ -4,7 +4,15 @@ import type { Db } from '../db.js';
 import { BusEventSchema } from '../events/schema.js';
 import { repoFromPath } from '../github.js';
 import { loadRunnerConfig, modelFor } from './config.js';
-import { type RunnerIssue, readIssue } from './github.js';
+import {
+  addLabel,
+  comment,
+  NEEDS_DECISION_LABEL,
+  type RunnerIssue,
+  readComments,
+  readIssue,
+  removeLabel,
+} from './github.js';
 import { CliHarness } from './harness/cli.js';
 import type { Harness, HarnessName } from './harness.js';
 import type { PhaseEnd, PhaseEventData } from './implementer.js';
@@ -16,14 +24,26 @@ import {
   type PlanLevel,
   runPlannerPhase,
 } from './planner.js';
-import { type ResolveOptions, resolveQuestions, withAssumptions } from './questions.js';
-import { EXIT_BLOCKED, EXIT_DONE, EXIT_ERROR } from './run-pbi.js';
+import {
+  parseAnswerComments,
+  questionsComment,
+  type ResolveOptions,
+  resolveQuestions,
+  withAssumptions,
+} from './questions.js';
+import { EXIT_DONE, EXIT_ERROR } from './run-pbi.js';
+
+/** Open questions were posted to the issue as a comment. */
+export const EXIT_NEEDS_DECISION = 2;
 
 /**
  * `dromos run plan <nr>`: runs the planner phase on a Feature or PBI, resolves its questions (by
  * `--answer`, `--assume-recommended` or a select prompt on a TTY), writes the plan with the taken
  * recommendations as assumptions and creates the issues one level down. Open questions stop the run
- * before any issue is created. Exit codes: 0 issues created, 1 questions open, 3 error.
+ * before any issue is created: the draft plan and the questions go into one issue comment, the issue
+ * gets `needs-decision` and an `attention` event, and the run exits 2. The next run reads
+ * `/answer <id> <value>` comments of the issue, removes the label and continues. Exit codes: 0
+ * issues created, 2 questions open, 3 error.
  */
 
 const TIMEOUT_MS = 30 * 60 * 1000;
@@ -33,6 +53,10 @@ export type RunPlanEvent =
   | { type: 'phase.started'; data: PhaseEventData }
   | { type: 'phase.finished'; data: PhaseEnd & { unansweredQuestions: number } }
   | { type: 'phase.failed'; data: PhaseEnd }
+  | {
+      type: 'attention';
+      data: { kind: string; summary: string; pr: null; question: string; options: string[] };
+    }
   | {
       type: 'run.finished';
       outcome: 'planned' | 'questions_open' | 'error';
@@ -46,6 +70,10 @@ export interface RunPlanOps {
   repoSlug: (repo: string) => Promise<string>;
   readIssue: (slug: string, number: number) => Promise<RunnerIssue>;
   makeHarness: (name: HarnessName) => Harness & { version(): Promise<string | null> };
+  readComments: (slug: string, number: number) => Promise<string[]>;
+  comment: (slug: string, number: number, body: string) => Promise<void>;
+  addLabel: (slug: string, number: number, label: string) => Promise<void>;
+  removeLabel: (slug: string, number: number, label: string) => Promise<void>;
   createIssues: typeof createPlanIssues;
   writePlan: (path: string, plan: Plan) => void;
 }
@@ -68,6 +96,10 @@ const defaultOps: RunPlanOps = {
   repoSlug: repoFromPath,
   readIssue,
   makeHarness: (name) => new CliHarness({ name }),
+  readComments,
+  comment,
+  addLabel,
+  removeLabel,
   createIssues: createPlanIssues,
   writePlan: (path, plan) => {
     mkdirSync(dirname(path), { recursive: true });
@@ -155,7 +187,14 @@ export async function runPlan(options: RunPlanOptions): Promise<number> {
       throw error;
     }
     const duration = end();
-    const resolution = await resolveQuestions(planned.plan, options.resolve);
+    // `/answer` comments of the issue; flags win, answers to ids the new plan lacks are ignored.
+    const known = new Set(planned.plan.questions.map((q) => q.id));
+    const answers = new Map<string, string>();
+    for (const [id, value] of parseAnswerComments(await ops.readComments(slug, options.issue))) {
+      if (known.has(id)) answers.set(id, value);
+    }
+    for (const [id, value] of options.resolve?.answers ?? []) answers.set(id, value);
+    const resolution = await resolveQuestions(planned.plan, { ...options.resolve, answers });
     const plan = withAssumptions(planned.plan, resolution);
     const path = planPath(options.repo, options.issue);
     ops.writePlan(path, plan);
@@ -169,10 +208,24 @@ export async function runPlan(options: RunPlanOptions): Promise<number> {
       },
     });
     if (unanswered > 0) {
-      return finish('questions_open', EXIT_BLOCKED, {
-        reason: `${String(unanswered)} open question(s): ${resolution.unanswered.map((q) => q.id).join(', ')}; answer with --answer <id>=<value> or --assume-recommended`,
-        plan: path,
+      const ids = resolution.unanswered.map((q) => q.id).join(', ');
+      await ops.comment(slug, options.issue, questionsComment(plan, resolution.unanswered));
+      await ops.addLabel(slug, options.issue, NEEDS_DECISION_LABEL);
+      const reason = `${String(unanswered)} open question(s): ${ids}; answer with /answer <id> <value> comments on #${String(options.issue)}, --answer <id>=<value> or --assume-recommended`;
+      emit({
+        type: 'attention',
+        data: {
+          kind: 'QUESTION',
+          summary: reason,
+          pr: null,
+          question: resolution.unanswered[0]?.question ?? ids,
+          options: resolution.unanswered[0]?.options ?? [],
+        },
       });
+      return finish('questions_open', EXIT_NEEDS_DECISION, { reason, plan: path });
+    }
+    if (issue.labels.includes(NEEDS_DECISION_LABEL)) {
+      await ops.removeLabel(slug, options.issue, NEEDS_DECISION_LABEL);
     }
     const issues = await ops.createIssues(slug, options.issue, level, plan, plan.assumptions);
     return finish('planned', EXIT_DONE, { plan: path, issues });
