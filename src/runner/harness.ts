@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { PhaseUsageSchema } from '../events/schema.js';
 
-export const HarnessNameSchema = z.enum(['claude', 'copilot']);
+/** `claude` is the Agent SDK adapter, `claude-cli` its fallback on the headless `claude` binary. */
+export const HarnessNameSchema = z.enum(['claude', 'claude-cli', 'copilot']);
 export type HarnessName = z.infer<typeof HarnessNameSchema>;
 
 /** Token usage and cost of one phase; `null` on the result where the harness reports none. */

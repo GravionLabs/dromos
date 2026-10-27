@@ -12,7 +12,7 @@ const FILE_TOOLS = ['Read', 'Edit', 'Write', 'Glob', 'Grep'];
 
 export interface CliHarnessOptions {
   name: HarnessName;
-  /** Binary to run; defaults to the harness name, looked up on `PATH`. */
+  /** Binary to run; defaults to `copilot` for `copilot`, else `claude`, looked up on `PATH`. */
   bin?: string;
   /** Command prefixes the phase may run; defaults to the built-in allowlist. */
   commands?: readonly string[];
@@ -25,7 +25,7 @@ export function buildArgs(
   input: Pick<PhaseInput, 'prompt' | 'model'>,
   commands: readonly string[],
 ): string[] {
-  if (name === 'claude') {
+  if (name !== 'copilot') {
     const tools = [...FILE_TOOLS, ...commands.map((c) => `Bash(${c}:*)`)];
     return [
       '-p',
@@ -80,7 +80,7 @@ export class CliHarness implements Harness {
 
   constructor(options: CliHarnessOptions) {
     this.name = options.name;
-    this.bin = options.bin ?? options.name;
+    this.bin = options.bin ?? (options.name === 'copilot' ? 'copilot' : 'claude');
     this.commands = options.commands ?? ALLOWED_COMMANDS;
     this.env = options.env;
   }
@@ -109,7 +109,7 @@ export class CliHarness implements Harness {
     }
     const stdout = String(res.stdout);
     const { text, usage } =
-      this.name === 'claude' ? parseClaude(stdout) : { text: stdout.trim(), usage: null };
+      this.name === 'copilot' ? { text: stdout.trim(), usage: null } : parseClaude(stdout);
     const event: RunEvent = {
       at: new Date().toISOString(),
       kind: 'message',

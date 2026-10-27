@@ -70,7 +70,7 @@ export async function runRunCli(argv: string[], io: RunCliIo = {}): Promise<numb
       if (issueArg === undefined || extra.length > 0) throw new UsageError('task needs <issue>');
       if (!/^[1-9]\d*$/.test(issueArg)) throw new UsageError('<issue> must be a positive integer');
       const harness = HarnessNameSchema.safeParse(flags.get('harness'));
-      if (!harness.success) throw new UsageError('--harness must be claude or copilot');
+      if (!harness.success) throw new UsageError('--harness must be claude, claude-cli or copilot');
       db = io.db ?? openDb(join(loadConfig().dataDir, 'bus.db'));
       const result = await runSpike({
         issue: Number(issueArg),

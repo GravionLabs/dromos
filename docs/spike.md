@@ -38,6 +38,15 @@ Per run: outcome (`finished` or `failed`), `durationMs`, `usage` (Claude reports
 Copilot reports none, so its `usage` is `null`), then review the commit in the worktree against the
 Acceptance Criteria. Repeat per Task size (S, M) and note flakiness.
 
+## Harness names
+
+`claude` is the Claude Agent SDK adapter (`src/runner/harness/claude.ts`): it applies the TypeScript
+permission callback per tool call and validates the JSON output against the phase schema. `claude-cli`
+is the headless-CLI fallback (`CliHarness`), and `copilot` is the Copilot CLI. The spike command
+measures the headless CLIs, so `dromos run task --harness claude` still drives the `claude` binary
+as in the measurements below; the SDK adapter has its own opt-in live test
+(`DROMOS_LIVE=claude pnpm test`).
+
 ## How the allowlist is applied
 
 The headless CLIs cannot call the TypeScript permission callback, so `CliHarness` hands the allowlist

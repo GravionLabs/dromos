@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Db, openDb } from '../db.js';
-import type { Harness } from './harness.js';
+import type { Harness, HarnessName } from './harness.js';
 import { runSpike } from './spike.js';
 
 let dir: string;
@@ -35,9 +35,7 @@ afterEach(() => {
 const events = () =>
   db.queryEvents({ issue: 7, limit: 50 }).events.map((e) => ({ type: e.kind, data: e.data }));
 
-function fake(
-  commit: boolean,
-): (n: 'claude' | 'copilot') => Harness & { version(): Promise<string> } {
+function fake(commit: boolean): (n: HarnessName) => Harness & { version(): Promise<string> } {
   return () => ({
     version: async () => '1.2.3',
     async runPhase(input) {
