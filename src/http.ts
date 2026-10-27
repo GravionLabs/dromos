@@ -4,14 +4,36 @@ import type { AddressInfo } from 'node:net';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import {
+  type AttentionTransitionResult,
+  ackAttention,
+  answerAttention,
+  recordAttention,
+} from './attention.js';
 import { BusEvents } from './bus-events.js';
 import { type BusLog, createBusLog } from './bus-log.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
+import { parseAttentionQuery, parseEventQuery } from './event-query.js';
 import { EventValidationError, recordEvent } from './event-store.js';
 import { createEventStream, createHostGuard } from './event-stream.js';
-import { type BusEvent, BusEventSchema, INGEST_TYPES, isIngestType } from './events/schema.js';
+import {
+  AttentionAckedEventSchema,
+  AttentionAnsweredEventSchema,
+  type BusEvent,
+  BusEventSchema,
+  INGEST_TYPES,
+  isIngestType,
+} from './events/schema.js';
+import { startNoticeSweep } from './notice-sweep.js';
 import { startLeaseRenewal } from './run-lease.js';
+import {
+  aggregateRunMetrics,
+  collectEvents,
+  computeRunMetrics,
+  type RunMetrics,
+} from './run-metrics.js';
+import { parseMultiRunMetricsQuery, parseSingleRunMetricsQuery } from './run-metrics-query.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
 
@@ -43,6 +65,14 @@ export interface RunningHttp {
 }
 
 const MCP_PATH = /^\/mcp\/([^/]+)\/?$/;
+const ATTENTION_ACTION_PATH = /^\/attention\/([^/]+)\/(answer|ack)$/;
+/** Body of `POST /attention/<id>/answer`; same limits as the `attention.answered` data. */
+const AnswerBodySchema = AttentionAnsweredEventSchema.shape.data.pick({ text: true, by: true });
+/** Body of `POST /attention/<id>/ack`; `by` is optional. */
+const AckBodySchema = z.strictObject({
+  by: AttentionAckedEventSchema.shape.data.shape.by.optional(),
+});
+const RUN_METRICS_PATH = /^\/runs\/(\d+)\/metrics$/;
 const AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const DEFAULT_CLI = 'unknown';
 /** Printable ASCII token for X-Agent-Cli / X-Agent-Model. */
@@ -99,6 +129,15 @@ async function readJson(
     req.once('error', reject);
   });
   return raw.length === 0 ? undefined : (JSON.parse(raw) as unknown);
+}
+
+/** A request with an Origin (a browser) must declare application/json; others may send any. */
+function browserContentTypeAllowed(req: IncomingMessage): boolean {
+  if (req.headers.origin === undefined) {
+    return true;
+  }
+  const contentType = (req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase();
+  return contentType === 'application/json';
 }
 
 /** Body bytes discarded after a 413 before the connection is closed instead. */
@@ -353,7 +392,11 @@ export async function startHttp({
       return;
     }
     const updated = db.updateAgentState(agentId, state) ?? agent;
-    emitAgentEvent(updated, 'agent.state', { state });
+    emitAgentEvent(
+      updated,
+      'agent.state',
+      updated.lastOutputAt ? { state, lastOutputAt: updated.lastOutputAt } : { state },
+    );
     log.logLine('STATE', `${agentId} ${state}`);
   }
 
@@ -365,6 +408,64 @@ export async function startHttp({
     }
     const live = db.listAgents({ role }).filter((a) => a.state !== 'exited');
     return live.length === 1 ? live[0]?.id : undefined;
+  }
+
+  function handleEventQuery(req: IncomingMessage, res: ServerResponse): void {
+    if (!hostAllowed(req)) {
+      sendJson(res, 403, { error: 'forbidden host or origin' });
+      return;
+    }
+    const parsed = parseEventQuery(new URL(req.url ?? '/', 'http://localhost').searchParams);
+    if ('error' in parsed) {
+      sendJson(res, 400, { error: parsed.error });
+      return;
+    }
+    sendJson(res, 200, db.queryEvents(parsed.query));
+  }
+
+  function handleRunMetrics(req: IncomingMessage, res: ServerResponse, issue?: number): void {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    if (!hostAllowed(req)) {
+      sendJson(res, 403, { error: 'forbidden host or origin' });
+      return;
+    }
+    const params = new URL(req.url ?? '/', 'http://localhost').searchParams;
+    const parsed =
+      issue === undefined ? parseMultiRunMetricsQuery(params) : parseSingleRunMetricsQuery(params);
+    if ('error' in parsed) {
+      sendJson(res, 400, { error: parsed.error });
+      return;
+    }
+    if (issue !== undefined) {
+      sendJson(res, 200, computeRunMetrics(issue, collectEvents(db, { issue, ...parsed.window })));
+      return;
+    }
+    const runs: RunMetrics[] = [];
+    if (parsed.issues) {
+      for (const n of parsed.issues) {
+        runs.push(computeRunMetrics(n, collectEvents(db, { issue: n, ...parsed.window })));
+      }
+    } else {
+      const byIssue = new Map<number, ReturnType<typeof collectEvents>>();
+      for (const e of collectEvents(db, parsed.window)) {
+        if (e.issue !== null) {
+          const list = byIssue.get(e.issue) ?? [];
+          list.push(e);
+          byIssue.set(e.issue, list);
+        }
+      }
+      for (const n of [...byIssue.keys()].sort((a, b) => a - b)) {
+        runs.push(computeRunMetrics(n, byIssue.get(n) ?? []));
+      }
+    }
+    // Requested issues without events stay listed but must not drag the aggregate means down.
+    sendJson(res, 200, {
+      runs,
+      aggregate: aggregateRunMetrics(runs.filter((r) => r.events > 0)),
+    });
   }
 
   async function handleEvent(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -387,15 +488,21 @@ export async function startHttp({
     const { role, cli, state, model } = parsed.data;
     // The instance a hook belongs to is resolved first; null when ambiguous or unknown.
     const agentId = hookAgentId(req, role) ?? null;
+    const receivedAt = new Date().toISOString();
+    // A producer clock ahead of the bus would pin the value forward, so it is capped at receipt.
+    const lastOutputAt =
+      parsed.data.lastOutputAt && new Date(parsed.data.lastOutputAt).toISOString() < receivedAt
+        ? new Date(parsed.data.lastOutputAt).toISOString()
+        : receivedAt;
     const envelope = {
       id: 0,
       type: `hook:${state}`,
-      at: new Date().toISOString(),
+      at: receivedAt,
       source: `hook/${cli}`,
       agentId,
       issue: null,
       runId: null,
-      data: parsed.data,
+      data: { ...parsed.data, lastOutputAt },
     };
     // Validate before any side effect, so a later failure never leaves a stored row to retry.
     const checked = BusEventSchema.safeParse(envelope);
@@ -411,6 +518,7 @@ export async function startHttp({
     // Only a subscriber throwing on the hook row itself leaves it stored with a 500.
     try {
       if (agentId) {
+        db.touchAgentOutput(agentId, lastOutputAt);
         setAgentState(agentId, state);
       }
       recordEvent(db, events, role, envelope);
@@ -453,12 +561,9 @@ export async function startHttp({
     // hooks, scripts) may send any or no Content-Type; the body is parsed as JSON regardless.
     // A browser request (it always sends Origin) must still be application/json, which a page
     // cannot send cross-origin without a CORS preflight.
-    if (req.headers.origin !== undefined) {
-      const contentType = (req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase();
-      if (contentType !== 'application/json') {
-        sendJson(res, 415, { error: 'content-type must be application/json' });
-        return;
-      }
+    if (!browserContentTypeAllowed(req)) {
+      sendJson(res, 415, { error: 'content-type must be application/json' });
+      return;
     }
     const declared = Number(req.headers['content-length']);
     if (declared > MAX_INGEST_BODY_BYTES) {
@@ -516,11 +621,13 @@ export async function startHttp({
     // Persist first; subscribers are notified only after the commit.
     const rows = db.transaction(() =>
       accepted.map((e) =>
-        db.insertEvent(e.source, e.type, e.data, {
-          agentId: e.agentId,
-          issue: e.issue,
-          runId: e.runId,
-        }),
+        e.type === 'attention'
+          ? recordAttention(db, e).event
+          : db.insertEvent(e.source, e.type, e.data, {
+              agentId: e.agentId,
+              issue: e.issue,
+              runId: e.runId,
+            }),
       ),
     );
     // Synchronously, in id order: a deferred publish could arrive after a higher id another
@@ -537,7 +644,115 @@ export async function startHttp({
       'INGEST',
       `${accepted.length} event(s): ${shown.join(', ')}${accepted.length > shown.length ? ', ...' : ''}`,
     );
-    sendJson(res, 202, { ids: rows.map((r) => r.id) });
+    const single = !Array.isArray(body) && accepted[0]?.type === 'attention';
+    sendJson(res, 202, {
+      ids: rows.map((r) => r.id),
+      ...(single ? { id: rows[0]?.id } : {}),
+    });
+  }
+
+  function handleAttentionList(req: IncomingMessage, res: ServerResponse): void {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    if (!hostAllowed(req)) {
+      sendJson(res, 403, { error: 'forbidden host or origin' });
+      return;
+    }
+    const parsed = parseAttentionQuery(new URL(req.url ?? '/', 'http://localhost').searchParams);
+    if ('error' in parsed) {
+      sendJson(res, 400, { error: parsed.error });
+      return;
+    }
+    sendJson(res, 200, { attention: db.listAttention(parsed.query) });
+  }
+
+  /**
+   * `POST /attention/<id>/answer|ack`: compare-and-set state transition plus its lifecycle event
+   * in one transaction, published after the commit as in `handleIngest`. 404 for an unknown id,
+   * 409 when the current state does not allow the transition.
+   *
+   * Trust model: like every bus write route there is no caller authentication. The guards are the
+   * loopback bind, the Host/Origin check and the browser content-type rule. `by` is self-asserted
+   * by the caller (validated for length and forbidden characters only) and is a label, never an
+   * identity to authorize on.
+   */
+  async function handleAttentionAction(
+    req: IncomingMessage,
+    res: ServerResponse,
+    rawId: string,
+    action: 'answer' | 'ack',
+  ): Promise<void> {
+    if (req.method !== 'POST') {
+      sendJson(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    if (!hostAllowed(req)) {
+      sendJson(res, 403, { error: 'forbidden host or origin' });
+      return;
+    }
+    if (!browserContentTypeAllowed(req)) {
+      sendJson(res, 415, { error: 'content-type must be application/json' });
+      return;
+    }
+    const id = Number(rawId);
+    if (!/^\d+$/.test(rawId) || !Number.isSafeInteger(id) || id < 1) {
+      sendJson(res, 404, { error: 'attention not found' });
+      return;
+    }
+    const declared = Number(req.headers['content-length']);
+    if (declared > MAX_INGEST_BODY_BYTES) {
+      sendTooLarge(req, res);
+      return;
+    }
+    let body: unknown;
+    try {
+      body = await readJson(req, MAX_INGEST_BODY_BYTES);
+    } catch (error) {
+      if (error instanceof PayloadTooLargeError) {
+        sendTooLarge(req, res);
+      } else {
+        sendJson(res, 400, { error: 'invalid JSON body' });
+      }
+      return;
+    }
+    let result: AttentionTransitionResult;
+    if (action === 'answer') {
+      const checked = AnswerBodySchema.safeParse(body);
+      if (!checked.success) {
+        sendJson(res, 400, { error: briefIssue(checked.error) });
+        return;
+      }
+      result = answerAttention(db, id, checked.data.text, checked.data.by);
+    } else {
+      const checked = AckBodySchema.safeParse(body ?? {});
+      if (!checked.success) {
+        sendJson(res, 400, { error: briefIssue(checked.error) });
+        return;
+      }
+      result = ackAttention(db, id, checked.data.by ?? null);
+    }
+    if (result.outcome !== 'ok') {
+      if (result.outcome === 'not_found') {
+        sendJson(res, 404, { error: 'attention not found' });
+      } else {
+        sendJson(res, 409, {
+          error: `attention ${id} is ${db.getAttention(id)?.state ?? 'gone'}; cannot ${action}`,
+        });
+      }
+      return;
+    }
+    try {
+      events.publishEvent(result.event);
+    } catch (error) {
+      log.logLine(
+        'ERROR',
+        `attention ${action} broadcast of event ${result.event.id} failed: ${String(error)}`,
+      );
+    }
+    log.logLine('STATE', `attention ${id} ${result.attention.state}`);
+    sendJson(res, 200, result.attention);
   }
 
   const server = createServer((req, res) => {
@@ -563,11 +778,56 @@ export async function startHttp({
       return;
     }
     if (path === '/events') {
-      handleEvent(req, res).catch((error: unknown) => {
+      (req.method === 'GET'
+        ? Promise.resolve().then(() => handleEventQuery(req, res))
+        : handleEvent(req, res)
+      ).catch((error: unknown) => {
         if (!res.headersSent) {
           sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
         }
       });
+      return;
+    }
+    if (path === '/attention') {
+      Promise.resolve()
+        .then(() => handleAttentionList(req, res))
+        .catch((error: unknown) => {
+          if (!res.headersSent) {
+            sendJson(res, 500, {
+              error: error instanceof Error ? error.message : 'internal error',
+            });
+          }
+        });
+      return;
+    }
+    const attentionAction = ATTENTION_ACTION_PATH.exec(path);
+    if (attentionAction) {
+      handleAttentionAction(
+        req,
+        res,
+        attentionAction[1] ?? '',
+        attentionAction[2] === 'ack' ? 'ack' : 'answer',
+      ).catch((error: unknown) => {
+        if (!res.headersSent) {
+          sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
+        }
+      });
+      return;
+    }
+    const runMatch = RUN_METRICS_PATH.exec(path);
+    if (path === '/runs/metrics' || runMatch) {
+      const issue = runMatch ? Number(runMatch[1]) : undefined;
+      if (issue !== undefined && !Number.isSafeInteger(issue)) {
+        sendJson(res, 404, { error: 'not found' });
+        return;
+      }
+      try {
+        handleRunMetrics(req, res, issue);
+      } catch {
+        if (!res.headersSent) {
+          sendJson(res, 500, { error: 'internal error' });
+        }
+      }
       return;
     }
     const match = MCP_PATH.exec(path);
@@ -597,12 +857,14 @@ export async function startHttp({
 
   const address = server.address() as AddressInfo;
   const stopLeaseRenewal = await startLeaseRenewal(db, log);
+  const stopNoticeSweep = startNoticeSweep(db, events, log);
 
   return {
     server,
     url: `http://${host}:${address.port}`,
     async close() {
       stopLeaseRenewal();
+      stopNoticeSweep();
       await Promise.all([...sessions.values()].map((s) => s.transport.close()));
       sessions.clear();
       server.closeAllConnections();

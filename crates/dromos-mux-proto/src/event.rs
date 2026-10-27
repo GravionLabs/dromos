@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
 use crate::BusEvent;
-use crate::generated::QueueItemDataState;
+use crate::generated::{ProgressDataFieldsValue, QueueItemDataState};
 
 /// `type` values the generated [`BusEvent`] knows, taken from the generated
 /// [`BUS_EVENT_TYPES`](crate::BUS_EVENT_TYPES) so a new variant can never fall into
@@ -115,15 +115,16 @@ impl fmt::Display for ConstraintError {
 
 impl std::error::Error for ConstraintError {}
 
-/// Checks what the generated types cannot express: numeric ranges, forbidden characters in free
-/// text and the `queue.item` state/result coupling. Mirrors `src/events/schema.ts`.
+/// Checks what the generated types cannot express: numeric ranges, entry caps, forbidden characters
+/// in free text and the `queue.item` state/result coupling. Mirrors `src/events/schema.ts`.
 ///
 /// [`Event`] calls this after parsing. A bare [`BusEvent`] deserialised with serde is **not**
 /// checked; call this on it, or deserialise through [`Event`] instead.
 pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
     use BusEvent::{
-        AgentRegistered, AgentRun, AgentState, Attention, HookBusy, HookIdle, Progress, QueueItem,
-        Usage,
+        AgentRegistered, AgentRun, AgentState, AttemptSettled, AttemptStarted, Attention,
+        AttentionAcked, AttentionAnswered, GateResult, HookBusy, HookIdle, Progress, QueueItem,
+        ReviewResult, RunState, Usage,
     };
     let (agent_id, run_id) = match event {
         HookIdle {
@@ -136,6 +137,12 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
             agent_id, run_id, ..
         }
         | Attention {
+            agent_id, run_id, ..
+        }
+        | AttentionAnswered {
+            agent_id, run_id, ..
+        }
+        | AttentionAcked {
             agent_id, run_id, ..
         }
         | Usage {
@@ -151,6 +158,21 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
             agent_id, run_id, ..
         }
         | AgentRun {
+            agent_id, run_id, ..
+        }
+        | RunState {
+            agent_id, run_id, ..
+        }
+        | GateResult {
+            agent_id, run_id, ..
+        }
+        | ReviewResult {
+            agent_id, run_id, ..
+        }
+        | AttemptStarted {
+            agent_id, run_id, ..
+        }
+        | AttemptSettled {
             agent_id, run_id, ..
         } => (
             agent_id.as_ref().map(|v| v.as_str()),
@@ -168,8 +190,51 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
         Progress { data, .. } => {
             texts.push(("data.line", data.line.as_str()));
             texts.push(("data.agent", data.agent.as_str()));
+            if data.fields.len() > 32 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.fields",
+                    rule: "at most 32 entries",
+                });
+            }
+            for (key, value) in &data.fields {
+                texts.push(("data.fields", key.as_str()));
+                if let ProgressDataFieldsValue::String(v) = value {
+                    texts.push(("data.fields", v.as_str()));
+                }
+            }
         }
-        Attention { data, .. } => texts.push(("data.summary", data.summary.as_str())),
+        Attention { data, .. } => {
+            texts.push(("data.kind", data.kind.as_str()));
+            texts.push(("data.summary", data.summary.as_str()));
+            texts.extend(
+                data.question
+                    .as_ref()
+                    .map(|v| ("data.question", v.as_str())),
+            );
+            texts.extend(
+                data.checkout
+                    .as_ref()
+                    .map(|v| ("data.checkout", v.as_str())),
+            );
+            if data.options.len() > 16 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.options",
+                    rule: "at most 16 entries",
+                });
+            }
+            for option in &data.options {
+                texts.push(("data.options", option.as_str()));
+            }
+        }
+        AttentionAnswered { data, .. } => {
+            // `data.id >= 1` is carried by the generated `NonZeroU64`.
+            texts.push(("data.text", data.text.as_str()));
+            texts.push(("data.by", data.by.as_str()));
+        }
+        AttentionAcked { data, .. } => {
+            // `data.id >= 1` is carried by the generated `NonZeroU64`.
+            texts.extend(data.by.as_ref().map(|v| ("data.by", v.as_str())));
+        }
         Usage { data, .. } => {
             if data.context_tokens < 0 {
                 return Err(ConstraintError::OutOfRange {
@@ -190,8 +255,50 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
             texts.push(("data.cli", data.cli.as_str()));
             texts.extend(data.model.as_ref().map(|v| ("data.model", v.as_str())));
         }
-        // Closed enum, nothing free-form to check.
-        AgentState { .. } => {}
+        // Closed enums, timestamps and `NonZeroU64` counters: nothing free-form to check.
+        AgentState { .. } | RunState { .. } | AttemptStarted { .. } | AttemptSettled { .. } => {}
+        GateResult { data, .. } => {
+            if data.duration_ms < 0 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.durationMs",
+                    rule: ">= 0",
+                });
+            }
+            if data.steps.len() > 32 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.steps",
+                    rule: "at most 32 entries",
+                });
+            }
+            if data.steps.iter().any(|step| step.duration_ms < 0) {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.steps.durationMs",
+                    rule: ">= 0",
+                });
+            }
+            texts.extend(
+                data.failed_step
+                    .as_ref()
+                    .map(|v| ("data.failedStep", v.as_str())),
+            );
+            for step in &data.steps {
+                texts.push(("data.steps.name", step.name.as_str()));
+            }
+        }
+        ReviewResult { data, .. } => {
+            if data.blocking_findings < 0 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.blockingFindings",
+                    rule: ">= 0",
+                });
+            }
+            if data.findings < 0 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.findings",
+                    rule: ">= 0",
+                });
+            }
+        }
         AgentRun { data, .. } => {
             if data.depth.get() > 8 {
                 return Err(ConstraintError::OutOfRange {

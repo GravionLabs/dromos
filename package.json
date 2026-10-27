@@ -7,6 +7,9 @@
   "engines": {
     "node": ">=22"
   },
+  "bin": {
+    "dromos": "dist/cli.js"
+  },
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -23,6 +26,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "better-sqlite3": "^13.0.3",
+    "commander": "^15.0.0",
     "execa": "^10.1.1",
     "zod": "^4.6.5"
   },

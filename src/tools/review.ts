@@ -2,6 +2,12 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { requireRole } from '../auth.js';
 import type { ToolContext } from '../context.js';
+import {
+  publishRows,
+  recordBlockedAttention,
+  recordRunEvent,
+  recordRunTransition,
+} from '../run-events.js';
 import { afterRunTransition } from '../run-lease.js';
 import { type Finding, type Review, ReviewSchema, type Severity } from '../schemas.js';
 import { isBlocking, transition } from '../state-machine.js';
@@ -48,7 +54,11 @@ export function registerReviewTools(server: McpServer, ctx: ToolContext): void {
       }
       const blocking = isBlocking(review, ctx.config.blockingSeverities);
       // The state was checked above and nothing awaits in between, so the transition is valid.
-      const { moved: next, out } = ctx.db.transaction(() => {
+      const {
+        moved: next,
+        out,
+        rows,
+      } = ctx.db.transaction(() => {
         const moved = transition(
           run,
           { type: blocking ? 'review_changes' : 'review_approved' },
@@ -59,6 +69,20 @@ export function registerReviewTools(server: McpServer, ctx: ToolContext): void {
           state: moved.state,
           round: moved.round,
         });
+        const result = recordRunEvent(ctx.db, run, 'review.result', {
+          verdict: review.verdict,
+          round: run.round,
+          blockingFindings: review.findings.filter((f) =>
+            ctx.config.blockingSeverities.includes(f.severity),
+          ).length,
+          findings: review.findings.length,
+          evidence: 'reported',
+        });
+        const rows = recordRunTransition(ctx.db, run, run, moved, {
+          outcome: blocking ? (moved.state === 'blocked' ? 'blocked' : 'sent_back') : 'approved',
+          evidence: 'reported',
+        });
+        rows.unshift(result);
         const findings = sortFindings(review.findings, ctx.config.blockingSeverities);
         if (moved.state === 'implementing') {
           ctx.db.insertMessage({
@@ -68,8 +92,9 @@ export function registerReviewTools(server: McpServer, ctx: ToolContext): void {
             runId,
             payload: { runId, round: moved.round, findings, summary: review.summary },
           });
-          return { moved, out: { to: 'implementer', type: 'review_result' } as const };
+          return { moved, rows, out: { to: 'implementer', type: 'review_result' } as const };
         }
+        if (moved.state === 'blocked') rows.push(recordBlockedAttention(ctx.db, run, 'review'));
         ctx.db.insertMessage({
           from: 'reviewer',
           to: 'orchestrator',
@@ -86,8 +111,13 @@ export function registerReviewTools(server: McpServer, ctx: ToolContext): void {
                   findings,
                 },
         });
-        return { moved, out: { to: 'orchestrator', type: 'notice' } as const };
+        return { moved, rows, out: { to: 'orchestrator', type: 'notice' } as const };
       });
+      try {
+        publishRows(ctx.events, rows);
+      } catch {
+        // Best effort: the events are committed and replayable from the store.
+      }
       void afterRunTransition(ctx, { ...run, state: next.state });
       try {
         ctx.log.logLine('REVIEW', countLine(runId, review));

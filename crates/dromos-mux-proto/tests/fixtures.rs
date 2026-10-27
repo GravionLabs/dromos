@@ -91,12 +91,162 @@ fn external_fixtures_map_to_their_variants() {
     let load = |name: &str| parse(fixture(name)).unwrap();
     assert!(matches!(load("progress.json"), BusEvent::Progress { .. }));
     assert!(matches!(load("attention.json"), BusEvent::Attention { .. }));
+    assert!(matches!(
+        load("attention-question.json"),
+        BusEvent::Attention { .. }
+    ));
+    assert!(matches!(
+        load("attention-answered.json"),
+        BusEvent::AttentionAnswered { .. }
+    ));
+    assert!(matches!(
+        load("attention-acked.json"),
+        BusEvent::AttentionAcked { .. }
+    ));
     assert!(matches!(load("usage.json"), BusEvent::Usage { .. }));
     assert!(matches!(
         load("queue-item.json"),
         BusEvent::QueueItem { .. }
     ));
     assert!(matches!(load("agent-run.json"), BusEvent::AgentRun { .. }));
+    assert!(matches!(load("run-state.json"), BusEvent::RunState { .. }));
+    assert!(matches!(
+        load("gate-result.json"),
+        BusEvent::GateResult { .. }
+    ));
+    assert!(matches!(
+        load("gate-result-failed.json"),
+        BusEvent::GateResult { .. }
+    ));
+    assert!(matches!(
+        load("review-result.json"),
+        BusEvent::ReviewResult { .. }
+    ));
+    assert!(matches!(
+        load("attempt-started.json"),
+        BusEvent::AttemptStarted { .. }
+    ));
+    assert!(matches!(
+        load("attempt-settled.json"),
+        BusEvent::AttemptSettled { .. }
+    ));
+    assert!(matches!(
+        load("agent-state-last-output.json"),
+        BusEvent::AgentState { .. }
+    ));
+}
+
+#[test]
+fn workflow_fixtures_carry_their_values() {
+    let BusEvent::GateResult { data, .. } = parse(fixture("gate-result-failed.json")).unwrap()
+    else {
+        panic!("gate-result-failed.json did not map to BusEvent::GateResult");
+    };
+    assert!(!data.passed);
+    assert_eq!(
+        data.failed_step.as_deref().map(String::as_str),
+        Some("test")
+    );
+    assert_eq!(data.steps.len(), 2);
+    assert_eq!(data.steps[1].exit_code, 1);
+    assert_eq!(
+        serde_json::to_value(data.evidence).unwrap(),
+        json!("verified")
+    );
+
+    let BusEvent::AgentState { data, .. } = parse(fixture("agent-state-last-output.json")).unwrap()
+    else {
+        panic!("agent-state-last-output.json did not map to BusEvent::AgentState");
+    };
+    assert_eq!(
+        data.last_output_at.as_deref().map(String::as_str),
+        Some("2026-10-26T10:00:04.000Z")
+    );
+}
+
+#[test]
+fn rejects_invalid_workflow_event_data() {
+    let g = "gate-result.json";
+    assert_rejected(g, "negative duration", "data.durationMs", |e| {
+        e["data"]["durationMs"] = json!(-1);
+    });
+    assert_rejected(g, "negative step duration", "data.steps.durationMs", |e| {
+        e["data"]["steps"][0]["durationMs"] = json!(-1);
+    });
+    assert_rejected(g, "33 steps", "at most 32", |e| {
+        e["data"]["steps"] = (0..33)
+            .map(|i| json!({"name": format!("s{i}"), "exitCode": 0, "durationMs": 1}))
+            .collect();
+    });
+    assert_accepted(g, "32 steps", |e| {
+        e["data"]["steps"] = (0..32)
+            .map(|i| json!({"name": format!("s{i}"), "exitCode": 0, "durationMs": 1}))
+            .collect();
+    });
+    assert_rejected(g, "escape in step name", "data.steps.name", |e| {
+        e["data"]["steps"][0]["name"] = json!("a\u{1b}[31m");
+    });
+    assert_rejected(g, "bidi in failedStep", "data.failedStep", |e| {
+        e["data"]["failedStep"] = json!("a\u{202e}");
+    });
+    assert_field_rejected(g, "round 0", "data.round", Edit::Set(json!(0)));
+    assert_field_rejected(
+        g,
+        "unknown tier",
+        "data.evidence",
+        Edit::Set(json!("guessed")),
+    );
+    assert_field_rejected(g, "extra key", "data.extra", Edit::Set(json!(1)));
+    assert_field_rejected(
+        g,
+        "long failedStep",
+        "data.failedStep",
+        Edit::Set(json!("x".repeat(129))),
+    );
+
+    let r = "review-result.json";
+    assert_rejected(r, "negative findings", "data.findings", |e| {
+        e["data"]["findings"] = json!(-1);
+    });
+    assert_rejected(r, "negative blocking", "data.blockingFindings", |e| {
+        e["data"]["blockingFindings"] = json!(-1);
+    });
+    assert_field_rejected(
+        r,
+        "verdict reject",
+        "data.verdict",
+        Edit::Set(json!("reject")),
+    );
+
+    let s = "run-state.json";
+    assert_field_rejected(s, "unknown state", "data.state", Edit::Set(json!("done")));
+    assert_accepted(s, "null previous", |e| e["data"]["previous"] = Value::Null);
+
+    assert_field_rejected(
+        "attempt-started.json",
+        "unknown cause",
+        "data.cause",
+        Edit::Set(json!("retry")),
+    );
+    assert_field_rejected("attempt-started.json", "n 0", "data.n", Edit::Set(json!(0)));
+    assert_field_rejected(
+        "attempt-settled.json",
+        "unknown outcome",
+        "data.outcome",
+        Edit::Set(json!("initial")),
+    );
+    assert_field_rejected(
+        "attempt-settled.json",
+        "missing evidence",
+        "data.evidence",
+        Edit::Remove,
+    );
+    assert_field_rejected(
+        "agent-state.json",
+        "date-only lastOutputAt",
+        "data.lastOutputAt",
+        Edit::Set(json!("2026-10-26")),
+    );
 }
 
 #[test]
@@ -215,8 +365,87 @@ fn assert_field_rejected(name: &str, label: &str, path: &str, edit: Edit) {
 }
 
 #[test]
+fn progress_kind_fixtures_parse_with_their_kind() {
+    for kind in [
+        "phase",
+        "task",
+        "wave",
+        "fix-round",
+        "ruling",
+        "gate",
+        "loop",
+        "complete",
+        "subagent",
+        "other",
+    ] {
+        let input = read_json(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("../../schema/fixtures/progress-{kind}.json")),
+        );
+        let BusEvent::Progress { data, .. } = serde_json::from_value(input).unwrap() else {
+            panic!("progress-{kind}.json did not map to BusEvent::Progress");
+        };
+        let wire = serde_json::to_value(data.kind.expect("kind set")).unwrap();
+        assert_eq!(wire, json!(kind));
+        let fields = serde_json::to_value(&data.fields).unwrap();
+        assert_eq!(fields, json!({"ref": "#97", "count": 3.5, "note": null}));
+    }
+}
+
+#[test]
 fn rejects_invalid_progress_data() {
     let p = "progress.json";
+    assert_field_rejected(p, "unknown kind", "data.kind", Edit::Set(json!("bogus")));
+    assert_field_rejected(p, "non-object fields", "data.fields", Edit::Set(json!([1])));
+    assert_field_rejected(
+        p,
+        "object field value",
+        "data.fields",
+        Edit::Set(json!({"a": {"n": 1}})),
+    );
+    assert_field_rejected(
+        p,
+        "bool field value",
+        "data.fields",
+        Edit::Set(json!({"a": true})),
+    );
+    assert_field_rejected(
+        p,
+        "empty field key",
+        "data.fields",
+        Edit::Set(json!({"": "x"})),
+    );
+    assert_field_rejected(
+        p,
+        "long field value",
+        "data.fields",
+        Edit::Set(json!({"a": "x".repeat(1001)})),
+    );
+    assert_field_rejected(
+        p,
+        "long field key",
+        "data.fields",
+        Edit::Set(json!({"k".repeat(65): "x"})),
+    );
+    assert_rejected(p, "33 field entries", "at most 32", |e| {
+        let map: serde_json::Map<String, Value> =
+            (0..33).map(|i| (format!("k{i}"), json!(i))).collect();
+        e["data"]["fields"] = Value::Object(map);
+    });
+    assert_accepted(p, "32 field entries", |e| {
+        let map: serde_json::Map<String, Value> =
+            (0..32).map(|i| (format!("k{i}"), json!(i))).collect();
+        e["data"]["fields"] = Value::Object(map);
+    });
+    assert_accepted(p, "empty value and empty map", |e| {
+        e["data"]["fields"] = json!({"a": ""});
+    });
+    assert_rejected(p, "escape in field value", "data.fields", |e| {
+        e["data"]["fields"] = json!({"a": "x\u{1b}[31m"});
+    });
+    assert_rejected(p, "zero-width in field key", "data.fields", |e| {
+        e["data"]["fields"] = json!({"a\u{200b}b": "x"});
+    });
     assert_field_rejected(p, "extra key", "data.extra", Edit::Set(json!(1)));
     assert_field_rejected(p, "empty line", "data.line", Edit::Set(json!("")));
     assert_field_rejected(
@@ -251,7 +480,38 @@ fn rejects_invalid_progress_data() {
 #[test]
 fn rejects_invalid_attention_data() {
     let a = "attention.json";
-    assert_field_rejected(a, "unknown kind", "data.kind", Edit::Set(json!("DONE")));
+    assert_field_rejected(a, "empty kind", "data.kind", Edit::Set(json!("")));
+    assert_field_rejected(
+        a,
+        "long kind",
+        "data.kind",
+        Edit::Set(json!("x".repeat(65))),
+    );
+    assert_field_rejected(a, "kind newline", "data.kind", Edit::Set(json!("A\nB")));
+    assert_field_rejected(
+        a,
+        "17 options",
+        "data.options",
+        Edit::Set(json!(vec!["o"; 17])),
+    );
+    assert_field_rejected(
+        a,
+        "option control char",
+        "data.options",
+        Edit::Set(json!(["a\u{7}"])),
+    );
+    assert_field_rejected(
+        a,
+        "checkout esc",
+        "data.checkout",
+        Edit::Set(json!("/a\u{1b}")),
+    );
+    assert_field_rejected(
+        a,
+        "question newline",
+        "data.question",
+        Edit::Set(json!("a\nb")),
+    );
     assert_field_rejected(a, "empty summary", "data.summary", Edit::Set(json!("")));
     assert_field_rejected(
         a,
@@ -267,6 +527,28 @@ fn rejects_invalid_attention_data() {
     );
     assert_field_rejected(a, "fractional pr", "data.pr", Edit::Set(json!(1.5)));
     assert_field_rejected(a, "missing pr", "data.pr", Edit::Remove);
+}
+
+#[test]
+fn accepts_free_form_attention_kind_and_16_options() {
+    let mut event = fixture("attention-question.json");
+    event["data"]["kind"] = json!("ANYTHING");
+    event["data"]["options"] = json!(vec!["o"; 16]);
+    assert!(parse(event).is_ok());
+}
+
+#[test]
+fn rejects_invalid_attention_answered_and_acked() {
+    let a = "attention-answered.json";
+    assert_field_rejected(a, "id zero", "data.id", Edit::Set(json!(0)));
+    assert_field_rejected(a, "empty text", "data.text", Edit::Set(json!("")));
+    assert_field_rejected(a, "text newline", "data.text", Edit::Set(json!("a\nb")));
+    assert_field_rejected(a, "null by", "data.by", Edit::Set(Value::Null));
+    assert_field_rejected(a, "by esc", "data.by", Edit::Set(json!("a\u{1b}")));
+    let k = "attention-acked.json";
+    assert_field_rejected(k, "id zero", "data.id", Edit::Set(json!(0)));
+    assert_field_rejected(k, "by bidi", "data.by", Edit::Set(json!("a\u{202e}")));
+    assert_field_rejected(k, "missing by", "data.by", Edit::Remove);
 }
 
 #[test]
@@ -579,6 +861,8 @@ mod event_wrapper {
             .map(|p| read_json(p)["type"].as_str().unwrap().to_owned())
             .collect();
         fixture_types.sort();
+        // `progress-<kind>.json` repeat the `progress` type.
+        fixture_types.dedup();
         let mut known: Vec<String> = KNOWN_TYPES.iter().map(|s| (*s).to_owned()).collect();
         known.sort();
         assert_eq!(fixture_types, known);
@@ -682,11 +966,18 @@ mod event_wrapper {
                 "hook:busy",
                 "progress",
                 "attention",
+                "attention.answered",
+                "attention.acked",
                 "usage",
                 "queue.item",
                 "agent.registered",
                 "agent.state",
-                "agent.run"
+                "agent.run",
+                "run.state",
+                "gate.result",
+                "review.result",
+                "attempt.started",
+                "attempt.settled"
             ]
         );
     }

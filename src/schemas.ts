@@ -16,6 +16,7 @@ export const AgentSchema = z.object({
   state: AgentStateSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
+  lastOutputAt: z.string().nullable(),
 });
 export type Agent = z.infer<typeof AgentSchema>;
 
@@ -44,6 +45,30 @@ export const MessageSchema = z.object({
   ackedAt: z.iso.datetime().nullable(),
 });
 export type Message = z.infer<typeof MessageSchema>;
+
+/** Payload of a `task` message. Loose, so extra keys such as worktreePath and branch survive. */
+export const TaskPayloadSchema = z.looseObject({
+  objective: z.string().min(1),
+  constraints: z.array(z.string()),
+  ownership: z.array(z.string()).min(1),
+  outputFormat: z.string().min(1),
+  editsAllowed: z.boolean(),
+  validation: z.array(z.string()),
+  forbidden: z.array(z.string()),
+  issue: z.number().int().positive(),
+  runId: z.string().min(1),
+});
+export type TaskPayload = z.infer<typeof TaskPayloadSchema>;
+
+export function parseTaskPayload(payload: unknown) {
+  return TaskPayloadSchema.safeParse(payload);
+}
+
+export const TaskMessageSchema = MessageSchema.extend({
+  type: z.literal('task'),
+  payload: TaskPayloadSchema,
+});
+export type TaskMessage = z.infer<typeof TaskMessageSchema>;
 
 export const SeveritySchema = z.enum(['critical', 'important', 'suggestion']);
 export type Severity = z.infer<typeof SeveritySchema>;
@@ -95,5 +120,7 @@ export const HookEventSchema = z.object({
   /** Free text, passed through from the CLI launcher; never validated against a model list. */
   model: z.string().min(1).optional(),
   sessionId: z.string().optional(),
+  /** When the CLI last produced output; the bus uses the receive time when absent. */
+  lastOutputAt: z.iso.datetime().optional(),
 });
 export type HookEvent = z.infer<typeof HookEventSchema>;

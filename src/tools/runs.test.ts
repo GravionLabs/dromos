@@ -13,6 +13,7 @@ import { execa } from 'execa';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { leaseKey, stamp } from '../lease.js';
 import { afterRunTransition } from '../run-lease.js';
+import { TaskPayloadSchema } from '../schemas.js';
 import { startTestBus, type TestBus, textOf } from '../test-helpers.js';
 
 vi.mock('execa');
@@ -146,7 +147,22 @@ describe('start_run', () => {
         runId: 'run-14-1',
         payload: {
           runId: 'run-14-1',
-          issue: { number: 14, title: 'Add Start Run!', body: 'Body' },
+          issue: 14,
+          objective: 'Implement #14: Add Start Run!\n\nBody',
+          editsAllowed: true,
+          constraints: [
+            'Work only in worktreePath on the given branch',
+            'Commit your work',
+            'Call submit_implementation when done',
+          ],
+          ownership: ['**'],
+          outputFormat: 'Commits on feat/14-add-start-run, then submit_implementation',
+          validation: [],
+          forbidden: [
+            'push to the base branch',
+            'open a pull request before review approval',
+            'edit files outside the worktree',
+          ],
           worktreePath,
           branch: 'feat/14-add-start-run',
           baseBranch: 'main',
@@ -157,6 +173,27 @@ describe('start_run', () => {
     expect(bus.readLog()).toContain(
       'run-14-1 started: implementing (round 1) on feat/14-add-start-run',
     );
+  });
+
+  it('delivers a schema-valid task with the configured gate commands as validation', async () => {
+    await bus.close();
+    bus = await startTestBus({
+      gate: {
+        commands: [
+          { name: 'build', run: 'pnpm build' },
+          { name: 'test', run: 'pnpm test' },
+        ],
+      },
+    });
+    const orchestrator = await bus.connect('orchestrator');
+    await orchestrator.callTool({ name: 'start_run', arguments: args() });
+    const [task] = bus.db.listUnacked('implementer');
+    expect(task?.payload).toMatchObject({
+      issue: 14,
+      editsAllowed: true,
+      validation: ['pnpm build', 'pnpm test'],
+    });
+    expect(TaskPayloadSchema.safeParse(task?.payload).success).toBe(true);
   });
 
   it('uses an explicit baseBranch', async () => {
@@ -461,6 +498,57 @@ describe('start_run', () => {
     expect(textOf(result)).toContain('clean them up manually');
     expect(bus.db.listRuns()).toEqual([]);
     expect(destructive()).toEqual([]);
+  });
+
+  describe('run events', () => {
+    const dromosEvents = () => bus.db.listEventsSince(0).filter((e) => e.role === 'dromos');
+
+    it('emits run.state implementing and the initial attempt, then publishes them', async () => {
+      const published: string[] = [];
+      bus.events.onEvent((e) => {
+        if (e.role === 'dromos') published.push(e.kind);
+      });
+      const orchestrator = await bus.connect('orchestrator');
+      await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      const events = dromosEvents();
+      expect(events.map((e) => [e.kind, e.data])).toEqual([
+        ['run.state', { state: 'implementing', round: 1, previous: null }],
+        ['attempt.started', { n: 1, cause: 'initial', startedAt: expect.any(String) }],
+      ]);
+      expect(events.every((e) => e.runId === 'run-14-1' && e.issue === 14)).toBe(true);
+      expect(published).toEqual(['run.state', 'attempt.started']);
+    });
+
+    it('stores and publishes no run event when the run insert rolls back', async () => {
+      const published: string[] = [];
+      bus.events.onEvent((e) => {
+        if (e.role === 'dromos') published.push(e.kind);
+      });
+      const orchestrator = await bus.connect('orchestrator');
+      const spy = vi.spyOn(bus.db, 'setAgentRun').mockImplementation(() => {
+        throw new Error('disk full');
+      });
+      const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      spy.mockRestore();
+      expect(result.isError).toBe(true);
+      expect(bus.db.listRuns()).toEqual([]);
+      expect(dromosEvents()).toEqual([]);
+      expect(published).toEqual([]);
+    });
+
+    it('rolls back the run when an event insert fails', async () => {
+      const orchestrator = await bus.connect('orchestrator');
+      const insert = bus.db.insertEvent.bind(bus.db);
+      const spy = vi.spyOn(bus.db, 'insertEvent').mockImplementation((role, kind, data, c) => {
+        if (kind === 'attempt.started') throw new Error('events full');
+        return insert(role, kind, data, c);
+      });
+      const result = await orchestrator.callTool({ name: 'start_run', arguments: args() });
+      spy.mockRestore();
+      expect(result.isError).toBe(true);
+      expect(bus.db.listRuns()).toEqual([]);
+      expect(dromosEvents()).toEqual([]);
+    });
   });
 
   describe('branch type', () => {

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Db, MIGRATIONS, type NewRun, openDb } from './db.js';
 
 const newRun = (overrides: Partial<NewRun> = {}): NewRun => ({
@@ -28,6 +28,119 @@ describe('db', () => {
     db.close();
   });
 
+  describe('migrations 7 and 8', () => {
+    it('add attention_raised_at and last_output_at to a version-6 database and keep its rows', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'dromos-db-'));
+      try {
+        const file = join(dir, 'bus.db');
+        const raw = new Database(file);
+        for (const sql of MIGRATIONS.slice(0, 6)) raw.exec(sql);
+        raw.pragma('user_version = 6');
+        raw
+          .prepare(
+            `INSERT INTO agents (id, role, cli, state, created_at, updated_at)
+             VALUES ('a1', 'implementer', 'claude', 'idle', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
+          )
+          .run();
+        raw.close();
+        const migrated = openDb(file);
+        expect(migrated.schemaVersion()).toBe(8);
+        expect(migrated.getAgent('a1')?.lastOutputAt).toBeNull();
+        migrated.close();
+        const check = new Database(file, { readonly: true });
+        const cols = (table: string) =>
+          (check.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(
+            (c) => c.name,
+          );
+        expect(cols('messages')).toContain('attention_raised_at');
+        expect(cols('agents')).toContain('last_output_at');
+        check.close();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('touchAgentOutput', () => {
+    it('moves last_output_at forward only', () => {
+      db.insertAgent({ id: 'a1', role: 'implementer', cli: 'claude' });
+      db.touchAgentOutput('a1', '2026-01-02T00:00:00.000Z');
+      db.touchAgentOutput('a1', '2026-01-01T00:00:00.000Z');
+      expect(db.getAgent('a1')?.lastOutputAt).toBe('2026-01-02T00:00:00.000Z');
+      db.touchAgentOutput('a1', '2026-01-03T00:00:00.000Z');
+      expect(db.getAgent('a1')?.lastOutputAt).toBe('2026-01-03T00:00:00.000Z');
+    });
+  });
+
+  describe('stale orchestrator notices', () => {
+    const notice = (
+      over: { from?: 'implementer' | 'orchestrator'; to?: 'orchestrator' | 'reviewer' } = {},
+    ) =>
+      db.insertMessage({
+        from: over.from ?? 'implementer',
+        to: over.to ?? 'orchestrator',
+        type: 'notice',
+        payload: {},
+      });
+    const future = '9999-01-01T00:00:00.000Z';
+
+    it('lists unacked notices to the orchestrator up to the cutoff, oldest first', () => {
+      const a = notice();
+      const b = notice();
+      expect(db.listStaleOrchestratorNotices('2000-01-01T00:00:00.000Z')).toEqual([]);
+      expect(db.listStaleOrchestratorNotices(future).map((m) => m.id)).toEqual([a.id, b.id]);
+      expect(db.listStaleOrchestratorNotices(future, 1).map((m) => m.id)).toEqual([a.id]);
+    });
+
+    it('excludes acked, marked, self-addressed and other-role notices', () => {
+      const acked = notice();
+      db.ackMessage(acked.id, 'orchestrator');
+      const marked = notice();
+      expect(db.markNoticeAttentionRaised(marked.id)).toBe(true);
+      expect(db.markNoticeAttentionRaised(marked.id)).toBe(false);
+      notice({ from: 'orchestrator' });
+      notice({ to: 'reviewer' });
+      expect(db.listStaleOrchestratorNotices(future)).toEqual([]);
+    });
+  });
+
+  describe('migration 5', () => {
+    it('adds both event indexes to a version-4 database and keeps its rows', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'dromos-db-'));
+      try {
+        const file = join(dir, 'bus.db');
+        const raw = new Database(file);
+        for (const sql of MIGRATIONS.slice(0, 4)) raw.exec(sql);
+        raw.pragma('user_version = 4');
+        raw
+          .prepare(
+            `INSERT INTO events (role, kind, data_json, created_at, issue)
+             VALUES ('implementer', 'hook:idle', '{}', '2026-01-01T00:00:00Z', 7)`,
+          )
+          .run();
+        raw.close();
+
+        const migrated = openDb(file);
+        expect(MIGRATIONS).toHaveLength(8);
+        expect(migrated.schemaVersion()).toBe(8);
+        expect(migrated.queryEvents({ issue: 7, limit: 10 }).events).toHaveLength(1);
+        migrated.close();
+
+        const check = new Database(file, { readonly: true });
+        const names = (
+          check.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as {
+            name: string;
+          }[]
+        ).map((r) => r.name);
+        check.close();
+        expect(names).toContain('idx_events_issue_id');
+        expect(names).toContain('idx_events_kind_id');
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe('migration 4', () => {
     it('adds last_summary and keeps version-3 runs with a null summary', () => {
       const dir = mkdtempSync(join(tmpdir(), 'dromos-db-'));
@@ -47,8 +160,7 @@ describe('db', () => {
         raw.close();
 
         const migrated = openDb(file);
-        expect(MIGRATIONS).toHaveLength(4);
-        expect(migrated.schemaVersion()).toBe(4);
+        expect(migrated.schemaVersion()).toBe(MIGRATIONS.length);
         expect(migrated.getRun('old')?.lastSummary).toBeNull();
         expect(migrated.updateRun('old', { lastSummary: 'x' })?.lastSummary).toBe('x');
         expect(migrated.getRun('old')?.lastSummary).toBe('x');
@@ -479,6 +591,239 @@ describe('db', () => {
 
     it('returns an empty list for an empty table', () => {
       expect(db.listEventsSince(0)).toEqual([]);
+    });
+  });
+  describe('queryEvents', () => {
+    const ids = (page: { events: { id: number }[] }) => page.events.map((e) => e.id);
+    const insertAt = (createdAt: string) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(createdAt));
+      try {
+        return db.insertEvent('s', 'k', {});
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+
+    it('returns everything in id order for an empty filter', () => {
+      const a = db.insertEvent('s', 'a', {});
+      const b = db.insertEvent('s', 'b', {});
+      expect(db.queryEvents({ limit: 10 })).toMatchObject({
+        events: [{ id: a.id }, { id: b.id }],
+        next: null,
+      });
+    });
+
+    it('filters by issue and by a type list', () => {
+      const e1 = db.insertEvent('s', 'x', {}, { issue: 1 });
+      db.insertEvent('s', 'x', {}, { issue: 2 });
+      const e3 = db.insertEvent('s', 'y', {}, { issue: 1 });
+      db.insertEvent('s', 'z', {}, { issue: 1 });
+      expect(ids(db.queryEvents({ issue: 1, types: ['x', 'y'], limit: 10 }))).toEqual([
+        e1.id,
+        e3.id,
+      ]);
+      expect(ids(db.queryEvents({ types: ['nope'], limit: 10 }))).toEqual([]);
+    });
+
+    it('filters by source and agentId', () => {
+      const a = db.insertEvent('impl', 'k', {}, { agentId: 'a1' });
+      db.insertEvent('rev', 'k', {}, { agentId: 'a1' });
+      db.insertEvent('impl', 'k', {}, { agentId: 'a2' });
+      expect(ids(db.queryEvents({ sources: ['impl'], agentId: 'a1', limit: 10 }))).toEqual([a.id]);
+      expect(db.queryEvents({ sources: ['impl', 'rev'], limit: 10 }).events).toHaveLength(3);
+    });
+
+    it('treats since as inclusive and until as exclusive on created_at', () => {
+      const t = [
+        '2026-01-01T00:00:00.000Z',
+        '2026-01-02T00:00:00.000Z',
+        '2026-01-03T00:00:00.000Z',
+      ];
+      const ev = t.map((c) => insertAt(c));
+      expect(ids(db.queryEvents({ since: t[1], limit: 10 }))).toEqual([ev[1]?.id, ev[2]?.id]);
+      expect(ids(db.queryEvents({ until: t[1], limit: 10 }))).toEqual([ev[0]?.id]);
+      expect(ids(db.queryEvents({ since: t[1], until: t[2], limit: 10 }))).toEqual([ev[1]?.id]);
+    });
+
+    it('pages 2500 matching events as 1000+1000+500 without repeats or gaps', () => {
+      const all: number[] = [];
+      db.transaction(() => {
+        for (let i = 0; i < 2500; i++) {
+          all.push(db.insertEvent('s', 'k', {}, { issue: 5 }).id);
+          db.insertEvent('s', 'other', {}, { issue: 6 });
+        }
+      });
+      const seen: number[] = [];
+      const sizes: number[] = [];
+      let after: number | undefined;
+      for (;;) {
+        const page = db.queryEvents({ issue: 5, limit: 1000, after });
+        sizes.push(page.events.length);
+        seen.push(...ids(page));
+        if (page.next === null) break;
+        after = page.next;
+      }
+      expect(sizes).toEqual([1000, 1000, 500]);
+      expect(seen).toEqual(all);
+    });
+
+    it('returns next null when exactly limit rows match', () => {
+      db.insertEvent('s', 'k', {});
+      db.insertEvent('s', 'k', {});
+      const page = db.queryEvents({ limit: 2 });
+      expect(page.events).toHaveLength(2);
+      expect(page.next).toBeNull();
+    });
+
+    it('does not repeat or skip matching events inserted between pages', () => {
+      const first = [1, 2, 3].map(() => db.insertEvent('s', 'k', {}, { issue: 9 }).id);
+      const p1 = db.queryEvents({ issue: 9, limit: 2 });
+      expect(p1.next).toBe(first[1]);
+      const late = db.insertEvent('s', 'k', {}, { issue: 9 });
+      db.insertEvent('s', 'k', {}, { issue: 8 });
+      const p2 = db.queryEvents({ issue: 9, limit: 2, after: p1.next as number });
+      expect([...ids(p1), ...ids(p2)]).toEqual([...first, late.id]);
+      expect(p2.next).toBeNull();
+    });
+
+    it('treats filter values as data, not SQL', () => {
+      db.insertEvent('s', 'k', {});
+      expect(db.queryEvents({ types: ["k' OR '1'='1"], limit: 10 }).events).toEqual([]);
+    });
+
+    it('uses idx_events_issue_id for an issue filter', () => {
+      const raw = new Database(':memory:');
+      for (const sql of MIGRATIONS) raw.exec(sql);
+      const plan = raw
+        .prepare(
+          'EXPLAIN QUERY PLAN SELECT * FROM events WHERE issue = ? AND id > ? ORDER BY id ASC LIMIT ?',
+        )
+        .all(1, 0, 11) as { detail: string }[];
+      raw.close();
+      expect(plan.map((p) => p.detail).join('\n')).toContain('idx_events_issue_id');
+    });
+  });
+
+  describe('migration 6 and attention', () => {
+    const ev = (issue: number | null, kind = 'GATE') =>
+      db.insertEvent(
+        'apm-hub/queue',
+        'attention',
+        { kind, summary: 's', pr: null },
+        { agentId: 'a1', issue, runId: null },
+      );
+
+    it('upgrades a version-5 database and keeps its events', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'dromos-db-'));
+      try {
+        const file = join(dir, 'bus.db');
+        const raw = new Database(file);
+        for (const sql of MIGRATIONS.slice(0, 5)) raw.exec(sql);
+        raw.pragma('user_version = 5');
+        raw
+          .prepare(
+            `INSERT INTO events (role, kind, data_json, created_at, issue)
+             VALUES ('implementer', 'hook:idle', '{}', '2026-01-01T00:00:00Z', 7)`,
+          )
+          .run();
+        raw.close();
+        const migrated = openDb(file);
+        expect(migrated.schemaVersion()).toBe(8);
+        expect(migrated.listAttention({ limit: 10 })).toEqual([]);
+        expect(migrated.queryEvents({ issue: 7, limit: 10 }).events).toHaveLength(1);
+        migrated.close();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('inserts an open attention with the event id', () => {
+      const event = ev(5);
+      const a = db.insertAttention(event);
+      expect(a).toMatchObject({
+        id: event.id,
+        eventId: event.id,
+        source: 'apm-hub/queue',
+        agentId: 'a1',
+        issue: 5,
+        kind: 'GATE',
+        summary: 's',
+        state: 'open',
+        answeredAt: null,
+        ackedAt: null,
+      });
+      expect(a.data).toEqual({ kind: 'GATE', summary: 's', pr: null });
+      expect(db.getAttention(event.id)).toEqual(a);
+      expect(db.getAttention(9999)).toBeUndefined();
+    });
+
+    it('rejects any state other than open, answered or acked', () => {
+      const raw = new Database(':memory:');
+      for (const sql of MIGRATIONS) raw.exec(sql);
+      raw
+        .prepare(
+          "INSERT INTO events (role, kind, data_json, created_at) VALUES ('r','attention','{}','t')",
+        )
+        .run();
+      const insert = (state: string) =>
+        raw
+          .prepare(
+            `INSERT INTO attention (id, event_id, source, kind, summary, data_json, state, created_at)
+             VALUES (1, 1, 's', 'k', 'x', '{}', ?, 't')`,
+          )
+          .run(state);
+      expect(() => insert('closed')).toThrow(/CHECK/);
+      expect(() => insert('answered')).not.toThrow();
+      raw.close();
+    });
+
+    it('rejects a duplicate attention for one event', () => {
+      const event = ev(5);
+      db.insertAttention(event);
+      expect(() => db.insertAttention(event)).toThrow();
+    });
+
+    it('lists ascending, filtered by state, issue and since', () => {
+      const a = db.insertAttention(ev(1));
+      const b = db.insertAttention(ev(2));
+      const c = db.insertAttention(ev(1));
+      expect(db.listAttention({ limit: 10 }).map((r) => r.id)).toEqual([a.id, b.id, c.id]);
+      expect(db.listAttention({ issue: 1, limit: 10 }).map((r) => r.id)).toEqual([a.id, c.id]);
+      expect(db.listAttention({ state: 'open', limit: 2 }).map((r) => r.id)).toEqual([a.id, b.id]);
+      expect(db.listAttention({ state: 'acked', limit: 10 })).toEqual([]);
+      expect(db.listAttention({ since: '2999-01-01T00:00:00.000Z', limit: 10 })).toEqual([]);
+      expect(db.listAttention({ since: '2000-01-01T00:00:00.000Z', limit: 10 })).toHaveLength(3);
+    });
+
+    it('answers an open attention once and reports a conflict on the second answer', () => {
+      const a = db.insertAttention(ev(1));
+      expect(db.answerAttention(a.id, 'ship it', 'jerome')).toBe('ok');
+      expect(db.getAttention(a.id)).toMatchObject({
+        state: 'answered',
+        answerText: 'ship it',
+        answeredBy: 'jerome',
+      });
+      expect(db.getAttention(a.id)?.answeredAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(db.answerAttention(a.id, 'again', 'other')).toBe('conflict');
+      expect(db.getAttention(a.id)?.answerText).toBe('ship it');
+    });
+
+    it('reports not_found for an unknown attention id', () => {
+      expect(db.answerAttention(4242, 'x', 'y')).toBe('not_found');
+      expect(db.ackAttention(4242, null)).toBe('not_found');
+    });
+
+    it('acks only an answered attention', () => {
+      const a = db.insertAttention(ev(1));
+      expect(db.ackAttention(a.id, 'jerome')).toBe('conflict');
+      expect(db.getAttention(a.id)?.state).toBe('open');
+      db.answerAttention(a.id, 'ok', 'jerome');
+      expect(db.ackAttention(a.id, null)).toBe('ok');
+      expect(db.getAttention(a.id)).toMatchObject({ state: 'acked', ackedBy: null });
+      expect(db.getAttention(a.id)?.ackedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(db.ackAttention(a.id, 'x')).toBe('conflict');
+      expect(db.answerAttention(a.id, 'late', 'x')).toBe('conflict');
     });
   });
 });

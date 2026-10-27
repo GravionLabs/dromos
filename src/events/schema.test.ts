@@ -2,10 +2,27 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { buildEventsSchema, EVENTS_SCHEMA_PATH, serializeEventsSchema } from './export-schema.js';
-import { BUS_EVENT_TYPES, BusEventSchema } from './schema.js';
+import {
+  BUS_EVENT_TYPES,
+  BusEventSchema,
+  EVIDENCE_TIERS,
+  isIngestType,
+  PROGRESS_KINDS,
+} from './schema.js';
 
 const fixturesDir = fileURLToPath(new URL('../../schema/fixtures/', import.meta.url));
 const fixtureFiles = readdirSync(fixturesDir).filter((f) => f.endsWith('.json'));
+// `progress-<kind>.json` are extra variants of the one `progress` event type.
+// `attention-question.json`, `gate-result-failed.json` and `agent-state-last-output.json` are
+// extra variants of `attention`, `gate.result` and `agent.state`.
+const VARIANT_FIXTURES = [
+  'attention-question.json',
+  'gate-result-failed.json',
+  'agent-state-last-output.json',
+];
+const baseFixtureFiles = fixtureFiles.filter(
+  (f) => !f.startsWith('progress-') && !VARIANT_FIXTURES.includes(f),
+);
 const readFixture = (f: string): Record<string, unknown> =>
   JSON.parse(readFileSync(fixturesDir + f, 'utf8'));
 
@@ -15,11 +32,64 @@ describe('BusEventSchema fixtures', () => {
   });
 
   it('has exactly one fixture per event type', () => {
-    expect([...fixtureFiles].sort()).toEqual(
+    expect([...baseFixtureFiles].sort()).toEqual(
       BUS_EVENT_TYPES.map((t) => `${t.replace(/[:.]/g, '-')}.json`).sort(),
     );
-    const types = fixtureFiles.map((f) => readFixture(f).type);
+    const types = baseFixtureFiles.map((f) => readFixture(f).type);
     expect([...types].sort()).toEqual([...BUS_EVENT_TYPES].sort());
+  });
+});
+
+describe('progress kind and fields', () => {
+  const withData = (extra: Record<string, unknown>) => {
+    const e = readFixture('progress.json');
+    return { ...e, data: { ...(e.data as object), ...extra } };
+  };
+  const ok = (extra: Record<string, unknown>) => BusEventSchema.safeParse(withData(extra)).success;
+
+  it('has one fixture per kind, carrying that kind', () => {
+    for (const k of PROGRESS_KINDS) {
+      expect((readFixture(`progress-${k}.json`).data as { kind: string }).kind).toBe(k);
+    }
+  });
+
+  it('accepts the base fixture without kind or fields', () => {
+    expect(BusEventSchema.safeParse(readFixture('progress.json')).success).toBe(true);
+  });
+
+  it('rejects an unknown kind', () => {
+    expect(ok({ kind: 'bogus' })).toBe(false);
+  });
+
+  it('accepts string, number and null field values and an empty map', () => {
+    expect(ok({ fields: { a: 'x', b: 1.5, c: null, d: '' } })).toBe(true);
+    expect(ok({ fields: {} })).toBe(true);
+  });
+
+  it('rejects object, array and boolean field values', () => {
+    expect(ok({ fields: { a: { n: 1 } } })).toBe(false);
+    expect(ok({ fields: { a: [1] } })).toBe(false);
+    expect(ok({ fields: { a: true } })).toBe(false);
+  });
+
+  it('enforces key and value text rules', () => {
+    expect(ok({ fields: { '': 'x' } })).toBe(false);
+    expect(ok({ fields: { ['k'.repeat(65)]: 'x' } })).toBe(false);
+    expect(ok({ fields: { ['k'.repeat(64)]: 'v'.repeat(1000) } })).toBe(true);
+    expect(ok({ fields: { a: 'v'.repeat(1001) } })).toBe(false);
+    expect(ok({ fields: { a: 'x\u001b[31m' } })).toBe(false);
+    expect(ok({ fields: { 'a\u200bb': 'x' } })).toBe(false);
+  });
+
+  it('caps fields at 32 entries', () => {
+    const n = (count: number) =>
+      Object.fromEntries(Array.from({ length: count }, (_, i) => [`k${i}`, i]));
+    expect(ok({ fields: n(32) })).toBe(true);
+    expect(ok({ fields: n(33) })).toBe(false);
+  });
+
+  it('rejects an extra key in data', () => {
+    expect(ok({ extra: 1 })).toBe(false);
   });
 });
 
@@ -166,11 +236,52 @@ describe('external event types', () => {
     ).toBe(false);
   });
 
-  it('accepts every attention kind and rejects others', () => {
-    for (const kind of ['GATE', 'BLOCKED', 'FAILED', 'QUESTION']) {
+  it('accepts free-form attention kinds and bounds them', () => {
+    for (const kind of ['GATE', 'BLOCKED', 'FAILED', 'QUESTION', 'FEATURE_DONE']) {
       expect(withData('attention.json', { kind }), kind).toBe(true);
     }
-    expect(withData('attention.json', { kind: 'DONE' })).toBe(false);
+    expect(withData('attention.json', { kind: '' })).toBe(false);
+    expect(withData('attention.json', { kind: 'x'.repeat(64) })).toBe(true);
+    expect(withData('attention.json', { kind: 'x'.repeat(65) })).toBe(false);
+    expect(withData('attention.json', { kind: 'A\nB' })).toBe(false);
+  });
+
+  it('accepts optional attention question, options and checkout', () => {
+    expect(BusEventSchema.safeParse(readFixture('attention-question.json')).success).toBe(true);
+    expect(withData('attention.json', { question: 'x'.repeat(2000) })).toBe(true);
+    expect(withData('attention.json', { question: 'x'.repeat(2001) })).toBe(false);
+    expect(withData('attention.json', { question: '' })).toBe(false);
+    expect(withData('attention.json', { question: 'a\nb' })).toBe(false);
+    expect(withData('attention.json', { checkout: 'x'.repeat(4096) })).toBe(true);
+    expect(withData('attention.json', { checkout: 'x'.repeat(4097) })).toBe(false);
+    expect(withData('attention.json', { checkout: '/a\u001b' })).toBe(false);
+    expect(withData('attention.json', { options: [] })).toBe(true);
+    expect(withData('attention.json', { options: Array(16).fill('o') })).toBe(true);
+    expect(withData('attention.json', { options: Array(17).fill('o') })).toBe(false);
+    expect(withData('attention.json', { options: [''] })).toBe(false);
+    expect(withData('attention.json', { options: ['x'.repeat(201)] })).toBe(false);
+    expect(withData('attention.json', { options: ['a\u202e'] })).toBe(false);
+  });
+
+  it('validates attention.answered and attention.acked', () => {
+    const a = 'attention-answered.json';
+    expect(withData(a, {})).toBe(true);
+    expect(withData(a, { id: 0 })).toBe(false);
+    expect(withData(a, { id: 1.5 })).toBe(false);
+    expect(withData(a, { text: '' })).toBe(false);
+    expect(withData(a, { text: 'x'.repeat(4000) })).toBe(true);
+    expect(withData(a, { text: 'x'.repeat(4001) })).toBe(false);
+    expect(withData(a, { text: 'a\nb' })).toBe(false);
+    expect(withData(a, { by: '' })).toBe(false);
+    expect(withData(a, { by: 'x'.repeat(129) })).toBe(false);
+    expect(withData(a, { by: null })).toBe(false);
+    const k = 'attention-acked.json';
+    expect(withData(k, {})).toBe(true);
+    expect(withData(k, { by: 'jerome' })).toBe(true);
+    expect(withData(k, { id: 0 })).toBe(false);
+    expect(withData(k, { by: '' })).toBe(false);
+    expect(withData(k, { by: 'a\u0007' })).toBe(false);
+    expect(withoutData(k, 'by')).toBe(false);
   });
 
   it('bounds attention summary and pr', () => {
@@ -269,6 +380,145 @@ describe('agent.run', () => {
   });
 });
 
+describe('workflow event types', () => {
+  const SERVER_OWNED = [
+    'run.state',
+    'gate.result',
+    'review.result',
+    'attempt.started',
+    'attempt.settled',
+  ] as const;
+  const fixtureOf: Record<(typeof SERVER_OWNED)[number], string> = {
+    'run.state': 'run-state.json',
+    'gate.result': 'gate-result.json',
+    'review.result': 'review-result.json',
+    'attempt.started': 'attempt-started.json',
+    'attempt.settled': 'attempt-settled.json',
+  };
+  /** Parses fixture `f` with `patch` merged into its data. */
+  const withData = (f: string, patch: Record<string, unknown>) => {
+    const e = readFixture(f);
+    e.data = { ...(e.data as object), ...patch };
+    return BusEventSchema.safeParse(e).success;
+  };
+  const withStep = (patch: Record<string, unknown>) =>
+    withData('gate-result.json', {
+      steps: [{ name: 'test', exitCode: 1, durationMs: 10, ...patch }],
+    });
+
+  it('lists the evidence tiers strongest first', () => {
+    expect(EVIDENCE_TIERS).toEqual(['verified', 'reported', 'heuristic', 'asserted']);
+  });
+
+  it.each(SERVER_OWNED)('%s is a bus type but not an ingest type', (type) => {
+    expect(BUS_EVENT_TYPES).toContain(type);
+    expect(isIngestType(type)).toBe(false);
+  });
+
+  it.each(SERVER_OWNED)('%s rejects an unknown data key', (type) => {
+    expect(withData(fixtureOf[type], { extra: 1 })).toBe(false);
+  });
+
+  it('parses the passed and failed gate fixtures with their outcome', () => {
+    const passed = BusEventSchema.parse(readFixture('gate-result.json'));
+    const failed = BusEventSchema.parse(readFixture('gate-result-failed.json'));
+    expect(passed).toMatchObject({ data: { passed: true, failedStep: null } });
+    expect(failed).toMatchObject({ data: { passed: false, failedStep: 'test' } });
+  });
+
+  it('run.state takes run states, a null previous and a round >= 1', () => {
+    expect(withData('run-state.json', { state: 'pr_opened', previous: null })).toBe(true);
+    expect(withData('run-state.json', { state: 'done' })).toBe(false);
+    expect(withData('run-state.json', { previous: 'merged' })).toBe(false);
+    expect(withData('run-state.json', { round: 1 })).toBe(true);
+    expect(withData('run-state.json', { round: 0 })).toBe(false);
+    expect(withData('run-state.json', { round: 1.5 })).toBe(false);
+  });
+
+  it('gate.result bounds round, duration, evidence and failedStep', () => {
+    expect(withData('gate-result.json', { round: 0 })).toBe(false);
+    expect(withData('gate-result.json', { durationMs: 0 })).toBe(true);
+    expect(withData('gate-result.json', { durationMs: -1 })).toBe(false);
+    expect(withData('gate-result.json', { evidence: 'guessed' })).toBe(false);
+    expect(withData('gate-result.json', { failedStep: '' })).toBe(false);
+    expect(withData('gate-result.json', { failedStep: 'x'.repeat(129) })).toBe(false);
+    expect(withData('gate-result.json', { failedStep: 'a\nb' })).toBe(false);
+  });
+
+  it('gate.result bounds its steps', () => {
+    expect(withData('gate-result.json', { steps: [] })).toBe(true);
+    expect(withStep({ name: 'x'.repeat(128), exitCode: -1, durationMs: 0 })).toBe(true);
+    expect(withStep({ name: '' })).toBe(false);
+    expect(withStep({ name: 'x'.repeat(129) })).toBe(false);
+    expect(withStep({ name: 'a\u001b[31m' })).toBe(false);
+    expect(withStep({ durationMs: -1 })).toBe(false);
+    expect(withStep({ exitCode: 1.5 })).toBe(false);
+    expect(withStep({ outputTail: 'boom' })).toBe(false);
+    const steps = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ name: `s${i}`, exitCode: 0, durationMs: 1 }));
+    expect(withData('gate-result.json', { steps: steps(32) })).toBe(true);
+    expect(withData('gate-result.json', { steps: steps(33) })).toBe(false);
+  });
+
+  it('review.result takes the review verdicts and non-negative counts', () => {
+    expect(withData('review-result.json', { verdict: 'approve', blockingFindings: 0 })).toBe(true);
+    expect(withData('review-result.json', { verdict: 'reject' })).toBe(false);
+    expect(withData('review-result.json', { findings: -1 })).toBe(false);
+    expect(withData('review-result.json', { blockingFindings: -1 })).toBe(false);
+    expect(withData('review-result.json', { round: 0 })).toBe(false);
+  });
+
+  it('attempt.started takes the causes and n >= 1', () => {
+    for (const cause of ['initial', 'gate_failed', 'sent_back']) {
+      expect(withData('attempt-started.json', { cause })).toBe(true);
+    }
+    expect(withData('attempt-started.json', { cause: 'retry' })).toBe(false);
+    expect(withData('attempt-started.json', { n: 0 })).toBe(false);
+    expect(withData('attempt-started.json', { startedAt: '2026-10-26T10:00:00+01:00' })).toBe(
+      false,
+    );
+  });
+
+  it('attempt.settled takes the outcomes and requires evidence', () => {
+    for (const outcome of ['gate_failed', 'sent_back', 'approved', 'blocked']) {
+      expect(withData('attempt-settled.json', { outcome })).toBe(true);
+    }
+    expect(withData('attempt-settled.json', { outcome: 'initial' })).toBe(false);
+    expect(withData('attempt-settled.json', { evidence: undefined })).toBe(false);
+    expect(withData('attempt-settled.json', { endedAt: 'later' })).toBe(false);
+  });
+});
+
+describe('lastOutputAt and optional evidence', () => {
+  const withData = (f: string, patch: Record<string, unknown>) => {
+    const e = readFixture(f);
+    e.data = { ...(e.data as object), ...patch };
+    return BusEventSchema.safeParse(e).success;
+  };
+
+  it('agent.state accepts an ISO lastOutputAt, or none, and rejects a bad one', () => {
+    expect(BusEventSchema.safeParse(readFixture('agent-state-last-output.json')).success).toBe(
+      true,
+    );
+    expect(BusEventSchema.safeParse(readFixture('agent-state.json')).success).toBe(true);
+    expect(withData('agent-state.json', { lastOutputAt: 'yesterday' })).toBe(false);
+  });
+
+  it('hook events accept lastOutputAt and an evidence tier', () => {
+    const at = '2026-10-26T10:00:04.000Z';
+    expect(withData('hook-idle.json', { lastOutputAt: at, evidence: 'reported' })).toBe(true);
+    expect(withData('hook-busy.json', { lastOutputAt: '2026-10-26' })).toBe(false);
+    expect(withData('hook-idle.json', { evidence: 'proven' })).toBe(false);
+  });
+
+  it('progress accepts every evidence tier and rejects others', () => {
+    for (const evidence of EVIDENCE_TIERS) {
+      expect(withData('progress.json', { evidence })).toBe(true);
+    }
+    expect(withData('progress.json', { evidence: 'proven' })).toBe(false);
+  });
+});
+
 describe('Rust parity cases (schema/parity.json)', () => {
   type Case = { name: string; fixture: string; valid: boolean; set?: Record<string, unknown> };
   const cases: Case[] = JSON.parse(
@@ -317,11 +567,18 @@ describe('events JSON Schema', () => {
       '#/definitions/HookBusyEvent',
       '#/definitions/ProgressEvent',
       '#/definitions/AttentionEvent',
+      '#/definitions/AttentionAnsweredEvent',
+      '#/definitions/AttentionAckedEvent',
       '#/definitions/UsageEvent',
       '#/definitions/QueueItemEvent',
       '#/definitions/AgentRegisteredEvent',
       '#/definitions/AgentStateEvent',
       '#/definitions/AgentRunEvent',
+      '#/definitions/RunStateEvent',
+      '#/definitions/GateResultEvent',
+      '#/definitions/ReviewResultEvent',
+      '#/definitions/AttemptStartedEvent',
+      '#/definitions/AttemptSettledEvent',
     ]);
   });
 
