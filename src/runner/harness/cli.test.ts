@@ -21,6 +21,12 @@ function fakeCli(name: string, script: string): NodeJS.ProcessEnv {
   return { ...process.env, PATH: `${join(dir, 'bin')}${delimiter}${process.env.PATH ?? ''}` };
 }
 
+const fixture = (name: string): string => join(import.meta.dirname, 'fixtures', name);
+
+/** A fake `copilot` that prints a recorded output fixture. */
+const copilotPrinting = (name: string): NodeJS.ProcessEnv =>
+  fakeCli('copilot', `cat '${fixture(name)}'`);
+
 const input = (): PhaseInput => ({
   prompt: 'do it',
   cwd: dir,
@@ -40,9 +46,12 @@ describe('buildArgs', () => {
     expect(args).toContain('Bash(pnpm:*)');
   });
 
-  it('passes one --allow-tool per entry to copilot', () => {
+  it('passes one --allow-tool per entry to copilot and asks for JSON output', () => {
     const args = buildArgs('copilot', input(), ['git status', 'pnpm']);
-    expect(args).not.toContain('json');
+    expect(
+      args.slice(args.indexOf('--output-format'), args.indexOf('--output-format') + 2),
+    ).toEqual(['--output-format', 'json']);
+    expect(args.slice(0, 4)).toEqual(['-p', 'do it', '--model', 'sonnet']);
     expect(args).toContain('shell(git status)');
     expect(args).toContain('shell(pnpm)');
     expect(args.filter((a) => a === '--allow-tool')).toHaveLength(3);
@@ -70,15 +79,53 @@ describe('CliHarness', () => {
   });
 
   it('runs in the worktree and hands the prompt over', async () => {
-    const env = fakeCli('copilot', `pwd > "$PWD/seen"; echo "$@" >> "$PWD/seen"; echo finished`);
+    const env = fakeCli(
+      'copilot',
+      `pwd > "$PWD/seen"; echo "$@" >> "$PWD/seen"; echo '{"type":"assistant.message","data":{"content":"finished","toolRequests":[]}}'`,
+    );
     const out = await new CliHarness({ name: 'copilot', env, commands: ['git log'] }).runPhase(
       input(),
     );
     expect(out.result).toBe('finished');
-    expect(out.usage).toBeNull();
     const seen = readFileSync(join(dir, 'seen'), 'utf8');
     expect(seen).toContain('-p do it');
     expect(seen).toContain('--allow-tool shell(git log)');
+  });
+
+  it('parses text and usage from recorded copilot json output', async () => {
+    const env = copilotPrinting('copilot-success.jsonl');
+    const out = await new CliHarness({ name: 'copilot', env }).runPhase(input());
+    expect(out.result).toBe('ok');
+    expect(out.usage).toEqual({ inputTokens: 14171, outputTokens: 5, costUsd: null });
+    expect(out.events[0]?.summary).toBe('ok');
+  });
+
+  it('sums the usage of all models and skips tool-request messages', async () => {
+    const env = copilotPrinting('copilot-tools.jsonl');
+    const out = await new CliHarness({ name: 'copilot', env }).runPhase({
+      ...input(),
+      schema: z.string().transform((t) => JSON.parse(t) as unknown),
+    });
+    expect(out.result).toEqual({ answer: 4 });
+    expect(out.usage).toEqual({ inputTokens: 3000, outputTokens: 100, costUsd: null });
+  });
+
+  it('reports no usage when copilot gives none, never an estimate', async () => {
+    const env = copilotPrinting('copilot-no-usage.jsonl');
+    const out = await new CliHarness({ name: 'copilot', env }).runPhase(input());
+    expect(out.result).toBe('ok');
+    expect(out.usage).toBeNull();
+  });
+
+  it('fails on copilot output that is not JSONL or has no final message', async () => {
+    const text = fakeCli('copilot', 'echo plain text');
+    await expect(new CliHarness({ name: 'copilot', env: text }).runPhase(input())).rejects.toThrow(
+      /not JSON/,
+    );
+    const empty = fakeCli('copilot', `echo '{"type":"result","exitCode":0}'`);
+    await expect(new CliHarness({ name: 'copilot', env: empty }).runPhase(input())).rejects.toThrow(
+      /no final assistant message/,
+    );
   });
 
   it('fails on an error result, a non-zero exit and a timeout', async () => {

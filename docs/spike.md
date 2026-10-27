@@ -34,8 +34,9 @@ Run the same Task with both clients, then compare:
 dromos events --issue <nr> --type phase.started,phase.finished,phase.failed --json
 ```
 
-Per run: outcome (`finished` or `failed`), `durationMs`, `usage` (Claude reports tokens and cost,
-Copilot reports none, so its `usage` is `null`), then review the commit in the worktree against the
+Per run: outcome (`finished` or `failed`), `durationMs`, `usage` (Claude reports tokens and cost;
+Copilot reports tokens but no dollars, so its `costUsd` is `null`, and `usage` is `null` when it
+reports no token counts), then review the commit in the worktree against the
 Acceptance Criteria. Repeat per Task size (S, M) and note flakiness.
 
 ## Harness names
@@ -51,7 +52,8 @@ as in the measurements below; the SDK adapter has its own opt-in live test
 
 The headless CLIs cannot call the TypeScript permission callback, so `CliHarness` hands the allowlist
 (`ALLOWED_COMMANDS` of `src/runner/permissions.ts`) over as flags: `--allowedTools "Bash(<prefix>:*)"` for
-Claude, `--allow-tool "shell(<prefix>)"` and `--allow-tool write` for Copilot. The git guardrails
+Claude, `--allow-tool "shell(<prefix>)"` and `--allow-tool write` for Copilot (which also gets
+`--output-format json`, see Usage). The git guardrails
 (no push to `main` or `release/*`) therefore do **not** apply in the spike; run it on a repository
 where that is acceptable.
 
@@ -60,9 +62,11 @@ where that is acceptable.
 | Client | Version | Flags checked with `--help` |
 |---|---|---|
 | Claude Code | 2.1.311 | `-p`, `--output-format json`, `--model`, `--allowedTools` |
-| Copilot CLI | not installed on the development machine | `-p`, `--model`, `--allow-tool` taken from its documentation, **not verified**; check `copilot --help` before the first run and adjust `buildArgs` in `src/runner/harness/cli.ts` |
+| Copilot CLI | 1.0.104 | `-p`, `--model`, `--output-format json`, `--allow-tool` (verified with `copilot --help` and a live run, 2026-10-27) |
 
-The unit tests use a fake binary on `PATH` and never call a real client. A live run is manual.
+The unit tests use a fake binary on `PATH` and recorded output fixtures
+(`src/runner/harness/fixtures/`) and never call a real client. The opt-in live test of the Copilot
+adapter is `DROMOS_LIVE=copilot pnpm test` (`src/runner/harness/cli.live.test.ts`).
 
 ## Results
 
@@ -104,10 +108,15 @@ runs with a commit and green tests and without permission stalls, so the SDK ada
 written) is not needed now. The SDK stays an option if per-call permission callbacks for Copilot
 become necessary; the CLI can only apply the flag allowlist.
 
-Follow-ups that B5 (#219) now covers instead of the SDK adapter:
+Follow-ups that B5 (#219) covered instead of the SDK adapter:
 
-- `models` in `.dromos/config.json` is one map for every harness; a Copilot run needs a Copilot
-  model id or `auto` (`sonnet` and `claude-sonnet-4.5` are rejected). Make the model per harness.
-  The id of a Sonnet 5.5 model in Copilot is still unknown (`claude-sonnet-5.5` and
-  `claude-sonnet-5-5` are rejected by 1.0.104); until then use `auto`.
-- Copilot usage from the text footer (`Tokens ↑ … ↓ …`) or from `--output-format json`, else `null`.
+- **Models per harness:** `models` in `.dromos/config.json` is keyed by harness family, then role:
+  `models.claude.implementer` (default `sonnet`) and `models.copilot.implementer` (default `auto`);
+  `claude-cli` uses the `claude` models. A Copilot run needs a Copilot model id or `auto` (`sonnet`
+  and `claude-sonnet-4.5` are rejected). The id of a Sonnet 5.5 model in Copilot is still unknown
+  (`claude-sonnet-5.5` and `claude-sonnet-5-5` are rejected by 1.0.104); until then use `auto`.
+- **Usage:** `CliHarness` runs Copilot with `--output-format json` (JSONL). The text is the last
+  `assistant.message` without tool requests; the usage is the sum of `inputTokens` and `outputTokens`
+  over `accountingSnapshot.modelMetrics` of the last `session.usage_checkpoint`. The text footer
+  (`Tokens ↑ 14.2k`) is on stderr and rounded, so it is not used. Copilot reports credits, not
+  dollars (`costUsd` is `null`); without a checkpoint `usage` is `null`, never an estimate.

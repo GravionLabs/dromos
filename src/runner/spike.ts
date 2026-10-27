@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { Db } from '../db.js';
 import { BusEventSchema } from '../events/schema.js';
 import { assertWorktreeDirIgnored, createWorktree, slugify } from '../worktree.js';
-import { loadRunnerConfig } from './config.js';
+import { loadRunnerConfig, modelFor } from './config.js';
 import { CliHarness } from './harness/cli.js';
 import type { Harness, HarnessName, PhaseOutput } from './harness.js';
 
@@ -56,7 +56,7 @@ async function head(dir: string): Promise<string> {
 export async function runSpike(options: SpikeOptions): Promise<SpikeResult> {
   const now = options.now ?? (() => new Date());
   const config = loadRunnerConfig(options.repo);
-  const model = config.models.implementer;
+  const model = modelFor(config, options.harness, 'implementer');
   const title = options.title ?? (await issueTitle(options.repo, options.issue));
   const branch = `spike/${String(options.issue)}-${slugify(title) || 'task'}`;
   const dir = options.worktreeDir ?? '.worktrees';
