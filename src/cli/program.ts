@@ -3,6 +3,7 @@ import { runEventsCommand } from '../cli-events.js';
 import { type Config, loadConfig } from '../config.js';
 import { type RunningServe, reportStartupError, serve } from '../serve.js';
 import { runAttentionCli } from './attention.js';
+import { runLogCli } from './log.js';
 import { runRunCli } from './run.js';
 
 /** A pass-through subcommand: receives its raw args, resolves to an exit code. */
@@ -72,6 +73,13 @@ export function buildProgram(
         ),
       );
     });
+
+  program
+    .command('log')
+    .description('follow <dataDir>/bus.log with colors')
+    .option('--lines <n>', 'number of trailing lines to show first', '50')
+    .option('--no-color', 'disable colors (also disabled by NO_COLOR)')
+    .action(async (opts: { lines?: string; color?: boolean }) => onResult(await runLogCli(opts)));
 
   const passThrough = (name: string, description: string, run: Action): void => {
     program
