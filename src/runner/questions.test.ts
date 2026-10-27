@@ -82,8 +82,50 @@ describe('resolveQuestions', () => {
     expect(r.unanswered).toEqual([]);
   });
 
+  it('rejects an answer that is not an option', async () => {
+    const tty = fakeTty([]);
+    await expect(
+      resolveQuestions(plan, {
+        answers: new Map([['q1', 'typo']]),
+        prompt: tty.prompt,
+      }),
+    ).rejects.toThrow('--answer q1=typo is not an option; expected one of sqlite, pg');
+    expect(tty.written).toEqual([]);
+  });
+
+  it('accepts the recommendation as an answer even when it is not listed in options', async () => {
+    const q = {
+      id: 'q3',
+      question: 'Port?',
+      options: ['80'],
+      recommended: '8080',
+      why: 'w',
+    };
+    const r = await resolveQuestions(
+      { ...plan, questions: [q] },
+      { answers: new Map([['q3', '8080']]) },
+    );
+    expect(r.answered).toEqual([{ id: 'q3', question: 'Port?', answer: '8080', assumed: false }]);
+  });
+
+  it('takes recommendations without asking when assumeRecommended is set on a TTY', async () => {
+    const tty = fakeTty(['2', '2']);
+    const r = await resolveQuestions(plan, {
+      answers: new Map([['q1', 'pg']]),
+      assumeRecommended: true,
+      prompt: tty.prompt,
+    });
+    expect(r.answered.map((a) => [a.id, a.answer, a.assumed])).toEqual([
+      ['q1', 'pg', false],
+      ['q2', 'cli', true],
+    ]);
+    expect(tty.written).toEqual([]);
+  });
+
   it('leaves questions unanswered without TTY, flags or assume', async () => {
-    const r = await resolveQuestions(plan, { answers: new Map([['q1', 'pg']]) });
+    const r = await resolveQuestions(plan, {
+      answers: new Map([['q1', 'pg']]),
+    });
     expect(r.unanswered.map((q) => q.id)).toEqual(['q2']);
   });
 });
@@ -120,7 +162,9 @@ describe('assumptions', () => {
   });
 
   it('does not list answered questions as assumptions', async () => {
-    const r = await resolveQuestions(plan, { answers: new Map([['q1', 'pg']]) });
+    const r = await resolveQuestions(plan, {
+      answers: new Map([['q1', 'pg']]),
+    });
     expect(withAssumptions(plan, r).assumptions).toEqual(['single user']);
   });
 

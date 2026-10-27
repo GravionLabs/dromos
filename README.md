@@ -208,6 +208,12 @@ dromos run pbi <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--forma
 
 `dromos run pbi` claims the PBI, implements it in a worktree, reviews it (one fix round) and opens the pull request. The first line and first event is the run header (harness, versions, models per role). `--format json` streams events as JSON lines; text output is for a TTY only, so off a TTY the output is JSON lines whatever `--format` says. `--dry-run` prints the steps without starting a harness or writing to GitHub. `--force` takes over a PBI that already carries `in-progress`. Exit codes: 0 pull request opened (or dry run), 1 blocked, 2 usage error, 3 error.
 
+```
+dromos run plan <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--answer <id>=<value>]... [--assume-recommended]
+```
+
+`dromos run plan` plans a `[Feature]` into PBIs or a `[PBI]` into Tasks with the planner phase and writes the plan to `.dromos/state/<nr>/plan.json` in the repository. On a TTY every planner question is a select prompt (Enter takes the recommendation). `--answer <id>=<value>` (repeatable, the value must be one of the options) answers without a prompt; `--assume-recommended` takes every remaining recommendation and writes it into the plan and into each created issue under `## Assumptions`. `phase.finished` of the planner carries `unansweredQuestions`. With open questions no issue is created. Exit codes: 0 issues created, 1 questions open, 2 usage error, 3 error.
+
 The herdr plugin (Epic #98) is the workspace for interactive work; apm-hub orchestrator runs report to the bus through `$DROMOS_URL`.
 
 Config: `dromos.config.json` in the working directory (or the file named by `DROMOS_CONFIG`), merged over defaults. See `dromos.config.example.json` for host, port, `maxRounds`, gate commands, base branch, `branchPrefix` (default `conventional`: `<type>/<issue>-<slug>`), `worktreeDir` (relative path, no `..`, default `.worktrees`).

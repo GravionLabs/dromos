@@ -23,8 +23,9 @@ export interface QuestionResolution {
 export type SelectPrompt = (question: PlanQuestion) => Promise<string>;
 
 export interface ResolveOptions {
-  /** Parsed `--answer` flags, id to value. */
+  /** Parsed `--answer` flags, id to value; a value must be one of the question's options. */
   answers?: ReadonlyMap<string, string>;
+  /** Takes every recommendation a flag did not answer, without a prompt even on a TTY. */
   assumeRecommended?: boolean;
   /** Set on a TTY; without it nothing is asked. */
   prompt?: SelectPrompt;
@@ -51,17 +52,24 @@ export async function resolveQuestions(
   for (const id of options.answers?.keys() ?? []) {
     if (!ids.has(id)) throw new Error(`--answer names unknown question '${id}'`);
   }
+  for (const q of plan.questions) {
+    const given = options.answers?.get(q.id);
+    if (given !== undefined && given !== q.recommended && !q.options.includes(given)) {
+      const valid = [...new Set([q.recommended, ...q.options])].join(', ');
+      throw new Error(`--answer ${q.id}=${given} is not an option; expected one of ${valid}`);
+    }
+  }
   const answered: AnsweredQuestion[] = [];
   const unanswered: PlanQuestion[] = [];
   for (const q of plan.questions) {
     const given = options.answers?.get(q.id);
     if (given !== undefined) {
       answered.push({ id: q.id, question: q.question, answer: given, assumed: false });
+    } else if (options.assumeRecommended) {
+      answered.push({ id: q.id, question: q.question, answer: q.recommended, assumed: true });
     } else if (options.prompt) {
       const answer = await options.prompt(q);
       answered.push({ id: q.id, question: q.question, answer, assumed: false });
-    } else if (options.assumeRecommended) {
-      answered.push({ id: q.id, question: q.question, answer: q.recommended, assumed: true });
     } else {
       unanswered.push(q);
     }

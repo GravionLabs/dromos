@@ -363,3 +363,118 @@ describe('dromos run pbi', () => {
     expect(lines.join('\n')).toMatch(/no remote/);
   });
 });
+
+describe('dromos run plan', () => {
+  const plan = {
+    items: [{ key: 'a', title: 'First', body: 'do a', dependsOn: [] }],
+    questions: [
+      {
+        id: 'q1',
+        question: 'Which db?',
+        options: ['sqlite', 'pg'],
+        recommended: 'sqlite',
+        why: 'w',
+      },
+    ],
+    assumptions: [],
+  };
+  const repo = mkdtempSync(join(tmpdir(), 'dromos-run-plan-'));
+  const run = async (args: string[], isTty: boolean, replies: string[] = []) => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const created: string[][] = [];
+    const code = await runRunCli(['plan', '40', '--repo', repo, ...args], {
+      db,
+      out: (t) => stdout.push(t),
+      err: (l) => stderr.push(l),
+      plan: {
+        isTty,
+        readLine: async () => replies.shift() ?? '',
+        ops: {
+          repoSlug: async () => 'o/r',
+          readIssue: async () => ({
+            number: 40,
+            title: '[Feature] feat: f',
+            body: 'b',
+            labels: [],
+            subIssues: [],
+            blockedBy: [],
+          }),
+          makeHarness: () => ({
+            version: async () => null,
+            runPhase: async () => ({ result: plan, events: [], usage: null }),
+          }),
+          createIssues: async (_slug, _parent, _level, _plan, assumptions = []) => {
+            created.push(assumptions);
+            return [];
+          },
+          writePlan: () => {},
+        },
+      },
+    });
+    return {
+      code,
+      stdout: stdout.join(''),
+      stderr: stderr.join('\n'),
+      created,
+    };
+  };
+  const finished = (stdout: string) =>
+    stdout
+      .trim()
+      .split('\n')
+      .map(
+        (l) =>
+          JSON.parse(l) as {
+            type: string;
+            data?: { unansweredQuestions?: number };
+          },
+      )
+      .find((e) => e.type === 'phase.finished');
+
+  it.each([
+    [['plan'], /plan needs <nr>/],
+    [['plan', 'x'], /positive integer/],
+    [['plan', '40', '--answer', 'q1'], /<id>=<value>/],
+    [['plan', '40', '--format', 'xml'], /--format must be text or json/],
+  ])('rejects %j with exit code 2', async (args, message) => {
+    const lines: string[] = [];
+    expect(await runRunCli(args, { db, err: (l) => lines.push(l) })).toBe(2);
+    expect(lines.join('\n')).toMatch(message);
+  });
+
+  it('asks on a TTY and Enter takes the recommendation', async () => {
+    const res = await run([], true, ['']);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain('Which db?\n  1) sqlite (recommended)\n  2) pg');
+    expect(res.stdout).toContain('phase.finished planner (opus), 0 unanswered question(s)');
+    expect(res.created).toEqual([[]]);
+  });
+
+  it('answers by --answer without a prompt', async () => {
+    const res = await run(['--answer', 'q1=pg'], true);
+    expect(res.code).toBe(0);
+    expect(res.stdout).not.toContain('Which db?');
+  });
+
+  it('rejects an --answer value that is not an option', async () => {
+    const res = await run(['--answer', 'q1=typo', '--format', 'json'], false);
+    expect(res.code).toBe(3);
+    expect(res.stdout).toMatch(/not an option/);
+    expect(res.created).toEqual([]);
+  });
+
+  it('--assume-recommended takes the recommendation without asking, even on a TTY', async () => {
+    const res = await run(['--assume-recommended'], true);
+    expect(res.code).toBe(0);
+    expect(res.stdout).not.toContain('[Enter = ');
+    expect(res.created).toEqual([['Which db? Assumed: sqlite']]);
+  });
+
+  it('off a TTY leaves questions unanswered and reports the count in phase.finished', async () => {
+    const res = await run([], false);
+    expect(res.code).toBe(1);
+    expect(finished(res.stdout)?.data?.unansweredQuestions).toBe(1);
+    expect(res.created).toEqual([]);
+  });
+});
