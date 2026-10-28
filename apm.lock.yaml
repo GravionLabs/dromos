@@ -5,9 +5,9 @@ dependencies:
   materialization_repo_url: GravionLabs/apm-hub
   name: rust
   host: github.com
-  resolved_commit: c1bae78e62255afafee7aaea219ac330a452ddb9
-  resolved_ref: v3.0.0
-  version: 3.0.0
+  resolved_commit: 963096651950b54a0f7a6d9cecde471f84a45d1e
+  resolved_ref: v3.1.0
+  version: 3.1.0
   virtual_path: packages/rust
   is_virtual: true
   package_type: apm_package
@@ -25,10 +25,10 @@ dependencies:
     .claude/skills/rust-implementation/references/tauri.md: sha256:74925a7f7ee1dabeeb39718ad74e9cb04c489f571e02e36c878704925bba5720
     .claude/skills/rust-test/SKILL.md: sha256:a572a7df01e524e7431a9b8400131611359fd6f238ad927783e96e227aa4447b
     .claude/skills/rust-test/references/mocking-and-properties.md: sha256:16f852c641b37230e1ea7522102206ba105f3616341ad176ec459aa1b0e0c07a
-  content_hash: sha256:9d60f606eaa305b23a1e44742b12f6097950c5af293920860ce88d25851e74eb
-  constraint: '>=3.0.0'
-  resolved_tag: v3.0.0
-  resolved_at: '2026-10-27T19:15:03+00:00'
+  content_hash: sha256:407b6527c1c138e7c38d1dbd57da6b1c069459c4b4b88b2f6b02a1c09e917ecf
+  constraint: '>=3.1.0'
+  resolved_tag: v3.1.0
+  resolved_at: '2026-10-28T05:10:52+00:00'
   declared_license: MIT
   extensions:
     x-skills:
@@ -38,13 +38,18 @@ dependencies:
   materialization_repo_url: GravionLabs/apm-hub
   name: ts
   host: github.com
-  resolved_commit: c1bae78e62255afafee7aaea219ac330a452ddb9
-  resolved_ref: v3.0.0
-  version: 3.0.0
+  resolved_commit: 963096651950b54a0f7a6d9cecde471f84a45d1e
+  resolved_ref: v3.1.0
+  version: 3.1.0
   virtual_path: packages/ts
   is_virtual: true
   package_type: apm_package
   deployed_files:
+  - .claude/skills/setup-biome-husky
+  - .claude/skills/setup-biome-husky/SKILL.md
+  - .claude/skills/setup-biome-husky/scripts/Setup-Biome.ps1
+  - .claude/skills/setup-biome-husky/templates/.husky/pre-commit
+  - .claude/skills/setup-biome-husky/templates/biome.json.template
   - .claude/skills/setup-prettier-eslint-husky
   - .claude/skills/setup-prettier-eslint-husky/SKILL.md
   - .claude/skills/setup-prettier-eslint-husky/scripts/Setup-CodeQuality.ps1
@@ -53,11 +58,35 @@ dependencies:
   - .claude/skills/setup-prettier-eslint-husky/templates/.prettierrc
   - .claude/skills/setup-prettier-eslint-husky/templates/angular/eslint.config.mjs
   - .claude/skills/setup-prettier-eslint-husky/templates/plain-ts/eslint.config.mjs
+  - .claude/skills/ts-create-project
+  - .claude/skills/ts-create-project/SKILL.md
+  - .claude/skills/ts-create-project/scripts/New-NodeProject.ps1
+  - .claude/skills/ts-create-project/templates/.github/workflows/ci.yml
+  - .claude/skills/ts-create-project/templates/.gitignore
+  - .claude/skills/ts-create-project/templates/package.json
+  - .claude/skills/ts-create-project/templates/src/index.ts
+  - .claude/skills/ts-create-project/templates/tsconfig.json
+  - .claude/skills/ts-create-project/templates/vitest.config.ts
   - .claude/skills/ts-implementation
   - .claude/skills/ts-implementation/SKILL.md
+  - .claude/skills/ts-mcp-server-generator
+  - .claude/skills/ts-mcp-server-generator/SKILL.md
+  - .claude/skills/ts-mcp-server-generator/scripts/New-McpServer.ps1
+  - .claude/skills/ts-mcp-server-generator/templates/examples/resource-prompt-registration.ts
+  - .claude/skills/ts-mcp-server-generator/templates/examples/tool-registration.ts
+  - .claude/skills/ts-mcp-server-generator/templates/examples/transport-config.ts
+  - .claude/skills/ts-mcp-server-generator/templates/package.json
+  - .claude/skills/ts-mcp-server-generator/templates/src/index.ts
+  - .claude/skills/ts-mcp-server-generator/templates/tsconfig.json
+  - .claude/skills/ts-pnpm-workflow
+  - .claude/skills/ts-pnpm-workflow/SKILL.md
   - .claude/skills/ts-test
   - .claude/skills/ts-test/SKILL.md
   deployed_file_hashes:
+    .claude/skills/setup-biome-husky/SKILL.md: sha256:86b41e9c606fcc551db85dde14022c33c8b80c45fa757d2bb9d4c966ccd9c8c7
+    .claude/skills/setup-biome-husky/scripts/Setup-Biome.ps1: sha256:899c06cb472f256a75fafa77310218569759884b259d7825d5722581fd51271a
+    .claude/skills/setup-biome-husky/templates/.husky/pre-commit: sha256:e2b7c9733375d7182af2033bda9a7d2a05d0db5eef5be53d26eb7b5f3df8fbc3
+    .claude/skills/setup-biome-husky/templates/biome.json.template: sha256:3fd79153b890d4a72d8864b0d1dcc76c89999b73b17cee08724e12d8e8c26420
     .claude/skills/setup-prettier-eslint-husky/SKILL.md: sha256:3f0fb796291058076eb8b1e60bf6d7e8384ed20581d2afdb8beff1829620d2ae
     .claude/skills/setup-prettier-eslint-husky/scripts/Setup-CodeQuality.ps1: sha256:dcd71545c7bc91411434d00783104ca467d5529143694c81c2aef79caedda921
     .claude/skills/setup-prettier-eslint-husky/templates/.husky/pre-commit: sha256:e2b7c9733375d7182af2033bda9a7d2a05d0db5eef5be53d26eb7b5f3df8fbc3
@@ -65,15 +94,33 @@ dependencies:
     .claude/skills/setup-prettier-eslint-husky/templates/.prettierrc: sha256:f6fafa846d03c980c71bc9d43abafde1975fa0c24beadae504baac28e1f4afc6
     .claude/skills/setup-prettier-eslint-husky/templates/angular/eslint.config.mjs: sha256:8a403172a3d3546a2a3a1ec25bd144e792d59ab38ded782934c6736f692d5815
     .claude/skills/setup-prettier-eslint-husky/templates/plain-ts/eslint.config.mjs: sha256:1fe52b7a8f187ff88818ea6fdac2fab4c5149477ac06d05e3a4b3d938b189e5e
-    .claude/skills/ts-implementation/SKILL.md: sha256:93ad6c3c92a7afa090a076895d1ca53530d21050227a30d13f60b1d8d72438f8
+    .claude/skills/ts-create-project/SKILL.md: sha256:d90ff87ab37f1f088f8e846046605b50a4bfad154775af9e8907fa1175724fe1
+    .claude/skills/ts-create-project/scripts/New-NodeProject.ps1: sha256:7eb22b67b38fe9698afe7822f20c6d267b10ccb92c024f7047596470d09754e6
+    .claude/skills/ts-create-project/templates/.github/workflows/ci.yml: sha256:614b454d646e263caa45212f7f879896ad99e10405d13120b14eafb205331700
+    .claude/skills/ts-create-project/templates/.gitignore: sha256:0ed39e05f7c8137f6da46acb9653598f86637b6fcddc93ccbe38a5d3650cde58
+    .claude/skills/ts-create-project/templates/package.json: sha256:751b041ab8fa9c404081f47f990c8789c39cb6b8fda19fbd25b319092db3a1d4
+    .claude/skills/ts-create-project/templates/src/index.ts: sha256:6162f9ff13fded7d72bbb26710586310017f19fe4b55d11d0661fe042637ae86
+    .claude/skills/ts-create-project/templates/tsconfig.json: sha256:620bbd5f984f48eefc5aed87c398e44c3d305c9ae7ea5f9e5957ace8b3d7b880
+    .claude/skills/ts-create-project/templates/vitest.config.ts: sha256:c5f2611ada29990609ef68d3fe2b89110e2426265a3c01765c6a48d20f424193
+    .claude/skills/ts-implementation/SKILL.md: sha256:c0246df1164b91a4c56ffc6646b5512ddd8bd197e4c472a305c93e58b6f39379
+    .claude/skills/ts-mcp-server-generator/SKILL.md: sha256:0cb27b589478dcb72cf9708b2d857649001cd77e975abfd4187c5462f7e8becc
+    .claude/skills/ts-mcp-server-generator/scripts/New-McpServer.ps1: sha256:02eb65ebb08301a58cd8f1eaf07f743a386c07d69d8568584f167c281ec65774
+    .claude/skills/ts-mcp-server-generator/templates/examples/resource-prompt-registration.ts: sha256:88a3b79c6f807bdb8afdb6daee087f0d71440d167736dc7241149c335ca1c5c0
+    .claude/skills/ts-mcp-server-generator/templates/examples/tool-registration.ts: sha256:8f680c7c36b7e83e16dafe3f900fb433dca2389eb744436903aa46af45d5eb22
+    .claude/skills/ts-mcp-server-generator/templates/examples/transport-config.ts: sha256:64285c3ca0766fd3fdbd6c0904765de8b533595366283b2e3a9a87a965143f6e
+    .claude/skills/ts-mcp-server-generator/templates/package.json: sha256:737b263e49aa75296c0af8a52a9d2149ed43e1947ddd0e027f505e7498b70845
+    .claude/skills/ts-mcp-server-generator/templates/src/index.ts: sha256:bee7ed0ad78770c0c9362c09f8c193898c51b41587a3c971da7028dcf3af6d0f
+    .claude/skills/ts-mcp-server-generator/templates/tsconfig.json: sha256:8a6003512cc075acb2f7457a31fec5334469923d89a2650414a6a92977c9fec1
+    .claude/skills/ts-pnpm-workflow/SKILL.md: sha256:1cb1ee2a4cc4a2b1c6700dac51832f8851b903c5b6f942054e8a725fd1795ee8
     .claude/skills/ts-test/SKILL.md: sha256:aebb8e8c2ba0c4fe82e35092950ff798d652658e82d3fbb2983815682e48bd1d
-  content_hash: sha256:51119f03cea3d9646df5486fbd04d69384517fb4ba57304a7f8dee2c0f64ce2b
-  constraint: '>=3.0.0'
-  resolved_tag: v3.0.0
-  resolved_at: '2026-10-27T19:15:03+00:00'
+  content_hash: sha256:330e43a3a0ad7e0a81d7107d49d82d9908e3836f13f2a3c2284e99f2db07d584
+  constraint: '>=3.1.0'
+  resolved_tag: v3.1.0
+  resolved_at: '2026-10-28T05:10:52+00:00'
   declared_license: MIT
   extensions:
     x-skills:
+    - setup-biome-husky
     - setup-prettier-eslint-husky
     - ts-create-project
     - ts-implementation
@@ -144,6 +191,51 @@ deployments:
   - gravionlabs/apm-hub/packages/rust
   active_owner: gravionlabs/apm-hub/packages/rust
   content_hash: sha256:16f852c641b37230e1ea7522102206ba105f3616341ad176ec459aa1b0e0c07a
+- kind: project-relative
+  target: claude
+  value: .claude/skills/setup-biome-husky
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/setup-biome-husky/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:86b41e9c606fcc551db85dde14022c33c8b80c45fa757d2bb9d4c966ccd9c8c7
+- kind: project-relative
+  target: claude
+  value: .claude/skills/setup-biome-husky/scripts/Setup-Biome.ps1
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:899c06cb472f256a75fafa77310218569759884b259d7825d5722581fd51271a
+- kind: project-relative
+  target: claude
+  value: .claude/skills/setup-biome-husky/templates/.husky/pre-commit
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:e2b7c9733375d7182af2033bda9a7d2a05d0db5eef5be53d26eb7b5f3df8fbc3
+- kind: project-relative
+  target: claude
+  value: .claude/skills/setup-biome-husky/templates/biome.json.template
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:3fd79153b890d4a72d8864b0d1dcc76c89999b73b17cee08724e12d8e8c26420
 - kind: project-relative
   target: claude
   value: .claude/skills/setup-prettier-eslint-husky
@@ -218,6 +310,87 @@ deployments:
   content_hash: sha256:1fe52b7a8f187ff88818ea6fdac2fab4c5149477ac06d05e3a4b3d938b189e5e
 - kind: project-relative
   target: claude
+  value: .claude/skills/ts-create-project
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-create-project/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:d90ff87ab37f1f088f8e846046605b50a4bfad154775af9e8907fa1175724fe1
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-create-project/scripts/New-NodeProject.ps1
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:7eb22b67b38fe9698afe7822f20c6d267b10ccb92c024f7047596470d09754e6
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-create-project/templates/.github/workflows/ci.yml
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:614b454d646e263caa45212f7f879896ad99e10405d13120b14eafb205331700
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-create-project/templates/.gitignore
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:0ed39e05f7c8137f6da46acb9653598f86637b6fcddc93ccbe38a5d3650cde58
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-create-project/templates/package.json
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:751b041ab8fa9c404081f47f990c8789c39cb6b8fda19fbd25b319092db3a1d4
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-create-project/templates/src/index.ts
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:6162f9ff13fded7d72bbb26710586310017f19fe4b55d11d0661fe042637ae86
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-create-project/templates/tsconfig.json
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:620bbd5f984f48eefc5aed87c398e44c3d305c9ae7ea5f9e5957ace8b3d7b880
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-create-project/templates/vitest.config.ts
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:c5f2611ada29990609ef68d3fe2b89110e2426265a3c01765c6a48d20f424193
+- kind: project-relative
+  target: claude
   value: .claude/skills/ts-implementation
   runtime: null
   scope: project
@@ -233,7 +406,106 @@ deployments:
   owners:
   - gravionlabs/apm-hub/packages/ts
   active_owner: gravionlabs/apm-hub/packages/ts
-  content_hash: sha256:93ad6c3c92a7afa090a076895d1ca53530d21050227a30d13f60b1d8d72438f8
+  content_hash: sha256:c0246df1164b91a4c56ffc6646b5512ddd8bd197e4c472a305c93e58b6f39379
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-mcp-server-generator
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-mcp-server-generator/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:0cb27b589478dcb72cf9708b2d857649001cd77e975abfd4187c5462f7e8becc
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-mcp-server-generator/scripts/New-McpServer.ps1
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:02eb65ebb08301a58cd8f1eaf07f743a386c07d69d8568584f167c281ec65774
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-mcp-server-generator/templates/examples/resource-prompt-registration.ts
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:88a3b79c6f807bdb8afdb6daee087f0d71440d167736dc7241149c335ca1c5c0
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-mcp-server-generator/templates/examples/tool-registration.ts
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:8f680c7c36b7e83e16dafe3f900fb433dca2389eb744436903aa46af45d5eb22
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-mcp-server-generator/templates/examples/transport-config.ts
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:64285c3ca0766fd3fdbd6c0904765de8b533595366283b2e3a9a87a965143f6e
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-mcp-server-generator/templates/package.json
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:737b263e49aa75296c0af8a52a9d2149ed43e1947ddd0e027f505e7498b70845
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-mcp-server-generator/templates/src/index.ts
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:bee7ed0ad78770c0c9362c09f8c193898c51b41587a3c971da7028dcf3af6d0f
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-mcp-server-generator/templates/tsconfig.json
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:8a6003512cc075acb2f7457a31fec5334469923d89a2650414a6a92977c9fec1
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-pnpm-workflow
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/ts-pnpm-workflow/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - gravionlabs/apm-hub/packages/ts
+  active_owner: gravionlabs/apm-hub/packages/ts
+  content_hash: sha256:1cb1ee2a4cc4a2b1c6700dac51832f8851b903c5b6f942054e8a725fd1795ee8
 - kind: project-relative
   target: claude
   value: .claude/skills/ts-test
