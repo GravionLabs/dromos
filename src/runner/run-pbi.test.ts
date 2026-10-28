@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -61,7 +61,6 @@ function setup(
       calls.push('worktree');
       return { path: dir, branch: 'feat/224-x', base: 'release/next' };
     },
-    linkDependencies: async () => false,
     finishWorktree: async (_repo, _wt, outcome) => {
       calls.push(`finish:${outcome}`);
       return outcome === 'pr_opened';
@@ -90,7 +89,7 @@ function setup(
       emit: (e) => events.push(e),
       ops,
     });
-  return { run, events, calls, db, started: () => harnessStarted };
+  return { run, events, calls, db, dir, started: () => harnessStarted };
 }
 
 const done = { status: 'done', summary: 'ok' };
@@ -150,6 +149,50 @@ describe('runPbi', () => {
     expect(await s.run()).toBe(EXIT_BLOCKED);
     expect(s.events.at(-1)).toMatchObject({ outcome: 'blocked' });
     expect(s.calls).toEqual(['claim', 'worktree', 'release', 'finish:blocked']);
+  });
+
+  it('installs the dependencies in the worktree before the implementer', async () => {
+    const order: string[] = [];
+    const s = setup([done, clean], {
+      ops: {
+        runSetup: async (command) => {
+          order.push(`setup:${command}`);
+          return { passed: true, output: '' };
+        },
+        runTests: async () => {
+          order.push('tests');
+          return { passed: true, output: '' };
+        },
+      },
+    });
+    writeFileSync(join(s.dir, 'pnpm-lock.yaml'), '');
+    expect(await s.run()).toBe(EXIT_DONE);
+    expect(order).toEqual(['setup:pnpm install --frozen-lockfile --prefer-offline', 'tests']);
+    expect(s.events.map((e) => e.type)).toContain('setup.finished');
+  });
+
+  it('blocks as a setup failure before the implementer and keeps setup events off the bus', async () => {
+    const s = setup([done, clean], {
+      ops: { runSetup: async () => ({ passed: false, output: 'ERR_PNPM_X' }) },
+    });
+    writeFileSync(join(s.dir, 'pnpm-lock.yaml'), '');
+    expect(await s.run()).toBe(EXIT_BLOCKED);
+    // Only the harness version was queried; no phase ran.
+    expect(s.started()).toBe(1);
+    expect(s.events.at(-1)).toMatchObject({
+      type: 'run.finished',
+      outcome: 'blocked',
+      reason: 'setup failed: pnpm install --frozen-lockfile --prefer-offline',
+    });
+    expect(s.events).toContainEqual({
+      type: 'setup.failed',
+      data: {
+        command: 'pnpm install --frozen-lockfile --prefer-offline',
+        stderrTail: 'ERR_PNPM_X',
+      },
+    });
+    expect(s.calls).toEqual(['claim', 'worktree', 'release', 'finish:blocked']);
+    expect(s.db.queryEvents({ issue: 224, limit: 50 }).events).toEqual([]);
   });
 
   it('exits 1 when an open issue blocks the PBI, before any claim', async () => {
@@ -250,6 +293,7 @@ describe('runPbi', () => {
     expect(steps.some((t) => t.includes('Task #231'))).toBe(true);
     expect(steps.some((t) => t.includes('#230'))).toBe(false);
     expect(steps.some((t) => t.startsWith('format changed files'))).toBe(true);
+    expect(steps).toContain('install dependencies in the worktree: no lockfile detected, skipped');
     expect(s.events.at(-1)).toMatchObject({ type: 'run.finished', outcome: 'dry_run' });
   });
 });

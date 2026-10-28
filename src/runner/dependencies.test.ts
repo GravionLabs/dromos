@@ -1,41 +1,116 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execa } from 'execa';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { linkDependencies } from './dependencies.js';
+import { RunnerConfigSchema } from './config.js';
+import { detectSetup, resolveSetup, runSetupStep, type SetupEvent } from './dependencies.js';
+import type { ShellResult } from './format.js';
 
-let repo: string;
-let worktree: string;
+let dir: string;
 
-beforeEach(async () => {
-  repo = mkdtempSync(join(tmpdir(), 'dromos-deps-'));
-  await execa('git', ['-C', repo, 'init', '-q']);
-  worktree = join(repo, 'wt');
-  mkdirSync(worktree);
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), 'dromos-setup-'));
 });
-afterEach(() => rmSync(repo, { recursive: true, force: true }));
+afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-describe('linkDependencies', () => {
-  it('links node_modules into the worktree and keeps the link out of git status', async () => {
-    mkdirSync(join(repo, 'node_modules'));
-    expect(await linkDependencies(repo, worktree)).toBe(true);
-    expect(lstatSync(join(worktree, 'node_modules')).isSymbolicLink()).toBe(true);
-    const status = await execa('git', ['-C', repo, 'status', '--porcelain', '--', 'node_modules']);
-    expect(status.stdout).not.toContain('node_modules');
+const touch = (...files: string[]): void => {
+  for (const f of files) writeFileSync(join(dir, f), '');
+};
+
+describe('detectSetup', () => {
+  it.each([
+    [['pnpm-lock.yaml'], 'pnpm install --frozen-lockfile --prefer-offline'],
+    [['package-lock.json'], 'npm ci --prefer-offline'],
+    [['yarn.lock'], 'yarn install --frozen-lockfile --prefer-offline'],
+    [['yarn.lock', '.yarnrc.yml'], 'yarn install --immutable'],
+  ])('%j → %s', (files, command) => {
+    touch(...files);
+    expect(detectSetup(dir)).toEqual([command]);
   });
 
-  it('does nothing without node_modules in the repository', async () => {
-    expect(await linkDependencies(repo, worktree)).toBe(false);
-    expect(existsSync(join(worktree, 'node_modules'))).toBe(false);
+  it('prefers pnpm over a leftover package-lock.json', () => {
+    touch('pnpm-lock.yaml', 'package-lock.json');
+    expect(detectSetup(dir)).toEqual(['pnpm install --frozen-lockfile --prefer-offline']);
   });
 
-  it('keeps a node_modules the worktree already has', async () => {
-    mkdirSync(join(repo, 'node_modules'));
-    mkdirSync(join(worktree, 'node_modules'));
-    expect(await linkDependencies(repo, worktree)).toBe(false);
-    expect(readFileSync(join(repo, '.git', 'info', 'exclude'), 'utf8')).not.toContain(
-      '/node_modules',
-    );
+  it('detects nothing without a lockfile, also for a package.json alone', () => {
+    touch('package.json', 'Cargo.lock');
+    expect(detectSetup(dir)).toEqual([]);
+  });
+});
+
+describe('resolveSetup', () => {
+  it('uses the override instead of detection', () => {
+    touch('pnpm-lock.yaml');
+    expect(resolveSetup(RunnerConfigSchema.parse({ setup: 'make deps' }), dir)).toEqual([
+      'make deps',
+    ]);
+  });
+
+  it('is disabled by false', () => {
+    touch('pnpm-lock.yaml');
+    expect(resolveSetup(RunnerConfigSchema.parse({ setup: false }), dir)).toBe('disabled');
+  });
+
+  it('rejects an empty command', () => {
+    expect(RunnerConfigSchema.safeParse({ setup: '' }).success).toBe(false);
+  });
+});
+
+describe('runSetupStep', () => {
+  function step(config: unknown, results: ShellResult[]) {
+    const events: SetupEvent[] = [];
+    const ran: string[] = [];
+    let clock = 1000;
+    const result = runSetupStep({
+      config: RunnerConfigSchema.parse(config),
+      cwd: dir,
+      run: async (command) => {
+        ran.push(command);
+        clock += 250;
+        return results.shift() ?? { passed: true, output: '' };
+      },
+      emit: (e) => events.push(e),
+      now: () => clock,
+    });
+    return { result, events, ran };
+  }
+
+  it('runs the detected command and reports its duration', async () => {
+    touch('package-lock.json');
+    const s = step({}, []);
+    expect(await s.result).toBeNull();
+    expect(s.ran).toEqual(['npm ci --prefer-offline']);
+    expect(s.events).toEqual([
+      { type: 'setup.started', data: { command: 'npm ci --prefer-offline' } },
+      { type: 'setup.finished', data: { command: 'npm ci --prefer-offline', durationMs: 250 } },
+    ]);
+  });
+
+  it('skips without a lockfile', async () => {
+    const s = step({}, []);
+    expect(await s.result).toBeNull();
+    expect(s.ran).toEqual([]);
+    expect(s.events).toEqual([{ type: 'setup.skipped', data: { reason: 'no-lockfile' } }]);
+  });
+
+  it('skips when disabled', async () => {
+    touch('pnpm-lock.yaml');
+    const s = step({ setup: false }, []);
+    expect(await s.result).toBeNull();
+    expect(s.ran).toEqual([]);
+    expect(s.events).toEqual([{ type: 'setup.skipped', data: { reason: 'disabled' } }]);
+  });
+
+  it('returns the failed command with the last 20 lines of its output', async () => {
+    const output = Array.from({ length: 25 }, (_, i) => `line ${String(i + 1)}`).join('\n');
+    const s = step({ setup: 'make deps' }, [{ passed: false, output: `${output}\n` }]);
+    expect(await s.result).toBe('make deps');
+    const failed = s.events.at(-1);
+    expect(failed?.type).toBe('setup.failed');
+    const tail = failed?.type === 'setup.failed' ? failed.data.stderrTail.split('\n') : [];
+    expect(tail).toHaveLength(20);
+    expect(tail[0]).toBe('line 6');
+    expect(tail.at(-1)).toBe('line 25');
   });
 });

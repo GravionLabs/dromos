@@ -2,7 +2,7 @@ import type { Db } from '../db.js';
 import { BusEventSchema } from '../events/schema.js';
 import { repoFromPath } from '../github.js';
 import { loadRunnerConfig, modelFor, ROLES, type Role, type RunnerConfig } from './config.js';
-import { linkDependencies } from './dependencies.js';
+import { resolveSetup, runSetupStep, type SetupEvent } from './dependencies.js';
 import { resolveFormatter } from './format.js';
 import {
   type BranchType,
@@ -30,6 +30,7 @@ import {
   type ImplementerEvent,
   type PbiSpec,
   runImplementerPhase,
+  runShell,
   type TestOutcome,
 } from './implementer.js';
 import { createPermissions } from './permissions.js';
@@ -64,6 +65,7 @@ export interface RunHeader {
 export type RunPbiEvent =
   | RunHeader
   | ImplementerEvent
+  | SetupEvent
   | { type: 'run.step'; step: string }
   | {
       type: 'run.finished';
@@ -80,7 +82,6 @@ export interface RunPbiOps {
   releaseIssue: typeof releaseIssue;
   integrationBranch: typeof integrationBranch;
   openWorktree: typeof openRunWorktree;
-  linkDependencies: typeof linkDependencies;
   finishWorktree: typeof finishRunWorktree;
   pushBranch: typeof pushRunBranch;
   makeHarness: (name: HarnessName) => Harness & { version(): Promise<string | null> };
@@ -88,6 +89,8 @@ export interface RunPbiOps {
   comment: (repo: string, number: number, body: string) => Promise<void>;
   runTests?: (command: string, cwd: string) => Promise<TestOutcome>;
   runFormat?: (command: string, cwd: string) => Promise<TestOutcome>;
+  /** Runs the setup commands in the worktree; defaults to {@link runShell}. */
+  runSetup?: (command: string, cwd: string) => Promise<TestOutcome>;
   listCommits?: (base: string, cwd: string) => Promise<Commit[]>;
 }
 
@@ -112,7 +115,6 @@ const defaultOps: RunPbiOps = {
   releaseIssue,
   integrationBranch,
   openWorktree: openRunWorktree,
-  linkDependencies,
   finishWorktree: finishRunWorktree,
   pushBranch: pushRunBranch,
   makeHarness: (name) => new CliHarness({ name }),
@@ -247,6 +249,12 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
       step(
         `create worktree and branch ${parsed.type}/${String(pbi.number)}-… from ${base ?? 'the integration branch'}`,
       );
+      const setup = resolveSetup(config, options.repo);
+      step(
+        setup === 'disabled'
+          ? 'install dependencies: disabled'
+          : `install dependencies in the worktree: ${setup.length > 0 ? setup.join(' && ') : 'no lockfile detected, skipped'}`,
+      );
       if (pbi.tasks.length === 0) step(`implement #${String(pbi.number)} in one session`);
       for (const t of pbi.tasks) step(`implement Task #${String(t.number)}: ${t.title}`);
       const formatter = await resolveFormatter(config, options.repo);
@@ -270,7 +278,19 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
       parsed.title,
       config.base,
     );
-    await ops.linkDependencies(options.repo, worktree.path);
+    // Setup events go to the caller only, like format events; the bus has no schema for them.
+    const failedSetup = await runSetupStep({
+      config,
+      cwd: worktree.path,
+      run: ops.runSetup ?? runShell,
+      emit: options.emit,
+    });
+    if (failedSetup !== null) {
+      await ops.releaseIssue(slug, options.issue);
+      claimed = false;
+      await ops.finishWorktree(options.repo, worktree, 'blocked');
+      return finish('blocked', EXIT_BLOCKED, { reason: `setup failed: ${failedSetup}` });
+    }
     const permissions = createPermissions({ cwd: worktree.path, allow: config.allow });
     const deps = {
       harness: harness as Harness,
