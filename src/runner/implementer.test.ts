@@ -20,7 +20,7 @@ describe('runShell', () => {
   });
 
   it('sets CI=true and closes stdin', async () => {
-    const res = await runShell('echo ci=$CI; cat', process.cwd());
+    const res = await runShell('echo ci=$CI; cat', process.cwd(), 5000);
     expect(res.passed).toBe(true);
     expect(res.output).toContain('ci=true');
   });
@@ -89,9 +89,9 @@ function setup(
     skillDirs: ['/skills/implementation'],
     allow: () => ({ allow: true }),
     timeoutMs: 1000,
-    runTests: async (command, cwd) => {
+    runTests: async (command, cwd, timeoutMs) => {
       commands.push(command);
-      return (runTests ?? (async () => ({ passed: true, output: '' })))(command, cwd);
+      return (runTests ?? (async () => ({ passed: true, output: '' })))(command, cwd, timeoutMs);
     },
     emit: (e) => events.push(e),
   };
@@ -150,6 +150,29 @@ describe('runImplementerPhase format step', () => {
       IMPLEMENTING,
     );
     expect(order).toEqual(["fmt 'a.ts'", 'tests']);
+  });
+
+  it('gives the format and test commands the budgets of timeouts', async () => {
+    const budgets: Record<string, number> = {};
+    const config = { format: 'fmt', timeouts: { format: 2, test: 45 } };
+    const { deps } = setup(fakeHarness(), config, async (_c, _cwd, timeoutMs) => {
+      budgets.test = timeoutMs;
+      return { passed: true, output: '' };
+    });
+    await runImplementerPhase(
+      {
+        ...deps,
+        base: 'release/next',
+        runFormat: async (_c, _cwd, timeoutMs) => {
+          budgets.format = timeoutMs;
+          return { passed: true, output: '' };
+        },
+        formatGit,
+      },
+      pbi([task(1)]),
+      IMPLEMENTING,
+    );
+    expect(budgets).toEqual({ format: 120_000, test: 2_700_000 });
   });
 
   it('goes on to the tests when the formatter fails', async () => {

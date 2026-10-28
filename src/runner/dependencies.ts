@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { RunnerConfig } from './config.js';
+import { type RunnerConfig, stepTimeoutMs } from './config.js';
 import type { ShellResult } from './format.js';
 
 /**
@@ -86,7 +86,7 @@ export function resolveSetup(config: RunnerConfig, dir: string): string[] | 'dis
 export interface SetupStepInput {
   config: RunnerConfig;
   cwd: string;
-  run: (command: string, cwd: string) => Promise<ShellResult>;
+  run: (command: string, cwd: string, timeoutMs: number) => Promise<ShellResult>;
   emit: (event: SetupEvent) => void;
   now?: () => number;
 }
@@ -109,7 +109,7 @@ export async function runSetupStep(input: SetupStepInput): Promise<string | null
   for (const command of commands) {
     emit({ type: 'setup.started', data: { command } });
     const start = now();
-    const res = await input.run(command, cwd);
+    const res = await input.run(command, cwd, stepTimeoutMs(input.config, 'setup'));
     if (!res.passed) {
       const stderrTail = res.output.trimEnd().split('\n').slice(-SETUP_TAIL_LINES).join('\n');
       emit({ type: 'setup.failed', data: { command, stderrTail } });

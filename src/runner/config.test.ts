@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadRunnerConfig, modelFor, RunnerConfigError, testCommand } from './config.js';
+import {
+  loadRunnerConfig,
+  modelFor,
+  RunnerConfigError,
+  stepTimeoutMs,
+  testCommand,
+} from './config.js';
 
 describe('loadRunnerConfig', () => {
   let dir: string;
@@ -49,6 +55,7 @@ describe('loadRunnerConfig', () => {
         retro: ['retro'],
       },
       test: { full: 'npm test' },
+      timeouts: { setup: 30, format: 10, test: 30 },
       parallel: 3,
       maxFixRounds: 1,
       allow: [],
@@ -97,7 +104,18 @@ describe('loadRunnerConfig', () => {
     expect(testCommand(loadRunnerConfig(dir))).toBe('cargo test -p x');
   });
 
+  it('converts the minutes of timeouts per step, keeping the defaults of unset steps', () => {
+    write({ timeouts: { test: 90, format: 0.5 } });
+    const config = loadRunnerConfig(dir);
+    expect(stepTimeoutMs(config, 'test')).toBe(5_400_000);
+    expect(stepTimeoutMs(config, 'format')).toBe(30_000);
+    expect(stepTimeoutMs(config, 'setup')).toBe(1_800_000);
+  });
+
   it.each([
+    ['zero timeout', { timeouts: { test: 0 } }],
+    ['negative timeout', { timeouts: { setup: -1 } }],
+    ['unknown timeout step', { timeouts: { lint: 5 } }],
     ['unknown harness', { harness: 'gemini' }],
     ['unknown top-level key', { paralel: 2 }],
     ['unknown role', { models: { claude: { architect: 'opus' } } }],

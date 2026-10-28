@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { execa } from 'execa';
-import type { RunnerConfig } from './config.js';
+import { type RunnerConfig, stepTimeoutMs } from './config.js';
 
 /**
  * Format step: after every implementer phase and fix round the runner formats the files changed
@@ -206,7 +206,7 @@ export interface FormatStepInput {
   cwd: string;
   base: string;
   issue: number;
-  run: (command: string, cwd: string) => Promise<ShellResult>;
+  run: (command: string, cwd: string, timeoutMs: number) => Promise<ShellResult>;
   emit: (event: FormatEvent) => void;
   git?: FormatGit;
   jbOnPath?: () => Promise<boolean>;
@@ -236,7 +236,7 @@ export async function runFormatStep(input: FormatStepInput): Promise<void> {
       return;
     }
     for (const command of formatter.commands(files)) {
-      const res = await input.run(command, cwd);
+      const res = await input.run(command, cwd, stepTimeoutMs(input.config, 'format'));
       if (!res.passed) {
         emit({ type: 'format.failed', data: { command, stderrTail: tailOf(res.output) } });
         return;

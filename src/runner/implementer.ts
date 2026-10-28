@@ -1,7 +1,7 @@
 import { execa } from 'execa';
 import { z } from 'zod';
 import type { PhaseUsageSchema } from '../events/schema.js';
-import { modelFor, type RunnerConfig, testCommand } from './config.js';
+import { modelFor, type RunnerConfig, stepTimeoutMs, testCommand } from './config.js';
 import { type FormatEvent, type FormatGit, runFormatStep } from './format.js';
 import type { Harness, HarnessName, PhaseInput, Usage } from './harness.js';
 import { type OutcomeEvent, parseTestSummary } from './outcome.js';
@@ -81,11 +81,11 @@ export interface ImplementerDeps {
   allow: PhaseInput['allow'];
   timeoutMs: number;
   /** Runs `command` in `cwd`; replaced in unit tests. */
-  runTests?: (command: string, cwd: string) => Promise<TestOutcome>;
+  runTests?: (command: string, cwd: string, timeoutMs: number) => Promise<TestOutcome>;
   /** Integration branch; the format step runs only when set. */
   base?: string;
   /** Runs the formatter command in `cwd`; defaults to {@link runShell}. */
-  runFormat?: (command: string, cwd: string) => Promise<TestOutcome>;
+  runFormat?: (command: string, cwd: string, timeoutMs: number) => Promise<TestOutcome>;
   formatGit?: FormatGit;
   /** Whether the worktree has commits on top of `base`; defaults to `git rev-list`. */
   hasCommits?: (base: string, cwd: string) => Promise<boolean>;
@@ -99,17 +99,14 @@ export interface ImplementerOutcome extends Transition {
   usage: Usage[];
 }
 
-/** Default budget of a setup, format or test command. */
-export const SHELL_TIMEOUT_MS = 30 * 60 * 1000;
-
 /**
- * Runs a shell command with stdin closed, `CI=true` and a timeout; a command over budget fails with
- * a timeout note appended to its output.
+ * Runs a shell command with stdin closed, `CI=true` and a timeout (the step's budget from
+ * `timeouts` of the config); a command over budget fails with a timeout note appended to its output.
  */
 export async function runShell(
   command: string,
   cwd: string,
-  timeoutMs = SHELL_TIMEOUT_MS,
+  timeoutMs: number,
 ): Promise<TestOutcome> {
   const child = execa(command, {
     cwd,
@@ -298,7 +295,7 @@ export async function runImplementerPhase(
   const implemented = apply(state, { type: 'implemented' });
   await formatChanged(deps, pbi.number);
   const run = deps.runTests ?? runShell;
-  const outcome = await run(testCommand(config), deps.cwd);
+  const outcome = await run(testCommand(config), deps.cwd, stepTimeoutMs(config, 'test'));
   send(parseTestSummary(outcome.output));
   if (outcome.passed) {
     return { ...apply(implemented.state, { type: 'tests_passed' }), usage };

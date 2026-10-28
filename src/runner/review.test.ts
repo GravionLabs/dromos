@@ -106,9 +106,9 @@ describe('runReviewPhase', () => {
       {
         ...s.deps,
         config: RunnerConfigSchema.parse({ format: 'fmt' }),
-        runTests: async (c, cwd) => {
+        runTests: async (c, cwd, timeoutMs) => {
           order.push('tests');
-          return (runTests as NonNullable<typeof runTests>)(c, cwd);
+          return (runTests as NonNullable<typeof runTests>)(c, cwd, timeoutMs);
         },
         runFormat: async () => {
           order.push('format');

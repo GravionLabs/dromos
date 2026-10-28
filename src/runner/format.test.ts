@@ -155,6 +155,7 @@ describe('resolveFormatter', () => {
 function harness(opts: { files?: string[]; passed?: boolean; committed?: boolean } = {}) {
   const events: FormatEvent[] = [];
   const commands: string[] = [];
+  const budgets: number[] = [];
   const messages: string[] = [];
   const git: FormatGit = {
     changedFiles: async () => opts.files ?? ['a.ts'],
@@ -168,18 +169,27 @@ function harness(opts: { files?: string[]; passed?: boolean; committed?: boolean
     cwd: dir,
     base: 'release/next',
     issue: 287,
-    run: async (c: string) => {
+    run: async (c: string, _cwd: string, timeoutMs: number) => {
       commands.push(c);
+      budgets.push(timeoutMs);
       return { passed: opts.passed ?? true, output: 'l1\nboom' };
     },
     emit: (e: FormatEvent) => events.push(e),
     git,
     jbOnPath: noJb,
   });
-  return { events, commands, messages, input };
+  return { events, commands, budgets, messages, input };
 }
 
 describe('runFormatStep', () => {
+  it('gives the formatter the format budget of timeouts, 10 minutes by default', async () => {
+    put('biome.json');
+    const h = harness();
+    await runFormatStep(h.input());
+    await runFormatStep(h.input({ timeouts: { format: 3 } }));
+    expect(h.budgets).toEqual([600_000, 180_000]);
+  });
+
   it('formats, commits and reports', async () => {
     put('biome.json');
     const h = harness();

@@ -95,10 +95,10 @@ export interface RunPbiOps {
   makeHarness: (name: HarnessName) => Harness & { version(): Promise<string | null> };
   createPr: (repo: string, input: CreatePrInput) => Promise<PullRequest>;
   comment: (repo: string, number: number, body: string) => Promise<void>;
-  runTests?: (command: string, cwd: string) => Promise<TestOutcome>;
-  runFormat?: (command: string, cwd: string) => Promise<TestOutcome>;
+  runTests?: (command: string, cwd: string, timeoutMs: number) => Promise<TestOutcome>;
+  runFormat?: (command: string, cwd: string, timeoutMs: number) => Promise<TestOutcome>;
   /** Runs the setup commands in the worktree; defaults to {@link runShell}. */
-  runSetup?: (command: string, cwd: string) => Promise<TestOutcome>;
+  runSetup?: (command: string, cwd: string, timeoutMs: number) => Promise<TestOutcome>;
   listCommits?: (base: string, cwd: string) => Promise<Commit[]>;
 }
 
