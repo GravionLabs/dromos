@@ -16,7 +16,7 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "schema": "tsx src/events/export-schema.ts",
+    "schema": "tsx src/events/export-schema.ts && tsx src/state-snapshot.ts",
     "lint": "biome check .",
     "format": "biome check --write .",
     "typecheck": "tsc --noEmit",
