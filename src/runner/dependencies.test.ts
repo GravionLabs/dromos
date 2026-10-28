@@ -23,9 +23,24 @@ describe('detectSetup', () => {
     [['package-lock.json'], 'npm ci --prefer-offline'],
     [['yarn.lock'], 'yarn install --frozen-lockfile --prefer-offline'],
     [['yarn.lock', '.yarnrc.yml'], 'yarn install --immutable'],
+    [['uv.lock'], 'uv sync --frozen'],
+    [['poetry.lock'], 'poetry sync'],
   ])('%j → %s', (files, command) => {
     touch(...files);
     expect(detectSetup(dir)).toEqual([command]);
+  });
+
+  it('prefers uv over a leftover poetry.lock', () => {
+    touch('uv.lock', 'poetry.lock');
+    expect(detectSetup(dir)).toEqual(['uv sync --frozen']);
+  });
+
+  it('runs one command per ecosystem, JS before Python', () => {
+    touch('uv.lock', 'pnpm-lock.yaml');
+    expect(detectSetup(dir)).toEqual([
+      'pnpm install --frozen-lockfile --prefer-offline',
+      'uv sync --frozen',
+    ]);
   });
 
   it('prefers pnpm over a leftover package-lock.json', () => {
@@ -85,6 +100,21 @@ describe('runSetupStep', () => {
       { type: 'setup.started', data: { command: 'npm ci --prefer-offline' } },
       { type: 'setup.finished', data: { command: 'npm ci --prefer-offline', durationMs: 250 } },
     ]);
+  });
+
+  it('runs the commands of every detected ecosystem', async () => {
+    touch('package-lock.json', 'poetry.lock');
+    const s = step({}, []);
+    expect(await s.result).toBeNull();
+    expect(s.ran).toEqual(['npm ci --prefer-offline', 'poetry sync']);
+    expect(s.events.filter((e) => e.type === 'setup.finished')).toHaveLength(2);
+  });
+
+  it('stops at the first failing command', async () => {
+    touch('package-lock.json', 'uv.lock');
+    const s = step({}, [{ passed: false, output: 'npm ERR' }]);
+    expect(await s.result).toBe('npm ci --prefer-offline');
+    expect(s.ran).toEqual(['npm ci --prefer-offline']);
   });
 
   it('skips without a lockfile', async () => {

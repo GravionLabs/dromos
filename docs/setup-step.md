@@ -14,8 +14,10 @@ On by default. Per ecosystem, the first matching lockfile in the worktree wins; 
 | `yarn.lock` with `.yarnrc.yml` (Yarn 2+) | `yarn install --immutable` |
 | `yarn.lock` (Yarn 1) | `yarn install --frozen-lockfile --prefer-offline` |
 | `package-lock.json` | `npm ci --prefer-offline` |
+| `uv.lock` | `uv sync --frozen` |
+| `poetry.lock` | `poetry sync` (Poetry 2) |
 
-Without a matching lockfile the step is skipped. Cargo, Go, Gradle and Maven need no step: their dependencies come from a global cache every worktree shares. Rust still compiles everything once in a worktree, because each worktree has its own empty `target/`; sharing one `target/` between parallel runs is not safe, [sccache](https://github.com/mozilla/sccache) is the remedy for slow cold builds.
+The Python commands create the worktree's own virtual environment; uv and Poetry share their package cache, so this is fast. For Poetry 1 set `"setup": "poetry install --sync"`. Without a matching lockfile the step is skipped. Cargo, Go, Gradle and Maven need no step: their dependencies come from a global cache every worktree shares. Rust still compiles everything once in a worktree, because each worktree has its own empty `target/`; sharing one `target/` between parallel runs is not safe, [sccache](https://github.com/mozilla/sccache) is the remedy for slow cold builds.
 
 ## Override
 
