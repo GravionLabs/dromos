@@ -123,8 +123,9 @@ impl std::error::Error for ConstraintError {}
 pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
     use BusEvent::{
         AgentRegistered, AgentRun, AgentState, AttemptSettled, AttemptStarted, Attention,
-        AttentionAcked, AttentionAnswered, GateResult, HookBusy, HookIdle, PhaseFailed,
-        PhaseFinished, PhaseStarted, Progress, QueueItem, ReviewResult, RunState, Usage,
+        AttentionAcked, AttentionAnswered, GateResult, HookBusy, HookIdle, OutcomeFinding,
+        OutcomeFixRound, OutcomeQuestions, OutcomeTests, PhaseFailed, PhaseFinished, PhaseStarted,
+        Progress, QueueItem, ReviewResult, RunState, Usage,
     };
     let (agent_id, run_id) = match event {
         HookIdle {
@@ -179,6 +180,18 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
             agent_id, run_id, ..
         }
         | PhaseFinished {
+            agent_id, run_id, ..
+        }
+        | OutcomeFinding {
+            agent_id, run_id, ..
+        }
+        | OutcomeTests {
+            agent_id, run_id, ..
+        }
+        | OutcomeFixRound {
+            agent_id, run_id, ..
+        }
+        | OutcomeQuestions {
             agent_id, run_id, ..
         }
         | PhaseFailed {
@@ -318,6 +331,44 @@ pub fn check_constraints(event: &BusEvent) -> Result<(), ConstraintError> {
                     .as_ref()
                     .map(|v| ("data.harness.sdk", v.as_str())),
             );
+        }
+        OutcomeFinding { .. } | OutcomeFixRound { .. } => {}
+        OutcomeTests { data, .. } => {
+            if data.passed < 0 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.passed",
+                    rule: ">= 0",
+                });
+            }
+            if data.failed < 0 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.failed",
+                    rule: ">= 0",
+                });
+            }
+            if data.failures.len() > 50 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.failures",
+                    rule: "at most 50 entries",
+                });
+            }
+            for failure in &data.failures {
+                texts.push(("data.failures", failure.as_str()));
+            }
+        }
+        OutcomeQuestions { data, .. } => {
+            if data.count < 0 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.count",
+                    rule: ">= 0",
+                });
+            }
+            if data.assumed < 0 {
+                return Err(ConstraintError::OutOfRange {
+                    field: "data.assumed",
+                    rule: ">= 0",
+                });
+            }
         }
         GateResult { data, .. } => {
             if data.duration_ms < 0 {

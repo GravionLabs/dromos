@@ -6,13 +6,15 @@ What it offers:
 
 - **Events**: a typed event stream (`GET /events/stream`) and `POST /ingest` for producers such as apm-hub hooks. The bus works without any terminal.
 - **History and metrics**: stored events with query and per-run metrics for apm-hub's retro (planned).
-- **Attention**: gates and questions with an id and state that a human answers (planned).
+- **Attention**: questions and blocked runs with an id and state that a human answers (`GET /attention`, `POST /attention/<id>/answer|ack`).
 - **Runner**: `dromos run epic|feature|pbi <nr>` owns the control flow and calls one flat harness session (Claude, Copilot) per step; apm-hub supplies only the skills and prompts (planned, see [ROADMAP.md](ROADMAP.md) Stage 4).
-- **MCP tools** as the bus API (the pull-model tools `start_run`, `submit_*`, `open_pr` and `status` are marked for removal once the runner lands): `start_run`, `submit_implementation`, `submit_review`, `open_pr`, `status`, `post`, `ack`, `inbox`. The deterministic gate (build, tests, lint, round limit, "PR only after approval") is enforced by the bus itself.
+- **MCP tools** at `/mcp/<role>`: `ping`, `whoami` and the messaging tools `post`, `ack`, `inbox`. The pull-model tools (`start_run`, `submit_implementation`, `submit_review`, `open_pr`, `status`) are gone: the runner owns worktrees, the gate (build, tests, lint), the round limit and the pull request.
 
 dromos does not provide its own interactive role workflow (orchestrator, implementer and reviewer terminals started by dromos): that was dropped, apm-hub's orchestrator and agents cover it. The workspace is the herdr plugin (`dromos-herdr`, primary). The Rust multiplexer `dromos-mux` is parked: the code stays in the repository but is not on the roadmap.
 
 Architecture: dromos owns the control flow, apm-hub is content. The runner reads the issue hierarchy from GitHub, plans, selects the next approved PBI and calls harness sessions; the bus keeps events and metrics. GitHub stays the source of truth for issue state.
+
+Decision records live in [docs/decisions](docs/decisions/README.md); declined requests in [docs/out-of-scope](docs/out-of-scope/). Check both before proposing a change.
 
 ```
  runner (dromos run) ──► harness sessions (Claude, Copilot; skills from apm-hub)
@@ -25,7 +27,7 @@ Architecture: dromos owns the control flow, apm-hub is content. The runner reads
 
 ## Status
 
-Early development. Implemented: project foundation and messaging (`post`, `ack`, `inbox`, `/events`, `/events/stream`, bus log) over streamable HTTP at `/mcp/<role>`, `POST /ingest`, agent instances and the workflow core. The `dromos` CLI (`serve`, `run export`, `attention`) is installed as the `dromos` bin. Everything else below is **planned**, including `dromos log`. Order of work: [ROADMAP.md](ROADMAP.md); the bus core is Epic #166.
+Early development. Implemented: project foundation and messaging (`post`, `ack`, `inbox`, `/events`, `/events/stream`, bus log) over streamable HTTP at `/mcp/<role>`, `POST /ingest`, agent instances and the workflow core. The `dromos` CLI (`serve`, `run pbi`, `run feature|epic`, `run plan`, `plan`, `status`, `run export`, `attention`) is installed as the `dromos` bin. Everything else below is **planned**, including `dromos log`. Order of work: [ROADMAP.md](ROADMAP.md); the bus core is Epic #166.
 
 ## Event stream
 
@@ -103,7 +105,7 @@ curl 'http://127.0.0.1:4777/events?issue=135&type=progress,usage&limit=500'
 
 ## GET /runs/{issue}/metrics and GET /runs/metrics
 
-`GET /runs/{issue}/metrics?since=&until=` returns the `RunMetrics` of one issue (event counts, durations, usage, per-agent counts). An issue without events answers `200` with empty metrics. `GET /runs/metrics?issues=1,2,3` or `?since=[&until=]` returns `{ runs, aggregate }`: one object per issue plus sums and means. With `since` and no `issues`, the issues are the distinct issues of events in the window.
+`GET /runs/{issue}/metrics?since=&until=` returns the `RunMetrics` of one issue (event counts, durations, usage, per-agent counts). An issue without events answers `200` with empty metrics. `GET /runs/metrics?issues=1,2,3` or `?since=[&until=]` returns `{ runs, aggregate }`: one object per issue plus sums and means. With `since` and no `issues`, the issues are the distinct issues of events in the window. The same data is on the command line: `dromos run metrics [--issues <n,…>] [--since <date>] [--format json|table]`. Fields and contract: [docs/run-metrics.md](docs/run-metrics.md).
 
 - `since` is inclusive and `until` exclusive, both ISO-8601 as for `GET /events`. `issues` is a comma-separated list of non-negative integers, at most 100. The multi route needs `issues` or `since`.
 - Missing usage is reported as `usd: null, measured: false`, never estimated.
@@ -119,6 +121,7 @@ DROMOS_PERF=1 pnpm vitest run src/events-query.perf.test.ts
 
 An ingested `attention` event creates an attention row (same id as the event) in state `open`. A human moves it `open -> answered -> acked`; each step emits exactly one bus event.
 
+- `GET /state` answers `200` with one snapshot for short-lived clients: `version` (currently 1), `at`, `agents` (`id`, `role`, `client`, `model`, `state`, `since`), `runs` (active runs, that is all but `pr_opened`: `id`, `issue`, `phase`, `gateRounds`, `lastGate`, `worktree`, `pr`) and `attentions` (open ones). It has the same Host/Origin guard as `/events/stream`; the schema is `schema/state.schema.json`, generated by `pnpm run schema`.
 - `GET /attention?state=open|answered|acked&issue=<int>&since=<ISO>&limit=<1..1000>` answers `200 { attention: [...] }`, oldest first; a bad or unknown parameter answers 400.
 - `POST /attention/<id>/answer` with `{ "text": "...", "by": "..." }` (`text` 1-4000, `by` 1-128 chars) emits `attention.answered { id, text, by }` and answers 200 with the updated attention.
 - `POST /attention/<id>/ack` with `{ "by": "..." }` or an empty body emits `attention.acked { id, by }`; only an answered attention can be acked.
@@ -127,7 +130,7 @@ An ingested `attention` event creates an attention row (same id as the event) in
 
 ## Task message payload
 
-A `post` with `type: "task"` must carry a typed payload; an invalid one is rejected with an error and nothing is stored. `inbox` returns task payloads typed. Extra keys (for example `worktreePath`, `branch`, `baseBranch`, `instructions` from `start_run`) are kept. All other message types accept any JSON payload.
+A `post` with `type: "task"` must carry a typed payload; an invalid one is rejected with an error and nothing is stored. `inbox` returns task payloads typed. Extra keys (for example `worktreePath`, `branch`, `baseBranch`, `instructions`) are kept. All other message types accept any JSON payload.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -146,7 +149,7 @@ A `post` with `type: "task"` must carry a typed payload; an invalid one is rejec
   "objective": "Implement #12: Add export",
   "constraints": ["Work only in the worktree"],
   "ownership": ["src/export/**"],
-  "outputFormat": "Commits on feat/12-export, then submit_implementation",
+  "outputFormat": "Commits on feat/12-export",
   "editsAllowed": true,
   "validation": ["pnpm test"],
   "forbidden": ["push to the base branch"],
@@ -202,21 +205,43 @@ dromos events --issue 135 --type progress,agent.state --limit 50 --table
 
 `dromos run export` reads one issue's events from the local store and prints a JSON export (schema version, issue, `exportedAt`, events) or a Mermaid flowchart of its subagent tree, without network access. An unknown issue prints nothing and exits 1.
 
+```
+dromos run pbi <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--dry-run] [--force]
+```
+
+`dromos run pbi` claims the PBI, implements it in a worktree, reviews it (one fix round) and opens the pull request. The first line and first event is the run header (harness, versions, models per role). `--format json` streams events as JSON lines; text output is for a TTY only, so off a TTY the output is JSON lines whatever `--format` says. After every implementer phase and fix round, before the tests, the runner formats the changed files with the formatter it detects in the worktree (or `"format"` of `.dromos/config.json`; `false` disables) and commits the result as `style: format (#<nr>)`; see [docs/format-step.md](docs/format-step.md). `--dry-run` prints the steps without starting a harness or writing to GitHub. `--force` takes over a PBI that already carries `in-progress`. Exit codes: 0 pull request opened (or dry run), 1 blocked, 2 usage error, 3 error.
+
+```
+dromos run plan <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--answer <id>=<value>]... [--assume-recommended]
+```
+
+`dromos run plan` plans a `[Feature]` into PBIs or a `[PBI]` into Tasks with the planner phase and writes the plan to `.dromos/state/<nr>/plan.json` in the repository. On a TTY every planner question is a select prompt (Enter takes the recommendation). `--answer <id>=<value>` (repeatable, the value must be one of the options) answers without a prompt; `--assume-recommended` takes every remaining recommendation and writes it into the plan and into each created issue under `## Assumptions`. `phase.finished` of the planner carries `unansweredQuestions`. Without a TTY and without `--assume-recommended`, open questions create no issue: the draft plan and every open question (options and recommendation) go into one comment on the issue, the issue gets the label `needs-decision`, an `attention` event is emitted and the run exits 2. Answer with comment lines `/answer <id> <value>`; the next run reads them, removes `needs-decision` and continues. Exit codes: 0 issues created, 2 questions open (or usage error), 3 error.
+
+```
+dromos plan feature|pbi <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--answer <id>=<value>]... [--assume-recommended]
+```
+
+`dromos plan feature <nr>` and `dromos plan pbi <nr>` are `dromos run plan` with a check that the issue is a `[Feature]` or a `[PBI]`: they plan and stop, nothing is implemented.
+
+```
+dromos run feature|epic <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--force]
+```
+
+`dromos run feature` and `dromos run epic` first plan every open Feature that has no sub-issues yet (as `dromos run plan` without a TTY: open questions go to the issue and the Feature is skipped). Then they run, one after another as `dromos run pbi` does, every open PBI that is approved (label `approved` on the PBI or on its Feature; PBIs created by the planner carry `needs-approval` until then), not claimed (`in-progress`, unless `--force`) and not blocked by an open issue, in dependency order; each PBI is re-read right before it runs. PBIs directly under an Epic count as a Feature with the Epic's approval. The run never waits for a human: unapproved, claimed and blocked PBIs and Features with open questions are skipped and listed in the final `group.finished` report. Ctrl-C lets the running PBI unwind (its claim is released, its worktree kept) and starts no further PBI; a second Ctrl-C releases the claim of the running PBI and exits at once. All state lives on GitHub, so starting the run again continues it. Exit codes: 0 every selected PBI opened a pull request, 1 at least one PBI run was blocked or failed, 2 usage error, 3 error, 130 interrupted.
+
+```
+dromos status <nr> [--repo PATH] [--format text|json]
+```
+
+`dromos status` prints one table for an Epic, Feature or PBI: the issue, its children and, for an Epic, the PBIs of its Features. Per row: level, open or closed, the workflow labels (`needs-approval`, `approved`, `in-progress`, `needs-decision`), open blockers, the newest pull request of the issue's branch `<type>/<nr>-<slug>` with its state (open, draft, merged, closed) and the header of the last runner run from the local event store (run id, start, harness, model per phase, last phase event). It reads GitHub and the store only and writes nothing; it replaces the status table of the apm-hub orchestrator (`Write-StatusTable.ps1`). `--format json` prints the same rows as JSON; off a TTY the output is JSON whatever `--format` says. Exit codes: 0 printed, 2 usage error, 3 error.
+
 The herdr plugin (Epic #98) is the workspace for interactive work; apm-hub orchestrator runs report to the bus through `$DROMOS_URL`.
 
-Config: `dromos.config.json` in the working directory (or the file named by `DROMOS_CONFIG`), merged over defaults. See `dromos.config.example.json` for host, port, `maxRounds`, gate commands, base branch, `branchPrefix` (default `conventional`, see `start_run`), `worktreeDir` (relative path, no `..`, default `.worktrees`).
+Config: `dromos.config.json` in the working directory (or the file named by `DROMOS_CONFIG`), merged over defaults. See `dromos.config.example.json` for host, port, `maxRounds`, gate commands, base branch, `branchPrefix` (default `conventional`: `<type>/<issue>-<slug>`), `worktreeDir` (relative path, no `..`, default `.worktrees`).
 
 ## Workflow
 
-The MCP tools stay as bus API until the runner replaces them (marked for removal in ROADMAP.md, Stage 3).
-
-1. `start_run(issue)`: create worktree and branch `<type>/<issue>-<slug>` (`fix` for issues labelled `bug` or titled `fix...`/`[bug]...`, otherwise `feat`; e.g. `feat/14-add-start-run`). Set `branchPrefix` to a fixed string such as `agent` to get `agent/<issue>-<slug>` instead. Post the task to the implementer role. The worktree lives at `<repoPath>/<worktreeDir>/<issue>` (default `.worktrees/<issue>`); `start_run` refuses unless `<worktreeDir>/` is git-ignored in that repository.
-2. `submit_implementation`: the bus runs build, tests and lint. Red goes back to the implementer.
-3. `submit_review`: schema-validated verdict. Blocking findings go back to the implementer.
-4. After the round limit (default 3) the run is `blocked` and the orchestrator is notified.
-5. `open_pr`: allowed only once the run is `approved`. The bus never merges.
-
-A `status` tool reports the state of a run.
+`dromos run pbi <nr>` drives the workflow: it creates the worktree and branch `<type>/<issue>-<slug>` (`fix` for issues labelled `bug` or titled `fix...`/`[bug]...`, otherwise `feat`; set `branchPrefix` to a fixed string such as `agent` to get `agent/<issue>-<slug>`), runs the implementer and reviewer steps through a harness, runs the gate commands, stops as `blocked` after the round limit (default 3) and opens the pull request once the review approves. The worktree lives at `<repoPath>/<worktreeDir>/<issue>` (default `.worktrees/<issue>`). The bus never merges.
 
 ## Roadmap
 

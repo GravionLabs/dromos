@@ -26,16 +26,11 @@ import {
   isIngestType,
 } from './events/schema.js';
 import { startNoticeSweep } from './notice-sweep.js';
-import { startLeaseRenewal } from './run-lease.js';
-import {
-  aggregateRunMetrics,
-  collectEvents,
-  computeRunMetrics,
-  type RunMetrics,
-} from './run-metrics.js';
+import { collectEvents, collectRunsMetrics, computeRunMetrics } from './run-metrics.js';
 import { parseMultiRunMetricsQuery, parseSingleRunMetricsQuery } from './run-metrics-query.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
+import { buildStateSnapshot } from './state-snapshot.js';
 
 export interface HttpOptions {
   config: Config;
@@ -443,29 +438,19 @@ export async function startHttp({
       sendJson(res, 200, computeRunMetrics(issue, collectEvents(db, { issue, ...parsed.window })));
       return;
     }
-    const runs: RunMetrics[] = [];
-    if (parsed.issues) {
-      for (const n of parsed.issues) {
-        runs.push(computeRunMetrics(n, collectEvents(db, { issue: n, ...parsed.window })));
-      }
-    } else {
-      const byIssue = new Map<number, ReturnType<typeof collectEvents>>();
-      for (const e of collectEvents(db, parsed.window)) {
-        if (e.issue !== null) {
-          const list = byIssue.get(e.issue) ?? [];
-          list.push(e);
-          byIssue.set(e.issue, list);
-        }
-      }
-      for (const n of [...byIssue.keys()].sort((a, b) => a - b)) {
-        runs.push(computeRunMetrics(n, byIssue.get(n) ?? []));
-      }
+    sendJson(res, 200, collectRunsMetrics(db, parsed));
+  }
+
+  function handleState(req: IncomingMessage, res: ServerResponse): void {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' });
+      return;
     }
-    // Requested issues without events stay listed but must not drag the aggregate means down.
-    sendJson(res, 200, {
-      runs,
-      aggregate: aggregateRunMetrics(runs.filter((r) => r.events > 0)),
-    });
+    if (!hostAllowed(req)) {
+      sendJson(res, 403, { error: 'forbidden host or origin' });
+      return;
+    }
+    sendJson(res, 200, buildStateSnapshot(db));
   }
 
   async function handleEvent(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -769,6 +754,16 @@ export async function startHttp({
       });
       return;
     }
+    if (path === '/state') {
+      try {
+        handleState(req, res);
+      } catch {
+        if (!res.headersSent) {
+          sendJson(res, 500, { error: 'internal error' });
+        }
+      }
+      return;
+    }
     if (path === '/ingest') {
       handleIngest(req, res).catch((error: unknown) => {
         if (!res.headersSent) {
@@ -856,14 +851,12 @@ export async function startHttp({
   });
 
   const address = server.address() as AddressInfo;
-  const stopLeaseRenewal = await startLeaseRenewal(db, log);
   const stopNoticeSweep = startNoticeSweep(db, events, log);
 
   return {
     server,
     url: `http://${host}:${address.port}`,
     async close() {
-      stopLeaseRenewal();
       stopNoticeSweep();
       await Promise.all([...sessions.values()].map((s) => s.transport.close()));
       sessions.clear();

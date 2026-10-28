@@ -90,7 +90,13 @@ describe('GET /runs/{issue}/metrics', () => {
     const m = (await (await fetch(url('/runs/7200/metrics'))).json()) as RunMetrics;
     expect(m.durations.phases).toEqual({ build: 60, plan: 60 });
     expect(m.progress.byKind).toEqual({ other: 1, phase: 2 });
-    expect(m.usage).toEqual({ tokensIn: null, tokensOut: null, usd: 0.75, measured: true });
+    expect(m.usage).toEqual({
+      tokensIn: null,
+      tokensOut: null,
+      usd: 0.75,
+      measured: true,
+      byRole: {},
+    });
   });
 
   it('until is exclusive and since inclusive', async () => {
@@ -126,7 +132,13 @@ describe('GET /runs/{issue}/metrics', () => {
     const m = (await res.json()) as RunMetrics;
     expect(m.issue).toBe(7101);
     expect(m.events).toBe(3);
-    expect(m.usage).toEqual({ tokensIn: null, tokensOut: null, usd: null, measured: false });
+    expect(m.usage).toEqual({
+      tokensIn: null,
+      tokensOut: null,
+      usd: null,
+      measured: false,
+      byRole: {},
+    });
   });
 
   it('since/until change the counts', async () => {

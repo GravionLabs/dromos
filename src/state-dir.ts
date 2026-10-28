@@ -1,4 +1,3 @@
-import { lstatSync, mkdirSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execa } from 'execa';
 
@@ -29,32 +28,4 @@ export async function resolveStateDir(
   } catch {
     throw new Error('No state directory: not inside a git repository (set DROMOS_STATE_DIR)');
   }
-}
-
-function isSymlink(p: string): boolean {
-  try {
-    return lstatSync(p).isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
-
-export async function resolveLeaseDir(
-  repoPath: string,
-  env: NodeJS.ProcessEnv = process.env,
-  cwd: string = process.cwd(),
-): Promise<string> {
-  const stateDir = await resolveStateDir(repoPath, env, cwd);
-  const leaseDir = join(stateDir, 'leases');
-  // state dir and leases dir must be real directories, not links; created private (0700)
-  for (const p of [stateDir, leaseDir]) {
-    if (isSymlink(p)) throw new Error(`Refusing symlinked path: ${p}`);
-    mkdirSync(p, { recursive: true, mode: 0o700 });
-    if (isSymlink(p)) throw new Error(`Refusing symlinked path: ${p}`);
-  }
-  // no link anywhere in the resolved location, e.g. a symlinked parent of the state dir
-  if (realpathSync(leaseDir) !== join(realpathSync(stateDir), 'leases')) {
-    throw new Error(`Refusing path outside state directory: ${leaseDir}`);
-  }
-  return leaseDir;
 }

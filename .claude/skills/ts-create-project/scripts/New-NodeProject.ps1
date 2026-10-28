@@ -84,7 +84,7 @@ try {
   Write-Host "Initializing git repository..." -ForegroundColor Cyan
   git init -q
   Write-Host "Done! Run 'npm run dev' to start development." -ForegroundColor Green
-  Write-Host "Next steps: set up code quality with 'setup-prettier-eslint-husky', add CI with 'create-node-workflow'" -ForegroundColor DarkGray
+  Write-Host "Next steps: set up code quality with 'setup-biome-husky', add CI with 'create-node-workflow'" -ForegroundColor DarkGray
 } finally {
   Pop-Location
 }

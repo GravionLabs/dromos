@@ -143,6 +143,22 @@ fn external_fixtures_map_to_their_variants() {
         BusEvent::PhaseFailed { .. }
     ));
     assert!(matches!(
+        load("outcome-finding.json"),
+        BusEvent::OutcomeFinding { .. }
+    ));
+    assert!(matches!(
+        load("outcome-tests.json"),
+        BusEvent::OutcomeTests { .. }
+    ));
+    assert!(matches!(
+        load("outcome-fixRound.json"),
+        BusEvent::OutcomeFixRound { .. }
+    ));
+    assert!(matches!(
+        load("outcome-questions.json"),
+        BusEvent::OutcomeQuestions { .. }
+    ));
+    assert!(matches!(
         load("agent-state-last-output.json"),
         BusEvent::AgentState { .. }
     ));
@@ -1013,7 +1029,11 @@ mod event_wrapper {
                 "attempt.settled",
                 "phase.started",
                 "phase.finished",
-                "phase.failed"
+                "phase.failed",
+                "outcome.finding",
+                "outcome.tests",
+                "outcome.fixRound",
+                "outcome.questions"
             ]
         );
     }

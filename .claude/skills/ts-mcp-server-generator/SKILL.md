@@ -1,6 +1,6 @@
 ---
 name: ts-mcp-server-generator
-description: 'Generate MCP server in TypeScript with tools, resources, prompts. @modelcontextprotocol/sdk + zod.'
+description: 'Generate an MCP server in TypeScript with tools, resources and prompts (@modelcontextprotocol/sdk + zod). Use when asked to create or scaffold an MCP server in TypeScript or Node.js.'
 disable-model-invocation: true
 metadata:
   opencode/autoinvoke: 'false'
@@ -11,7 +11,7 @@ Generate an MCP server in TypeScript. Paths to `scripts/` and `templates/` are r
 ## Stack
 - `@modelcontextprotocol/sdk` — McpServer, transports
 - `zod` — schema validation
-- Node.js 22 LTS, `tsx` for dev
+- `tsx` for dev
 
 ## Steps
 
@@ -46,7 +46,6 @@ npx @modelcontextprotocol/inspector node dist/index.js
 
 ## Gotchas
 
-- Don't throw from tool handlers — return `isError: true`
-- MCP Inspector works only with stdio (HTTP needs external client)
+- MCP Inspector connects to stdio, SSE and Streamable HTTP servers; for HTTP start the server first and enter its URL in the Inspector
 - Resource URIs must be valid
 - Env validation before server start, not in tools

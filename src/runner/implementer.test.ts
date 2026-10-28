@@ -111,6 +111,49 @@ describe('tail', () => {
   });
 });
 
+describe('runImplementerPhase format step', () => {
+  const formatGit = { changedFiles: async () => ['a.ts'], commitAll: async () => true };
+
+  it('formats after the sessions and before the tests', async () => {
+    const order: string[] = [];
+    const { deps } = setup(fakeHarness(), { format: 'fmt {files}' }, async () => {
+      order.push('tests');
+      return { passed: true, output: '' };
+    });
+    await runImplementerPhase(
+      {
+        ...deps,
+        base: 'release/next',
+        runFormat: async (command) => {
+          order.push(command);
+          return { passed: true, output: '' };
+        },
+        formatGit,
+      },
+      pbi([task(1)]),
+      IMPLEMENTING,
+    );
+    expect(order).toEqual(["fmt 'a.ts'", 'tests']);
+  });
+
+  it('goes on to the tests when the formatter fails', async () => {
+    const { deps, events, commands } = setup(fakeHarness(), { format: 'fmt' });
+    const out = await runImplementerPhase(
+      {
+        ...deps,
+        base: 'release/next',
+        runFormat: async () => ({ passed: false, output: 'bad' }),
+        formatGit,
+      },
+      pbi([task(1)]),
+      IMPLEMENTING,
+    );
+    expect(events.map((e) => e.type)).toContain('format.failed');
+    expect(commands).toHaveLength(1);
+    expect(out.state.kind).toBe('reviewing');
+  });
+});
+
 describe('runImplementerPhase', () => {
   it('runs Tasks without a link in parallel sessions', async () => {
     const fake = fakeHarness();
@@ -182,6 +225,7 @@ describe('runImplementerPhase', () => {
       'phase.started',
       'phase.finished',
       'implement.finished',
+      'outcome.tests',
       'tests.passed',
     ]);
     expect(out.usage).toEqual([{ inputTokens: 1, outputTokens: 2, costUsd: null }]);
@@ -195,6 +239,16 @@ describe('runImplementerPhase', () => {
     expect(out.failureTail?.split('\n')).toHaveLength(50);
     expect(out.failureTail?.endsWith('out 79')).toBe(true);
     expect(events.at(-1)?.type).toBe('run.blocked');
+  });
+
+  it('emits the parsed test result before the state changes', async () => {
+    const output = ' FAIL  a.test.ts > breaks\n      Tests  1 failed | 3 passed (4)';
+    const { deps, events } = setup(fakeHarness(), {}, async () => ({ passed: false, output }));
+    await runImplementerPhase(deps, pbi([task(1)]), IMPLEMENTING);
+    expect(events.find((e) => e.type === 'outcome.tests')).toEqual({
+      type: 'outcome.tests',
+      data: { passed: 3, failed: 1, failures: ['a.test.ts > breaks'] },
+    });
   });
 
   it('blocks without running tests when a session reports failure', async () => {

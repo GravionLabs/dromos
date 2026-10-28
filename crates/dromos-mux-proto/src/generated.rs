@@ -2110,6 +2110,82 @@ pub enum BusEvent {
         run_id: ::std::option::Option<BusEventRunId>,
         source: BusEventSource,
     },
+    #[serde(rename = "outcome.finding")]
+    OutcomeFinding {
+        #[serde(
+            rename = "agentId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        agent_id: ::std::option::Option<BusEventAgentId>,
+        at: BusEventAt,
+        data: OutcomeFindingData,
+        id: i64,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        issue: ::std::option::Option<i64>,
+        #[serde(
+            rename = "runId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        run_id: ::std::option::Option<BusEventRunId>,
+        source: BusEventSource,
+    },
+    #[serde(rename = "outcome.tests")]
+    OutcomeTests {
+        #[serde(
+            rename = "agentId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        agent_id: ::std::option::Option<BusEventAgentId>,
+        at: BusEventAt,
+        data: OutcomeTestsData,
+        id: i64,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        issue: ::std::option::Option<i64>,
+        #[serde(
+            rename = "runId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        run_id: ::std::option::Option<BusEventRunId>,
+        source: BusEventSource,
+    },
+    #[serde(rename = "outcome.fixRound")]
+    OutcomeFixRound {
+        #[serde(
+            rename = "agentId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        agent_id: ::std::option::Option<BusEventAgentId>,
+        at: BusEventAt,
+        data: OutcomeFixRoundData,
+        id: i64,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        issue: ::std::option::Option<i64>,
+        #[serde(
+            rename = "runId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        run_id: ::std::option::Option<BusEventRunId>,
+        source: BusEventSource,
+    },
+    #[serde(rename = "outcome.questions")]
+    OutcomeQuestions {
+        #[serde(
+            rename = "agentId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        agent_id: ::std::option::Option<BusEventAgentId>,
+        at: BusEventAt,
+        data: OutcomeQuestionsData,
+        id: i64,
+        #[serde(deserialize_with = "::std::option::Option::deserialize")]
+        issue: ::std::option::Option<i64>,
+        #[serde(
+            rename = "runId",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        run_id: ::std::option::Option<BusEventRunId>,
+        source: BusEventSource,
+    },
 }
 ///`BusEventAgentId`
 #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -2926,6 +3002,199 @@ impl ::std::convert::TryFrom<::std::string::String> for HookEventState {
         value.parse()
     }
 }
+///`OutcomeFindingData`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct OutcomeFindingData {
+    pub blocking: bool,
+    pub fingerprint: OutcomeFindingDataFingerprint,
+    pub fixed: bool,
+}
+///`OutcomeFindingDataFingerprint`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct OutcomeFindingDataFingerprint(::std::string::String);
+impl ::std::ops::Deref for OutcomeFindingDataFingerprint {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<OutcomeFindingDataFingerprint> for ::std::string::String {
+    fn from(value: OutcomeFindingDataFingerprint) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for OutcomeFindingDataFingerprint {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(||
+        { ::regress::Regex::new("^[0-9a-f]{40}$").unwrap() });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[0-9a-f]{40}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for OutcomeFindingDataFingerprint {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for OutcomeFindingDataFingerprint {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for OutcomeFindingDataFingerprint {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`OutcomeFixRoundData`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct OutcomeFixRoundData {
+    pub cause: OutcomeFixRoundDataCause,
+}
+///`OutcomeFixRoundDataCause`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd
+)]
+pub enum OutcomeFixRoundDataCause {
+    #[serde(rename = "review_findings")]
+    ReviewFindings,
+}
+impl ::std::fmt::Display for OutcomeFixRoundDataCause {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::ReviewFindings => f.write_str("review_findings"),
+        }
+    }
+}
+impl ::std::str::FromStr for OutcomeFixRoundDataCause {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "review_findings" => Ok(Self::ReviewFindings),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for OutcomeFixRoundDataCause {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for OutcomeFixRoundDataCause {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`OutcomeQuestionsData`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct OutcomeQuestionsData {
+    pub assumed: i64,
+    pub count: i64,
+}
+///`OutcomeTestsData`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct OutcomeTestsData {
+    pub failed: i64,
+    pub failures: ::std::vec::Vec<OutcomeTestsDataFailuresItem>,
+    pub passed: i64,
+}
+///`OutcomeTestsDataFailuresItem`
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct OutcomeTestsDataFailuresItem(::std::string::String);
+impl ::std::ops::Deref for OutcomeTestsDataFailuresItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<OutcomeTestsDataFailuresItem> for ::std::string::String {
+    fn from(value: OutcomeTestsDataFailuresItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for OutcomeTestsDataFailuresItem {
+    type Err = self::error::ConversionError;
+    fn from_str(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for OutcomeTestsDataFailuresItem {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &str,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for OutcomeTestsDataFailuresItem {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for OutcomeTestsDataFailuresItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`PhaseFailedData`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -3061,6 +3330,11 @@ pub struct PhaseFinishedData {
     pub harness: PhaseHarness,
     pub model: PhaseFinishedDataModel,
     pub phase: PhaseFinishedDataPhase,
+    #[serde(
+        rename = "unansweredQuestions",
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub unanswered_questions: ::std::option::Option<i64>,
     #[serde(deserialize_with = "::std::option::Option::deserialize")]
     pub usage: ::std::option::Option<PhaseUsage>,
 }
@@ -4435,4 +4709,8 @@ pub const BUS_EVENT_TYPES: &[&str] = &[
     "phase.started",
     "phase.finished",
     "phase.failed",
+    "outcome.finding",
+    "outcome.tests",
+    "outcome.fixRound",
+    "outcome.questions",
 ];

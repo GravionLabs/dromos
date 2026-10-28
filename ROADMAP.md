@@ -41,7 +41,7 @@ apm-hub makes its orchestrator loops run without a human by default (GravionLabs
 | 3 | #138 | `attention` with id and state, `POST /attention/{id}/answer` → `attention.answered` | M | #43, #97 |
 | 4 | #137 | `dromos run metrics` and `GET /runs/{issue}/metrics` | M | #135, #136, apm-hub#393 |
 
-Unblocks apm-hub 2.8.0 (#591, #592) at #135–#137; #138 is what #103 (herdr) answers attentions through, and it settles the headless `input` question of #65 for gate answers (restart with a fresh prompt instead).
+Unblocks apm-hub 2.8.0 (#591, #592) at #135–#137; the Attention API (shipped; #138 closed) is what #103 (herdr) answers attentions through, and it settles the headless `input` question of #65 for gate answers (restart with a fresh prompt instead).
 
 ## Stage 3 — bus core: CLI, task payload, decisions (Epic #166, Features #26, #40; milestone 0.2.0)
 
@@ -53,33 +53,32 @@ Unblocks apm-hub 2.8.0 (#591, #592) at #135–#137; #138 is what #103 (herdr) an
 | #32 | CLI `serve` (the `role` subcommand is dropped) | — |
 | #28 | `dromos log` | ~#32 |
 
-Pull-model tools marked for removal (B16): the MCP tools `start_run`, `submit_implementation`, `submit_review`, `open_pr` and `status` (`src/tools/{submit,review,pr,runs,status}`), the old state machine `src/state-machine.ts` and the bus-side lease (`http-lease`, `run-lease`) go once the runner owns worktrees and the PR. `post`, `ack` and `inbox` stay only if the herdr plugin uses them.
+Pull-model tools removed (B16): the MCP tools `start_run`, `submit_implementation`, `submit_review`, `open_pr` and `status` and the old state machine are gone. The bus-side lease (`http-lease`, `run-lease`, `lease`) is gone too (B17); worktree ownership is the runner's claim, and `src/state-dir.ts` keeps only `resolveStateDir`. `post`, `ack` and `inbox` stay: `src/server.ts` registers them.
 
 0.2.0 closes with Stage 2b, this stage and #30, #31 (Feature #29, validation, see Stage 6). #131 records the re-scope decisions: role mode closed, dromos-mux parked, herdr primary, bus core epic, self-learning #159, and the decision of 2026-10-27 that dromos owns the control flow and apm-hub is content (Stage 4).
 
-## Stage 3b — herdr plugin (Epic #98, Feature #99; milestone 0.3.0)
+## Stage 3b — herdr plugin (Epic #98, Feature #99; milestone 0.6.0)
 
-The primary workspace for dromos runs; dromos-mux is parked. apm-hub's parked gates (#391 → `attention`) are answered from here through #138.
+The primary workspace for dromos runs; dromos-mux is parked. Refined on 2026-10-28 for the runner model (Epic #98, "Decisions 2026-10-28"; decision record 003): a run is `dromos run …` started in a herdr pane, the runner records `HERDR_PANE_ID` on the first `run.state` of a PBI run, the first `phase.started` of a plan run and on every `attention`, the plugin maps run to pane. Planner questions are answered from herdr through the Attention API and taken by the next run.
 
 | Order | Issue | Title | Depends on |
 | --- | --- | --- | --- |
-| 1 | #100 | plugin skeleton: manifest, startup daemon, bus and socket clients | #42 (done) |
-| 2 | #101 | `dromos up <issue> --herdr`: role panes with bus identity (owns the command builder; #33 closed) | #100, #41 (done) |
-| 3 | #104 | reverse channel: herdr agent status into the bus as `agent.state` | #101, #43 (done) |
-| 3 | #102 | state bridge: bus events set herdr agent state and sidebar tokens | #101, #44, #43 (done) |
-| 4 | #103 | attention: notification, highlight, jump key | #102 |
-| 4 | #105 | run view: runs, queue items, usage | #102 |
-| 5 | #114 | run view: subagent tree from `agent.run` events | #105, #112 (done) |
-| 6 | #107 | docs: herdr plugin as the primary workspace, dromos-mux parked | #103 |
-| 7 | #165 | herdr end-to-end validation on Linux | #44, #101, #102, #103, #105 |
+| 1 | #100 | plugin skeleton: manifest, `dromos herdr` daemon, bus and socket clients | – |
+| 1 | #295 | event stream tails SQLite so runner events reach live subscribers | – |
+| 1 | #296 | the planner reads an answered bus attention like a `/answer` comment | – |
+| 2 | #102 | state bridge: run events set herdr agent state and sidebar tokens | #100, #295 |
+| 3 | #103 | attention: notification, jump key, answer composer | #102, #296 |
+| 4 | #107 | docs: herdr plugin as the primary workspace | #103 |
+| 5 | #165 | end-to-end validation on macOS | #100, #295, #296, #102, #103 |
+| 6 | #297 | release 0.6.0 | #107, #165, #290 |
 
-Feature #99 closes with #106 (pane executor via herdr, milestone 0.4.0; re-scoped with the runner, see Stage 4) and #165.
+Closed as not planned on 2026-10-27 (simplification triage): #101 launcher, #104 reverse channel, #105 and #114 run view, #106 pane executor. Feature #99 closes with #165 and #297.
 
 ## Stage 4 — harness adapters and runner (Feature #61 in Epic #166; milestones 0.2.0 to 0.4.0)
 
 Decision of 2026-10-27 (dromos#131, [simplification plan](https://github.com/GravionLabs/apm-hub/blob/release/next/docs/simplification-plan.md)): dromos owns the control flow, apm-hub is content (skills and prompts). The runner is a program: `dromos run epic|feature|pbi <nr>` reads the issue hierarchy, plans where something is missing, selects the next approved and unblocked PBI, and calls one flat harness session per step (Claude, Copilot) through one adapter interface. GitHub stays the source of truth for issue state; the bus keeps events and metrics. Order and sizes: [simplification work plan](https://github.com/GravionLabs/apm-hub/blob/release/next/docs/simplification-workplan.md) (dromos items B1 to B21; milestones 0.2.0 B1-B6b, 0.3.0 B7-B17, 0.4.0 B18-B21).
 
-This replaces the earlier Session API (`session.*` events, `sessions` table, headless executor, HTTP endpoints with restart and input: #62-#65, #69, #106), which was a workflow-independent executor driven from outside. Pane mode stays with the herdr plugin (#106 is re-scoped to the pane harness, see Stage 3b); idle detection (#66) stays parked with dromos-mux.
+This replaces the earlier Session API (`session.*` events, `sessions` table, headless executor, HTTP endpoints with restart and input: #62-#65, #69, #106), which was a workflow-independent executor driven from outside. The pane executor #106 was closed on 2026-10-27 without successor; idle detection (#66) stays parked with dromos-mux.
 
 ## Stage 6 — validation (Epic #166, Feature #29; milestone 0.2.0)
 
@@ -121,19 +120,19 @@ Features #45 (core) and #50 (sidebar and attention) hold these PBIs. Epic #56 (p
 
 | Closed | Reason | Successor |
 | --- | --- | --- |
-| #20 (Feature), #21 #22 #23 #24 #25 #33 | own interactive role mode, superseded by the apm-hub orchestrator and agents | apm-hub orchestrator and agents; `start_run`, `submit_*`, `open_pr`, `status` stay as bus API |
+| #20 (Feature), #21 #22 #23 #24 #25 #33 | own interactive role mode, superseded by the apm-hub orchestrator and agents | apm-hub orchestrator and agents |
 | #32 (`role` part) | same | `serve` only |
-| #48 | `dromos-mux up` | #101 |
+| #48 | `dromos-mux up` | #101 (closed 2026-10-27: runs start as `dromos run …` in a herdr pane, #102) |
 | #51 | mux SSE client | #100, #102 |
-| #52 | mux sidebar | #105 |
+| #52 | mux sidebar | #105 (closed 2026-10-27, run view dropped); tokens in #102 |
 | #53 | mux attention | #103 |
-| #67 | pane executor, bus side | #106 |
+| #67 | pane executor, bus side | #106 (closed 2026-10-27, no successor) |
 | #55 | mux MVP validation | #165 |
 
 ## Risks
 
 - #39 decides the event shape for everything after it; session events (#62) extend it, so plan them together.
-- The pane mode (#106) relies on the herdr plugin claiming `session.requested`; without it the request fails after the claim timeout instead of hanging. The earlier dromos-mux claim path is parked.
-- The herdr plugin depends on the herdr 0.9.x API (verified in #100); a protocol mismatch degrades the plugin, not the bus.
+- The herdr plugin depends on the herdr 0.9.5 socket protocol (verified and recorded in #100); a protocol mismatch degrades the plugin to notifications, not the bus.
+- The herdr plugin sees runner events only through the stream tail of #295; the runner writes SQLite directly and never depends on `dromos serve`.
 - Headless `input` (stdin) is unverified for both CLIs; headless gate answers wait for that decision (#65).
 - Learned content reaching prompts (injection, drift, Stage 7): human approval through `attention`, PR-only export, size caps and the apm-hub guardrails (GravionLabs/apm-hub#590).

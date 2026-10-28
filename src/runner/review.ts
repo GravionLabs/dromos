@@ -4,6 +4,7 @@ import { modelFor, testCommand } from './config.js';
 import { type CreatePrInput, comment, createPr, type PullRequest } from './github.js';
 import type { Usage } from './harness.js';
 import {
+  formatChanged,
   type ImplementerDeps,
   type ImplementerEvent,
   type PbiSpec,
@@ -11,6 +12,7 @@ import {
   type TestOutcome,
   tail,
 } from './implementer.js';
+import { findingFingerprint, parseTestSummary } from './outcome.js';
 import { type RunInput, type RunState, type Transition, transition } from './state-machine.js';
 
 /**
@@ -21,6 +23,8 @@ import { type RunInput, type RunState, type Transition, transition } from './sta
 
 export const FindingSchema = z.strictObject({
   file: z.string(),
+  /** The code-review rule or category; part of the finding's fingerprint. */
+  rule: z.string().optional(),
   line: z.number().int().nonnegative(),
   title: z.string().min(1),
   why: z.string(),
@@ -210,6 +214,15 @@ export async function runReviewPhase(
     }
   };
 
+  const reportFindings = (findings: Finding[], fixed: boolean): void => {
+    for (const f of findings) {
+      emit({
+        type: 'outcome.finding',
+        data: { fingerprint: findingFingerprint(f), blocking: true, fixed },
+      });
+    }
+  };
+
   const runTests = deps.runTests ?? runShell;
   const listCommits = deps.listCommits ?? gitCommits;
   const command = testCommand(config);
@@ -262,9 +275,11 @@ export async function runReviewPhase(
   // One fix round: the state machine decides whether findings still fit into a round.
   const findings = apply(state, { type: 'review_findings', count: result.blocking.length });
   if (findings.state.kind === 'blocked') {
+    reportFindings(result.blocking, false);
     return { ...findings, review: result, usage };
   }
 
+  emit({ type: 'outcome.fixRound', data: { cause: 'review_findings' } });
   const fix = await session(
     'implementerRound2',
     `fixer #${String(pbi.number)}`,
@@ -273,12 +288,16 @@ export async function runReviewPhase(
   );
   if (!fix.ok || fix.value.status === 'failed') {
     const reason = fix.ok ? fix.value.summary : fix.reason;
+    reportFindings(result.blocking, false);
     const t = apply(findings.state, { type: 'abort', reason: `fix round failed: ${reason}` });
     return { ...t, review: result, usage };
   }
 
   const fixed = apply(findings.state, { type: 'fixed' });
+  await formatChanged(deps, pbi.number);
   const tests: TestOutcome = await runTests(command, deps.cwd);
+  emit(parseTestSummary(tests.output));
+  reportFindings(result.blocking, tests.passed);
   const commits = await listCommits(deps.base, deps.cwd);
   if (tests.passed) {
     const t = apply(fixed.state, { type: 'tests_passed' });

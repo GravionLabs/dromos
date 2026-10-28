@@ -2,7 +2,9 @@ import { execa } from 'execa';
 import { z } from 'zod';
 import type { PhaseUsageSchema } from '../events/schema.js';
 import { modelFor, type RunnerConfig, testCommand } from './config.js';
+import { type FormatEvent, type FormatGit, runFormatStep } from './format.js';
 import type { Harness, HarnessName, PhaseInput, Usage } from './harness.js';
+import { type OutcomeEvent, parseTestSummary } from './outcome.js';
 import {
   type RunEvent,
   type RunInput,
@@ -63,6 +65,8 @@ export type PhaseEnd = PhaseEventData & {
 };
 export type ImplementerEvent =
   | RunEvent
+  | OutcomeEvent
+  | FormatEvent
   | { type: 'phase.started'; data: PhaseEventData }
   | { type: 'phase.finished'; data: PhaseEnd }
   | { type: 'phase.failed'; data: PhaseEnd };
@@ -78,6 +82,11 @@ export interface ImplementerDeps {
   timeoutMs: number;
   /** Runs `command` in `cwd`; replaced in unit tests. */
   runTests?: (command: string, cwd: string) => Promise<TestOutcome>;
+  /** Integration branch; the format step runs only when set. */
+  base?: string;
+  /** Runs the formatter command in `cwd`; defaults to {@link runShell}. */
+  runFormat?: (command: string, cwd: string) => Promise<TestOutcome>;
+  formatGit?: FormatGit;
   emit: (event: ImplementerEvent) => void;
   now?: () => number;
 }
@@ -91,6 +100,20 @@ export interface ImplementerOutcome extends Transition {
 export async function runShell(command: string, cwd: string): Promise<TestOutcome> {
   const res = await execa(command, { cwd, shell: true, reject: false, all: true });
   return { passed: res.exitCode === 0, output: String(res.all ?? '') };
+}
+
+/** Formats the files changed against the base and commits the result; no-op without `deps.base`. */
+export async function formatChanged(deps: ImplementerDeps, issue: number): Promise<void> {
+  if (deps.base === undefined) return;
+  await runFormatStep({
+    config: deps.config,
+    cwd: deps.cwd,
+    base: deps.base,
+    issue,
+    run: deps.runFormat ?? runShell,
+    emit: deps.emit,
+    git: deps.formatGit,
+  });
 }
 
 /** The last `lines` lines of `output`, trailing blank lines dropped. */
@@ -219,8 +242,10 @@ export async function runImplementerPhase(
   }
 
   const implemented = apply(state, { type: 'implemented' });
+  await formatChanged(deps, pbi.number);
   const run = deps.runTests ?? runShell;
   const outcome = await run(testCommand(config), deps.cwd);
+  send(parseTestSummary(outcome.output));
   if (outcome.passed) {
     return { ...apply(implemented.state, { type: 'tests_passed' }), usage };
   }

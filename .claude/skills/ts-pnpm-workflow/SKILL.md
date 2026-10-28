@@ -8,7 +8,7 @@ metadata:
 
 ## Prerequisites
 
-Node.js 22 LTS and a `package.json` at the project root.
+A `package.json` at the project root.
 
 ## Steps
 

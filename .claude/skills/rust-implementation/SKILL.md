@@ -1,12 +1,11 @@
 ---
 name: rust-implementation
-description: 'Rust implementation rules (clippy, rustfmt) extending `implementation`.'
+description: 'Rust implementation rules (clippy, rustfmt) extending `implementation`. Use when writing or changing Rust code.'
 ---
 
 ## Framework
 
 - **Build**: `cargo build` (check fast with `cargo check`)
-- **Format**: `cargo fmt --all` (rustfmt; CI uses `cargo fmt --all -- --check`)
 - **Lint**: `cargo clippy --all-targets --all-features -- -D warnings` is mandatory; fix warnings, never silence them blindly
 - **Modules, errors, unsafe, async**: read `references/conventions.md` (relative to this skill's directory)
 - **Tauri**: only when `detect-techstack` reports `frameworks: ["tauri"]`, read `references/tauri.md`
@@ -19,6 +18,13 @@ description: 'Rust implementation rules (clippy, rustfmt) extending `implementat
 - Prefer borrowing (`&str`, `&[T]`) in parameters; derive `Debug` on public types
 - `unsafe` only with a `// SAFETY:` comment and a minimal scope
 - File naming: `snake_case.rs`; one module per file
+
+## Format
+
+- Extensions: `.rs`
+- Format: `cargo fmt -- {files}`
+- Check (read-only): `cargo fmt -- --check {files}`
+- Run after green tests, before the commit: `pwsh <implementation dir>/scripts/Format-Changed.ps1 -Language rust` (`-Check` for the check commands; not-configured, override: references/format.md of `implementation`)
 
 ## Tests
 

@@ -1,0 +1,14 @@
+{
+  "id": 71,
+  "type": "outcome.finding",
+  "at": "2026-10-27T10:00:00.000Z",
+  "source": "dromos",
+  "agentId": null,
+  "issue": 233,
+  "runId": "run-233",
+  "data": {
+    "fingerprint": "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+    "blocking": true,
+    "fixed": false
+  }
+}

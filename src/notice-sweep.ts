@@ -2,8 +2,9 @@ import { recordAttention } from './attention.js';
 import type { BusEvents } from './bus-events.js';
 import type { Db, EventRecord } from './db.js';
 import { BusEventSchema, FORBIDDEN_CHARS } from './events/schema.js';
-import type { LeaseLog } from './run-lease.js';
 import type { Message } from './schemas.js';
+
+type SweepLog = { logLine(kind: 'ERROR', text: string): void };
 
 export const NOTICE_SWEEP_INTERVAL_MS = 10_000;
 export const NOTICE_ATTENTION_THRESHOLD_MS = 60_000;
@@ -43,7 +44,7 @@ function summaryOf(message: Message): string {
 export async function sweepNotices(
   db: Db,
   events: BusEvents,
-  log: LeaseLog,
+  log: SweepLog,
   opts: { thresholdMs?: number; now?: () => number; isStopped?: () => boolean } = {},
 ): Promise<void> {
   const { thresholdMs = NOTICE_ATTENTION_THRESHOLD_MS, now = Date.now, isStopped } = opts;
@@ -83,7 +84,7 @@ function raise(db: Db, message: Message): EventRecord | undefined {
   });
 }
 
-function logError(log: LeaseLog, text: string): void {
+function logError(log: SweepLog, text: string): void {
   try {
     log.logLine('ERROR', text);
   } catch {
@@ -95,7 +96,7 @@ function logError(log: LeaseLog, text: string): void {
 export function startNoticeSweep(
   db: Db,
   events: BusEvents,
-  log: LeaseLog,
+  log: SweepLog,
   opts: NoticeSweepOptions = {},
 ): () => void {
   const { intervalMs = NOTICE_SWEEP_INTERVAL_MS, thresholdMs, now } = opts;

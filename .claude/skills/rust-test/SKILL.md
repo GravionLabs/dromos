@@ -1,6 +1,6 @@
 ---
 name: rust-test
-description: 'Write and run Rust tests: unit and tests/ integration, cargo test, mockall, proptest.'
+description: 'Write and run Rust tests: unit and tests/ integration, cargo test, mockall, proptest. Use when writing or running tests in a Rust project.'
 ---
 
 ## Prerequisites
@@ -12,7 +12,7 @@ description: 'Write and run Rust tests: unit and tests/ integration, cargo test,
 
 - **Run all**: `cargo test --all-features`
 - **Single test**: `cargo test <name_filter>`; one integration file: `cargo test --test <file>`
-- **Targeted run** (per commit): `cargo test <name>` for the changed module or `cargo test --test <file>`; unknown mapping: `cargo test --lib`, never the full suite
+- **Targeted run** (per commit): `cargo test <name>` for the changed module or `cargo test --test <file>`; unknown mapping: `cargo test --lib`
 - **Faster runner (optional)**: `cargo nextest run` (does not run doctests; also run `cargo test --doc`)
 - **Show output**: `cargo test -- --nocapture`
 
@@ -25,12 +25,8 @@ description: 'Write and run Rust tests: unit and tests/ integration, cargo test,
 
 ## Writing Tests
 
-1. Read target code: public interface, error enum, dependencies
-2. Identify cases: happy path, boundaries, each error variant
-3. Choose type: pure logic as unit test in-module; cross-module or I/O flows in `tests/`
-4. Write one scenario per `#[test]`; assert on `Result` values, not on panics, where possible
-5. Verify with `cargo test`
-6. Only when `detect-techstack` reports `frameworks: ["tauri"]`: keep command logic in pure functions and test those; `tauri::test` (mock runtime) is optional for the command wiring; delegate the frontend to `ts-test`
+- One scenario per `#[test]`; assert on `Result` values, not on panics, where possible; cover each error variant
+- Only when `detect-techstack` reports `frameworks: ["tauri"]`: keep command logic in pure functions and test those; `tauri::test` (mock runtime) is optional for the command wiring; delegate the frontend to `ts-test`
 
 Reference files (load when needed):
 - `references/mocking-and-properties.md` - `mockall` traits, async tests, `proptest`

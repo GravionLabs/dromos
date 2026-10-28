@@ -1,6 +1,6 @@
 ---
 name: ts-create-project
-description: 'Scaffold a new TypeScript/Node.js project (library, CLI, or application) with strict tsconfig, Vitest, ESM support, and a GitHub Actions CI workflow.'
+description: 'Scaffold a TypeScript/Node.js project (library, CLI, app) with strict tsconfig, Vitest, ESM and CI. Use when asked to create a new TypeScript or Node.js project.'
 disable-model-invocation: true
 metadata:
   opencode/autoinvoke: 'false'
@@ -29,7 +29,7 @@ Scaffold a TypeScript/Node.js project with a production-ready baseline. Paths to
    npm run build   # tsc — no errors
    npm test        # vitest run — all tests pass
    ```
-5. **Next steps:** set up linting and formatting with `setup-prettier-eslint-husky`; migrate to pnpm with `ts-pnpm-workflow`
+5. **Next steps:** set up linting and formatting with `setup-biome-husky`; migrate to pnpm with `ts-pnpm-workflow`
 
 Parameters: `-ProjectName` (required), `-ProjectType` (app/library/cli), `-PackageManager` (npm/pnpm), `-OutputDirectory`
 
