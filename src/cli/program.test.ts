@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { recordEvent } from '../event-store.js';
 import type { RunningServe } from '../serve.js';
 import { startTestBus } from '../test-helpers.js';
+import { dromosVersion } from '../version.js';
 import { buildProgram, runCli } from './program.js';
 
 describe('buildProgram', () => {
@@ -34,6 +35,12 @@ describe('runCli', () => {
     const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     expect(await runCli([])).toBe(0);
     expect(String(out.mock.calls[0]?.[0])).toContain('serve');
+  });
+
+  it('prints the package version for --version and exits 0', async () => {
+    const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    expect(await runCli(['--version'])).toBe(0);
+    expect(String(out.mock.calls[0]?.[0]).trim()).toBe(dromosVersion());
   });
 
   it('exits 1 for an unknown command', async () => {

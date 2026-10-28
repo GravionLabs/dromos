@@ -2,6 +2,7 @@ import { Command, CommanderError } from 'commander';
 import { runEventsCommand } from '../cli-events.js';
 import { type Config, loadConfig } from '../config.js';
 import { type RunningServe, reportStartupError, serve } from '../serve.js';
+import { dromosVersion } from '../version.js';
 import { runAttentionCli } from './attention.js';
 import { runConfigCli, runInitCli } from './config.js';
 import { runPlanCli, runRunCli } from './run.js';
@@ -21,6 +22,7 @@ export function buildProgram(
 ): Command {
   const program = new Command('dromos')
     .description('Local MCP bus coordinating interactive agents')
+    .version(dromosVersion() ?? 'unknown', '-V, --version')
     .exitOverride();
 
   program

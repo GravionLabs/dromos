@@ -1,6 +1,7 @@
 import type { Db } from '../db.js';
 import { BusEventSchema } from '../events/schema.js';
 import { repoFromPath } from '../github.js';
+import { dromosVersion } from '../version.js';
 import { APPROVED_LABEL, ackApproval } from './approval.js';
 import { loadRunnerConfig, modelFor, ROLES, type Role, type RunnerConfig } from './config.js';
 import { resolveSetup, runSetupStep, type SetupEvent } from './dependencies.js';
@@ -56,6 +57,8 @@ export interface RunHeader {
   runId: string;
   issue: number;
   repo: string;
+  /** Version of the dromos package that runs; `null` when it cannot be read. */
+  dromos: string | null;
   harness: { name: HarnessName; version: string | null; sdk: string | null };
   models: Record<Role, string>;
   /** The integration branch the run is cut from; `null` when it cannot be resolved (the run is then blocked). */
@@ -199,6 +202,7 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
     runId,
     issue: options.issue,
     repo: slug,
+    dromos: dromosVersion(),
     harness: info,
     models: modelsOf(config, harnessName),
     base,
