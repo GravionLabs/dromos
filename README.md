@@ -237,6 +237,17 @@ dromos plan feature|pbi <nr> [--harness claude|claude-cli|copilot] [--repo PATH]
 dromos run feature|epic <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--force]
 ```
 
+Worktree and branch lifecycle per outcome (`.worktrees/<nr>` on `<type>/<nr>-<slug>`):
+
+| Outcome | Worktree and local branch |
+| --- | --- |
+| `pr_opened` | both removed; the branch lives on in the pull request |
+| `blocked` after work (review, tests, round limit) | both kept; the result names `--resume` (continue) and `--restart` (discard) |
+| setup failure, error (exit 3) | both removed when the branch has no commit over the integration branch; with commits both are kept like `blocked`, and the result names `--resume` and `--restart` |
+| blocked before the worktree exists (open blocker, leftovers, missing base), dry run | nothing was created |
+
+`dromos run clean [<nr>] [--repo PATH] [--dry-run]` removes the worktrees and local branches of finished issues: the issue is closed, or the pull request of the branch is merged or closed. It also prunes stale worktree registrations. It never removes a worktree with uncommitted changes, and it skips (and lists) issues that are still open or have an open pull request and branches checked out elsewhere. `--dry-run` only prints what it would remove.
+
 `dromos run feature` and `dromos run epic` first plan every open Feature that has no sub-issues yet (as `dromos run plan` without a TTY: open questions go to the issue and the Feature is skipped). Then they run, one after another as `dromos run pbi` does, every open PBI that is approved (label `approved` on the PBI or on its Feature; PBIs created by the planner carry `needs-approval` until then), not claimed (`in-progress`, unless `--force`) and not blocked by an open issue, in dependency order; each PBI is re-read right before it runs. PBIs directly under an Epic count as a Feature with the Epic's approval. The run never waits for a human: unapproved, claimed and blocked PBIs and Features with open questions are skipped and listed in the final `group.finished` report. Ctrl-C lets the running PBI unwind (its claim is released, its worktree kept) and starts no further PBI; a second Ctrl-C releases the claim of the running PBI and exits at once. All state lives on GitHub, so starting the run again continues it. Exit codes: 0 every selected PBI opened a pull request, 1 at least one PBI run was blocked or failed, 2 usage error, 3 error, 130 interrupted.
 
 ```

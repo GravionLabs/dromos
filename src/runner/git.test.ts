@@ -87,10 +87,35 @@ describe('openRunWorktree', () => {
 describe('finishRunWorktree', () => {
   const wt = { path: '/r/.worktrees/221', branch: 'b', base: 'release/next' };
 
-  it('removes the worktree on pr_opened', async () => {
+  it('removes the worktree and the local branch on pr_opened', async () => {
     mockExeca.mockResolvedValue(ok);
     expect(await finishRunWorktree('/r', wt, 'pr_opened')).toBe(true);
-    expect(calls()).toEqual(['-C /r worktree remove --force -- /r/.worktrees/221']);
+    expect(calls()).toEqual([
+      '-C /r worktree remove --force -- /r/.worktrees/221',
+      '-C /r branch -D -- b',
+    ]);
+  });
+
+  it('removes worktree and branch after a failure when no commit exists over the base', async () => {
+    mockExeca.mockResolvedValue({ exitCode: 0, stdout: '0' });
+    expect(await finishRunWorktree('/r', wt, 'failed')).toBe(true);
+    expect(calls()).toEqual([
+      '-C /r/.worktrees/221 rev-list --count origin/release/next..HEAD',
+      '-C /r worktree remove --force -- /r/.worktrees/221',
+      '-C /r branch -D -- b',
+    ]);
+  });
+
+  it('keeps worktree and branch after a failure when commits exist', async () => {
+    mockExeca.mockResolvedValue({ exitCode: 0, stdout: '2' });
+    expect(await finishRunWorktree('/r', wt, 'failed')).toBe(false);
+    expect(calls()).toEqual(['-C /r/.worktrees/221 rev-list --count origin/release/next..HEAD']);
+  });
+
+  it('keeps them after a failure when the commits cannot be counted', async () => {
+    mockExeca.mockResolvedValue({ exitCode: 128, stdout: '' });
+    expect(await finishRunWorktree('/r', wt, 'failed')).toBe(false);
+    expect(calls()).toHaveLength(1);
   });
 
   it('keeps the worktree on blocked', async () => {

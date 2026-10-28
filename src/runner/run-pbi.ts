@@ -10,6 +10,7 @@ import {
   type BranchType,
   finishRunWorktree,
   integrationBranch,
+  keptWorktreeHint,
   MissingIntegrationBranchError,
   openRunWorktree,
   pushRunBranch,
@@ -321,8 +322,12 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
     if (failedSetup !== null) {
       await ops.releaseIssue(slug, options.issue);
       claimed = false;
-      await ops.finishWorktree(options.repo, worktree, 'blocked');
-      return finish('blocked', EXIT_BLOCKED, { reason: `setup failed: ${failedSetup}` });
+      const failedTree = worktree;
+      worktree = undefined;
+      const gone = await ops.finishWorktree(options.repo, failedTree, 'failed');
+      return finish('blocked', EXIT_BLOCKED, {
+        reason: `setup failed: ${failedSetup}${gone ? '' : `; ${keptWorktreeHint(options.issue, failedTree)}`}`,
+      });
     }
     const permissions = createPermissions({ cwd: worktree.path, allow: config.allow });
     const deps = {
@@ -378,18 +383,24 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
       const done = state.state.kind === 'pr_opened';
       await ops.releaseIssue(slug, options.issue);
       claimed = false;
-      await ops.finishWorktree(options.repo, worktree, done ? 'pr_opened' : 'blocked');
-      return done
-        ? finish('pr_opened', EXIT_DONE, { pr })
-        : finish('blocked', EXIT_BLOCKED, {
-            reason: state.state.kind === 'blocked' ? state.state.reason : undefined,
-            pr,
-          });
+      const finishedTree = worktree;
+      worktree = undefined;
+      await ops.finishWorktree(options.repo, finishedTree, done ? 'pr_opened' : 'blocked');
+      if (done) return finish('pr_opened', EXIT_DONE, { pr });
+      const why = state.state.kind === 'blocked' ? state.state.reason : undefined;
+      return finish('blocked', EXIT_BLOCKED, {
+        reason: [why, keptWorktreeHint(options.issue, finishedTree)].filter(Boolean).join('; '),
+        pr,
+      });
     }
     throw new Error(`run ended in non-terminal state ${state.state.kind}`);
   } catch (error) {
     if (claimed) await ops.releaseIssue(slug, options.issue).catch(() => undefined);
-    const reason = error instanceof Error ? error.message : String(error);
+    let reason = error instanceof Error ? error.message : String(error);
+    if (worktree) {
+      const gone = await ops.finishWorktree(options.repo, worktree, 'failed').catch(() => false);
+      if (!gone) reason += `; ${keptWorktreeHint(options.issue, worktree)}`;
+    }
     return finish(
       error instanceof ClaimError ? 'blocked' : 'error',
       error instanceof ClaimError ? EXIT_BLOCKED : EXIT_ERROR,
