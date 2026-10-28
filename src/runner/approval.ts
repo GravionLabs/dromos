@@ -5,6 +5,9 @@ import { collectEvents } from '../run-metrics.js';
 /** Attention kind of a created issue that waits for the `approved` label. */
 export const APPROVAL_KIND = 'APPROVAL';
 
+/** Label that approves a planned issue (or, on a Feature, all of its PBIs). */
+export const APPROVED_LABEL = 'approved';
+
 const SOURCE = 'dromos';
 const ACKED_BY = 'dromos';
 

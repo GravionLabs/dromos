@@ -1,6 +1,6 @@
 import type { Db } from '../db.js';
 import { repoFromPath } from '../github.js';
-import { ackApproval } from './approval.js';
+import { APPROVED_LABEL, ackApproval } from './approval.js';
 import { CLAIM_LABEL, type RunnerIssue, readIssue, releaseIssue } from './github.js';
 import type { HarnessName } from './harness.js';
 import { EXIT_BLOCKED, EXIT_DONE, EXIT_ERROR, type RunPbiEvent, runPbi } from './run-pbi.js';
@@ -17,7 +17,7 @@ import { type RunPlanEvent, runPlan } from './run-plan.js';
 
 export type GroupLevel = 'feature' | 'epic';
 
-export const APPROVED_LABEL = 'approved';
+export { APPROVED_LABEL };
 export const EXIT_INTERRUPTED = 130;
 
 export interface GroupResult {

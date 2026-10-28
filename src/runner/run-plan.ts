@@ -246,7 +246,8 @@ export async function runPlan(options: RunPlanOptions): Promise<number> {
       await ops.removeLabel(slug, options.issue, NEEDS_DECISION_LABEL);
     }
     const issues = await ops.createIssues(slug, options.issue, level, plan, plan.assumptions);
-    // One APPROVAL attention per created issue (`needs-approval`); a later run acks it on `approved`.
+    // One APPROVAL attention per created issue (`needs-approval`); a later run acks it on `approved`:
+    // `run feature|epic` for Features and PBIs, `run pbi` for the Tasks of its PBI.
     for (const created of issues) {
       const item = plan.items.find((i) => i.key === created.key);
       if (!item) continue;
