@@ -99,6 +99,21 @@ export interface ImplementerOutcome extends Transition {
   usage: Usage[];
 }
 
+/** Process groups of running shell commands; they are detached, so Ctrl-C does not reach them. */
+const liveGroups = new Set<number>();
+
+function killGroup(pid: number): void {
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch {
+    // already gone
+  }
+}
+
+process.on('exit', () => {
+  for (const pid of liveGroups) killGroup(pid);
+});
+
 /**
  * Runs a shell command with stdin closed, `CI=true` and a timeout (the step's budget from
  * `timeouts` of the config); a command over budget fails with a timeout note appended to its output.
@@ -117,17 +132,19 @@ export async function runShell(
     env: { CI: 'true' },
     detached: true,
   });
+  const pid = child.pid;
+  if (pid !== undefined) liveGroups.add(pid);
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
     // Kill the whole process group; children of the shell would otherwise keep the pipes open.
-    try {
-      if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
-    } catch {
-      child.kill('SIGKILL');
-    }
+    if (pid !== undefined) killGroup(pid);
+    else child.kill('SIGKILL');
   }, timeoutMs);
-  const res = await child.finally(() => clearTimeout(timer));
+  const res = await child.finally(() => {
+    clearTimeout(timer);
+    if (pid !== undefined) liveGroups.delete(pid);
+  });
   const output = String(res.all ?? '');
   if (timedOut) {
     const note = `Timed out after ${Math.round(timeoutMs / 1000)}s: ${command}`;
