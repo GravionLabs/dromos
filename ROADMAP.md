@@ -59,7 +59,7 @@ Pull-model tools removed (B16): the MCP tools `start_run`, `submit_implementatio
 
 ## Stage 3b — herdr plugin (Epic #98, Feature #99; milestone 0.6.0)
 
-The primary workspace for dromos runs; dromos-mux is parked. Refined on 2026-10-28 for the runner model (Epic #98, "Decisions 2026-10-28"; decision record 003): a run is `dromos run …` started in a herdr pane, the runner records `HERDR_PANE_ID` in its first `run.state`, the plugin maps run to pane. Planner questions are answered from herdr through the Attention API and taken by the next run.
+The primary workspace for dromos runs; dromos-mux is parked. Refined on 2026-10-28 for the runner model (Epic #98, "Decisions 2026-10-28"; decision record 003): a run is `dromos run …` started in a herdr pane, the runner records `HERDR_PANE_ID` on the first `run.state` of a PBI run, the first `phase.started` of a plan run and on every `attention`, the plugin maps run to pane. Planner questions are answered from herdr through the Attention API and taken by the next run.
 
 | Order | Issue | Title | Depends on |
 | --- | --- | --- | --- |
@@ -78,7 +78,7 @@ Closed as not planned on 2026-10-27 (simplification triage): #101 launcher, #104
 
 Decision of 2026-10-27 (dromos#131, [simplification plan](https://github.com/GravionLabs/apm-hub/blob/release/next/docs/simplification-plan.md)): dromos owns the control flow, apm-hub is content (skills and prompts). The runner is a program: `dromos run epic|feature|pbi <nr>` reads the issue hierarchy, plans where something is missing, selects the next approved and unblocked PBI, and calls one flat harness session per step (Claude, Copilot) through one adapter interface. GitHub stays the source of truth for issue state; the bus keeps events and metrics. Order and sizes: [simplification work plan](https://github.com/GravionLabs/apm-hub/blob/release/next/docs/simplification-workplan.md) (dromos items B1 to B21; milestones 0.2.0 B1-B6b, 0.3.0 B7-B17, 0.4.0 B18-B21).
 
-This replaces the earlier Session API (`session.*` events, `sessions` table, headless executor, HTTP endpoints with restart and input: #62-#65, #69, #106), which was a workflow-independent executor driven from outside. Pane mode stays with the herdr plugin (#106 is re-scoped to the pane harness, see Stage 3b); idle detection (#66) stays parked with dromos-mux.
+This replaces the earlier Session API (`session.*` events, `sessions` table, headless executor, HTTP endpoints with restart and input: #62-#65, #69, #106), which was a workflow-independent executor driven from outside. The pane executor #106 was closed on 2026-10-27 without successor; idle detection (#66) stays parked with dromos-mux.
 
 ## Stage 6 — validation (Epic #166, Feature #29; milestone 0.2.0)
 
