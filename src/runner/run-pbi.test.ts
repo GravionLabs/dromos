@@ -184,7 +184,9 @@ describe('runPbi', () => {
     expect(s.events.at(-1)).toMatchObject({
       type: 'run.finished',
       outcome: 'blocked',
-      reason: 'setup failed: pnpm install --frozen-lockfile --prefer-offline',
+      reason: expect.stringContaining(
+        'setup failed: pnpm install --frozen-lockfile --prefer-offline',
+      ),
     });
     expect(s.events).toContainEqual({
       type: 'setup.failed',
@@ -193,8 +195,79 @@ describe('runPbi', () => {
         stderrTail: 'ERR_PNPM_X',
       },
     });
-    expect(s.calls).toEqual(['claim', 'worktree', 'release', 'finish:blocked']);
+    expect(s.calls).toEqual(['claim', 'worktree', 'release', 'finish:failed']);
     expect(s.db.queryEvents({ issue: 224, limit: 50 }).events).toEqual([]);
+  });
+
+  it('removes the worktree after a setup failure without commits; the reason has no hint', async () => {
+    const s = setup([], {
+      ops: {
+        runSetup: async () => ({ passed: false, output: 'x' }),
+        finishWorktree: async () => true,
+      },
+    });
+    writeFileSync(join(s.dir, 'pnpm-lock.yaml'), '');
+    await s.run();
+    const last = s.events.at(-1);
+    expect(last).toMatchObject({ outcome: 'blocked' });
+    expect((last as { reason: string }).reason).not.toContain('--resume');
+  });
+
+  it('keeps the worktree after a setup failure with commits and names --resume and --restart', async () => {
+    const s = setup([], {
+      ops: {
+        runSetup: async () => ({ passed: false, output: 'x' }),
+        finishWorktree: async () => false,
+      },
+    });
+    writeFileSync(join(s.dir, 'pnpm-lock.yaml'), '');
+    await s.run();
+    const reason = (s.events.at(-1) as { reason: string }).reason;
+    expect(reason).toContain('dromos run pbi 224 --resume');
+    expect(reason).toContain('dromos run pbi 224 --restart');
+    expect(reason).toContain('feat/224-x');
+  });
+
+  it('names --resume and --restart when a blocked run keeps its worktree', async () => {
+    const s = setup([{ status: 'failed', summary: 'cannot' }]);
+    await s.run();
+    const reason = (s.events.at(-1) as { reason: string }).reason;
+    expect(reason).toContain('kept');
+    expect(reason).toContain('dromos run pbi 224 --resume');
+    expect(reason).toContain('dromos run pbi 224 --restart');
+  });
+
+  it('removes the worktree on the error path when no commit exists', async () => {
+    const s = setup([done, clean], {
+      ops: {
+        finishWorktree: async () => true,
+        pushBranch: async () => {
+          throw new Error('harness crashed');
+        },
+      },
+    });
+    expect(await s.run()).toBe(EXIT_ERROR);
+    const last = s.events.at(-1) as { reason: string };
+    expect(last.reason).toContain('harness crashed');
+    expect(last.reason).not.toContain('--resume');
+  });
+
+  it('keeps the worktree on the error path when commits exist and names the options', async () => {
+    const outcomes: string[] = [];
+    const s = setup([done, clean], {
+      ops: {
+        pushBranch: async () => {
+          throw new Error('harness crashed');
+        },
+        finishWorktree: async (_r, _w, outcome) => {
+          outcomes.push(outcome);
+          return false;
+        },
+      },
+    });
+    expect(await s.run()).toBe(EXIT_ERROR);
+    expect(outcomes).toEqual(['failed']);
+    expect((s.events.at(-1) as { reason: string }).reason).toContain('--restart');
   });
 
   it('exits 1 when an open issue blocks the PBI, before any claim', async () => {

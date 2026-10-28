@@ -72,13 +72,34 @@ export async function pushRunBranch(worktree: RunWorktree): Promise<void> {
   await execa('git', ['-C', worktree.path, 'push', '--set-upstream', 'origin', worktree.branch]);
 }
 
-/** `pr_opened` removes the worktree (the branch lives on in the PR); `blocked` keeps it for the next look. */
+/**
+ * What a run leaves behind. `pr_opened` removes the worktree and the local branch (the branch lives
+ * on in the pull request). `blocked` keeps both for the next look. `failed` (setup failure, error
+ * path) removes both when the branch has no commit over the integration branch, else keeps them like
+ * `blocked`. Resolves to whether the worktree was removed.
+ */
 export async function finishRunWorktree(
   repoPath: string,
   worktree: RunWorktree,
-  outcome: 'pr_opened' | 'blocked',
+  outcome: 'pr_opened' | 'blocked' | 'failed',
 ): Promise<boolean> {
   if (outcome === 'blocked') return false;
+  if (outcome === 'failed') {
+    const count = await execa(
+      'git',
+      ['-C', worktree.path, 'rev-list', '--count', `origin/${worktree.base}..HEAD`],
+      { reject: false },
+    );
+    const commits = Number(String(count.stdout ?? '').trim());
+    if (count.exitCode !== 0 || !Number.isInteger(commits) || commits > 0) return false;
+  }
   await execa('git', ['-C', repoPath, 'worktree', 'remove', '--force', '--', worktree.path]);
+  await execa('git', ['-C', repoPath, 'branch', '-D', '--', worktree.branch]);
   return true;
+}
+
+/** Where a kept worktree is and how to go on: `--resume` continues it, `--restart` discards it. */
+export function keptWorktreeHint(issue: number, worktree: RunWorktree): string {
+  const nr = String(issue);
+  return `worktree ${worktree.path} and branch ${worktree.branch} kept; continue with \`dromos run pbi ${nr} --resume\` or discard with \`dromos run pbi ${nr} --restart\``;
 }

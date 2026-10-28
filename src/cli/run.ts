@@ -6,6 +6,7 @@ import { type Db, type EventRecord, openDb } from '../db.js';
 import { toJsonExport, toMermaid } from '../export/run-export.js';
 import { collectRunsMetrics, formatMetricsTable } from '../run-metrics.js';
 import { parseMultiRunMetricsQuery } from '../run-metrics-query.js';
+import { type CleanOps, describeClean, runClean } from '../runner/clean.js';
 import { HarnessNameSchema } from '../runner/harness.js';
 import { parseAnswerFlags, ttySelectPrompt } from '../runner/questions.js';
 import {
@@ -31,6 +32,8 @@ export interface RunCliIo {
   spike?: Partial<SpikeOptions>;
   /** Options of `run pbi`; tests inject fake `gh`, git and harness operations. */
   pbi?: { ops?: Partial<RunPbiOps>; isTty?: boolean };
+  /** Options of `run clean`; tests inject fake git and `gh` operations. */
+  clean?: { ops?: Partial<CleanOps> };
   /** Options of `run plan`; tests inject fake operations and a fake TTY. */
   plan?: {
     ops?: Partial<RunPlanOps>;
@@ -59,7 +62,7 @@ export interface InterruptSource {
 const FORMATS = ['json', 'mermaid'];
 const PAGE = 1000;
 const USAGE =
-  'usage: dromos run export <issue> [--format json|mermaid] [--out FILE]\n       dromos run task <issue> --harness claude|copilot [--repo PATH]\n       dromos run pbi <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--dry-run] [--force]\n       dromos run plan <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--answer <id>=<value>]... [--assume-recommended]\n       dromos run feature|epic <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--force]\n       dromos run metrics [--issues <n,…>] [--since <date>] [--format json|table]';
+  'usage: dromos run export <issue> [--format json|mermaid] [--out FILE]\n       dromos run task <issue> --harness claude|copilot [--repo PATH]\n       dromos run pbi <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--dry-run] [--force]\n       dromos run plan <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--answer <id>=<value>]... [--assume-recommended]\n       dromos run feature|epic <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--force]\n       dromos run clean [<nr>] [--repo PATH] [--dry-run]\n       dromos run metrics [--issues <n,…>] [--since <date>] [--format json|table]';
 
 const PLAN_USAGE =
   'usage: dromos plan feature|pbi <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--answer <id>=<value>]... [--assume-recommended]';
@@ -398,6 +401,28 @@ async function runCommand(
         });
       } finally {
         signals.off('SIGINT', onInterrupt);
+      }
+    }
+    if (sub === 'clean') {
+      const { positional, flags } = parseArgs(rest, ['repo'], ['dry-run']);
+      const [nr, ...extra] = positional;
+      if (extra.length > 0) throw new UsageError('clean takes at most one <nr>');
+      if (nr !== undefined && !/^[1-9]\d*$/.test(nr)) {
+        throw new UsageError('<nr> must be a positive integer');
+      }
+      const dryRun = flags.has('dry-run');
+      try {
+        const result = await runClean({
+          repo: flags.get('repo') ?? process.cwd(),
+          issue: nr === undefined ? undefined : Number(nr),
+          dryRun,
+          ops: io.clean?.ops,
+        });
+        out(`${describeClean(result, dryRun).join('\n')}\n`);
+        return 0;
+      } catch (error) {
+        err(`dromos: ${error instanceof Error ? error.message : String(error)}`);
+        return EXIT_ERROR;
       }
     }
     if (sub === 'metrics') {

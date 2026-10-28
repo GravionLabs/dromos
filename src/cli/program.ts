@@ -89,7 +89,7 @@ export function buildProgram(
   passThrough('attention', 'answer or list attention requests', runAttentionCli);
   passThrough(
     'run',
-    'run and inspect runs (run pbi <nr>, run feature|epic <nr>, run plan <nr>, run export <issue>, run metrics)',
+    'run and inspect runs (run pbi <nr>, run feature|epic <nr>, run plan <nr>, run clean [<nr>], run export <issue>, run metrics)',
     runRunCli,
   );
   passThrough(
