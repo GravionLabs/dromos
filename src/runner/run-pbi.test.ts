@@ -120,7 +120,7 @@ describe('runPbi', () => {
       dryRun: false,
       base: 'release/next',
       harness: { name: 'claude', version: '1.2.3' },
-      models: { implementer: 'sonnet', reviewer: 'sonnet', planner: 'opus' },
+      models: { implementer: 'sonnet', reviewer: 'opus', planner: 'opus' },
     });
     expect(s.events.at(-1)).toMatchObject({
       type: 'run.finished',

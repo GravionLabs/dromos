@@ -94,10 +94,17 @@ function reviewPrompt(pbi: PbiSpec, base: string): string {
   return [
     `Review the implementation of PBI #${String(pbi.number)}: ${pbi.title}`,
     `Run \`git diff origin/${base}...HEAD\` and review that diff with the \`code-review\` skill.`,
+    '## Issue',
+    pbi.body,
     '## Acceptance criteria',
     pbi.acceptanceCriteria,
+    'Every requirement of the issue counts like an acceptance criterion, Technical Notes included ' +
+      '(for example "put X in the PR body"). ' +
+      'Check names, shapes and claims in the diff against the code that emits or consumes them, ' +
+      'not only against the tests in the diff. ' +
+      'A claim about another repository or about CI that you cannot verify from this repository is blocking.',
     'Report as `blocking` only what must be fixed before merge: correctness bugs, security problems ' +
-      'and unmet acceptance criteria. Everything else goes into `notes`. Do not change files.',
+      'and unmet requirements. Everything else goes into `notes`. Do not change files.',
   ].join('\n\n');
 }
 
