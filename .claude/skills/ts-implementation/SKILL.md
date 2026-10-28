@@ -6,14 +6,14 @@ description: 'TypeScript implementation and test rules (Vitest) extending `imple
 ## Framework
 
 - **Tests**: Vitest — see `ts-test`
-- **Format/Lint**: ESLint (flat config) + Prettier — see `setup-prettier-eslint-husky` and `## Format`
+- **Format/Lint**: Biome for plain TypeScript (`setup-biome-husky`); ESLint (flat config) + Prettier when the project already uses them or is Angular (`setup-prettier-eslint-husky`) — see `## Format`
 
 ## Format
 
 - Extensions: prettier `.ts .tsx .js .mjs .cjs .json`; eslint only `.ts .tsx .js .mjs .cjs`
 - Format: `npx --no-install prettier --write {files}` then `npx --no-install eslint --fix {files}`
 - Check (read-only): `npx --no-install prettier --check {files}` and `npx --no-install eslint {files}`
-- Biome project (`biome.json[c]`): `npx biome check --write {files}` / check `npx biome check {files}`
+- Biome project (`biome.json[c]`, the default for new plain-TS projects): `npx biome check --write {files}` / check `npx biome check {files}`; never run prettier on the same files
 - Run after green tests, before the commit: `pwsh <implementation dir>/scripts/Format-Changed.ps1 -Language ts` (`-Check` for the check commands; not-configured, override: references/format.md of `implementation`)
 
 ## Imports
