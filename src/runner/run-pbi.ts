@@ -1,6 +1,7 @@
 import type { Db } from '../db.js';
 import { BusEventSchema } from '../events/schema.js';
 import { repoFromPath } from '../github.js';
+import { APPROVED_LABEL, ackApproval } from './approval.js';
 import { loadRunnerConfig, modelFor, ROLES, type Role, type RunnerConfig } from './config.js';
 import { resolveSetup, runSetupStep, type SetupEvent } from './dependencies.js';
 import { resolveFormatter } from './format.js';
@@ -139,9 +140,18 @@ export function parseTitle(title: string): { type: BranchType; title: string } {
   };
 }
 
-async function pbiSpec(slug: string, issue: RunnerIssue, ops: RunPbiOps): Promise<PbiSpec> {
+async function pbiSpec(
+  slug: string,
+  issue: RunnerIssue,
+  ops: RunPbiOps,
+  db: Db | undefined,
+): Promise<PbiSpec> {
   const open = issue.subIssues.filter((s) => s.state.toLowerCase() === 'open');
   const tasks = await Promise.all(open.map((s) => ops.readIssue(slug, s.number)));
+  // The planner raised an APPROVAL attention per created Task; this run is the later one that sees `approved`.
+  if (db) {
+    for (const t of tasks) if (t.labels.includes(APPROVED_LABEL)) ackApproval(db, slug, t.number);
+  }
   return {
     number: issue.number,
     title: issue.title,
@@ -215,6 +225,7 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
       options.db.insertEvent(SOURCE, checked.type, checked.data, {
         issue: options.issue,
         runId,
+        repo: slug,
       });
     }
   };
@@ -233,7 +244,7 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
   try {
     if (baseError) return finish('blocked', EXIT_BLOCKED, { reason: baseError.message });
     const issue = await ops.readIssue(slug, options.issue);
-    const pbi = await pbiSpec(slug, issue, ops);
+    const pbi = await pbiSpec(slug, issue, ops, options.db);
     const open = issue.blockedBy.filter((b) => b.state.toLowerCase() === 'open');
     if (open.length > 0) {
       return finish('blocked', EXIT_BLOCKED, {

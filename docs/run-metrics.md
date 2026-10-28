@@ -7,6 +7,9 @@ Two entry points return the same data:
 - `dromos run metrics [--issues <n,…>] [--since <date>] [--format json|table]`: needs `--issues` or `--since`; `--format` defaults to `json`. Exit code 2 on a bad argument.
 - `GET /runs/{issue}/metrics?since=&until=`: one `RunMetrics`. `GET /runs/metrics?issues=1,2,3` or `?since=[&until=]`: `{ runs, aggregate }`.
 
+- `GET /learning?repo=owner/name&since=&until=`: review finding fingerprints and retry causes across repositories (`repo` narrows to one): `{ fingerprints: [{ fingerprint, count, runs, repos }], causes: [{ cause, count, repos }] }`, most frequent first. Events carry the `repo` the runner stored them with (`GET /events?repo=owner/name` filters by it); events without one count under `unknown`.
+- The runner raises one `APPROVAL` attention per `needs-approval` issue it plans (`summary` `[Level] title`, `pr` null) and acks it on a later `run feature|epic` once the issue carries `approved`.
+
 The JSON of the CLI is the body of `GET /runs/metrics`: `{ "runs": RunMetrics[], "aggregate": RunMetricsAggregate }`. Fields are only ever added; existing ones keep their meaning. A value that was not measured is `null` (never estimated); a count is `0`.
 
 ## Source events

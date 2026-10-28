@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../db.js';
+import { raiseApproval } from './approval.js';
 import { MissingIntegrationBranchError } from './git.js';
 import { ClaimError, type RunnerIssue } from './github.js';
 import type { Harness } from './harness.js';
@@ -295,5 +296,39 @@ describe('runPbi', () => {
     expect(steps.some((t) => t.startsWith('format changed files'))).toBe(true);
     expect(steps).toContain('install dependencies in the worktree: no lockfile detected, skipped');
     expect(s.events.at(-1)).toMatchObject({ type: 'run.finished', outcome: 'dry_run' });
+  });
+
+  it('acks the APPROVAL attention of a Task that carries approved, not of one without', async () => {
+    const withTasks: RunnerIssue = {
+      ...issue,
+      subIssues: [
+        { number: 231, title: 'task one', state: 'OPEN' },
+        { number: 232, title: 'task two', state: 'OPEN' },
+      ],
+    };
+    const tasks: Record<number, RunnerIssue> = {
+      231: { ...issue, number: 231, title: '[Task] one', labels: ['approved'], subIssues: [] },
+      232: {
+        ...issue,
+        number: 232,
+        title: '[Task] two',
+        labels: ['needs-approval'],
+        subIssues: [],
+      },
+    };
+    const s = setup([], {
+      dryRun: true,
+      ops: {
+        readIssue: async (_slug, nr) => (nr === 224 ? withTasks : (tasks[nr] as RunnerIssue)),
+      },
+    });
+    const base = { repo: 'o/r', runId: 'plan-224-x', level: 'Task' };
+    const approved = raiseApproval(s.db, { ...base, issue: 231, title: 'one' });
+    const pending = raiseApproval(s.db, { ...base, issue: 232, title: 'two' });
+    const otherRepo = raiseApproval(s.db, { ...base, repo: 'o/other', issue: 231, title: 'one' });
+    expect(await s.run()).toBe(EXIT_DONE);
+    expect(s.db.getAttention(approved.id)?.state).toBe('acked');
+    expect(s.db.getAttention(pending.id)?.state).toBe('open');
+    expect(s.db.getAttention(otherRepo.id)?.state).toBe('open');
   });
 });
