@@ -9,9 +9,18 @@ import { startTestBus } from '../test-helpers.js';
 import { buildProgram, runCli } from './program.js';
 
 describe('buildProgram', () => {
-  it('registers serve, events, attention, run, plan and status but no role or up', () => {
+  it('registers serve, events, attention, run, plan, status, init and config but no role or up', () => {
     const names = buildProgram().commands.map((c) => c.name());
-    expect(names).toEqual(['serve', 'events', 'attention', 'run', 'plan', 'status']);
+    expect(names).toEqual([
+      'serve',
+      'events',
+      'attention',
+      'run',
+      'plan',
+      'status',
+      'init',
+      'config',
+    ]);
   });
 });
 
