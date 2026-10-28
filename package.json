@@ -1,7 +1,6 @@
 {
   "name": "@gravionlabs/dromos",
   "version": "0.1.0",
-  "private": true,
   "description": "Local MCP bus coordinating interactive Claude Code / Copilot CLI agents",
   "type": "module",
   "engines": {
@@ -9,6 +8,16 @@
   },
   "bin": {
     "dromos": "dist/cli.js"
+  },
+  "files": [
+    "dist/",
+    "schema/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "packageManager": "pnpm@11.9.0",
   "scripts": {
