@@ -1,5 +1,7 @@
 # Roadmap — Dromos (formerly agent-bus)
 
+> Archived 2026-10-28: see the notice in [README.md](README.md) and [decision 004](docs/decisions/004-archive.md). Nothing below is planned any more.
+
 Order of work for the open issues of `dromos` (repository renamed from `agent-bus` on 2026-10-18, code rename: see #70). Last release `v0.1.0` (2026-10-25); each later stage names its milestone. Dependencies come from the native blocked-by links of the issues. Some bus-core PBIs (Stage 3, 6) have no such lines; their dependencies here are inferred from the titles and marked with `~`.
 
 Re-scope of 2026-10-26: the bus core is Epic #166 (Features #26, #29, #40, #61 and PBI #131), terminal-agnostic and independent of the herdr plugin and of dromos-mux. The own interactive role mode is dropped (apm-hub orchestrator and agents replace it; the MCP tools stay as bus API), the herdr plugin (Epic #98) is the primary workspace, and dromos-mux (Epics #36, #56) is parked, see the last sections. apm-hub side: `GravionLabs/apm-hub` `ROADMAP.md` (releases 2.6.0, 2.7.0, Feature #398).

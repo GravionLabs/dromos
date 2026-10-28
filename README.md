@@ -1,5 +1,18 @@
 # dromos
 
+> **Archived (2026-10-28).** dromos is frozen and no longer developed.
+>
+> - Running issues end to end moved to Claude Code: the `deliver` skill and workflow in
+>   [apm-hub](https://github.com/GravionLabs/apm-hub) (`packages/delivery`, apm-hub#821).
+> - The event bus, the Attention API, the PR gates and the herdr plugin continue in
+>   [keryx](https://github.com/GravionLabs/keryx).
+>
+> The last release is v0.4.0 (`@gravionlabs/dromos` on npm). Issue links and releases stay valid;
+> open issues that still apply were transferred to keryx.
+>
+> Why: the runner reimplemented what the harness already provides (permissions, progress UI,
+> questions, usage metrics). See [decision 004](docs/decisions/004-archive.md).
+
 Local event bus for coding agents. dromos collects the events of unattended [apm-hub](https://github.com/GravionLabs/apm-hub) orchestrator loops and of the herdr plugin, keeps their history and run metrics, tracks attention (questions and gates that wait for a human) and, with the runner, drives harness sessions. Formerly `agent-bus`; the old `agent-bus.config.json` still loads with a deprecation warning for one release.
 
 What it offers:
