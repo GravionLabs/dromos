@@ -5,6 +5,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.4.0] — 2026-10-28
+
+### Bug Fixes
+- Block the run when release/next is missing instead of falling back to main (#305) (#306)
+- Reviewer gets the whole issue, checks the diff against real code, defaults to opus (#304) (#307)
+- Keep a committed implementer result, link node_modules, runner owns push and PR (#299) (#308)
+
+
+### Features
+- **runner**: Install dependencies in the worktree instead of linking node_modules (#311) (#314)
+- **runner**: Detect Python dependencies (uv, poetry) in the setup step (#312) (#315)
+- **runner**: Detect .NET dependencies (dotnet restore) in the setup step (#313) (#316)
+- **cli**: Dromos init and dromos config check|schema for .dromos/config.json (#288) (#318)
+- Dromos --version, version in the run header, next-version 0.4.0 (#236) (#320)
+
+
 ## [0.3.0] — 2026-10-28
 
 ### Bug Fixes
@@ -18,6 +34,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Documentation
 - Runner validation, 12 runs with claude and copilot (#225) (#300)
 - Refine the herdr plugin roadmap for the runner model (#99) (#298)
+- Update CHANGELOG.md for v0.3.0 [skip ci]
 
 
 ### Features
