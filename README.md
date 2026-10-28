@@ -6,7 +6,7 @@ What it offers:
 
 - **Events**: a typed event stream (`GET /events/stream`) and `POST /ingest` for producers such as apm-hub hooks. The bus works without any terminal.
 - **History and metrics**: stored events with query and per-run metrics for apm-hub's retro (planned).
-- **Attention**: gates and questions with an id and state that a human answers (planned).
+- **Attention**: questions and blocked runs with an id and state that a human answers (`GET /attention`, `POST /attention/<id>/answer|ack`).
 - **Runner**: `dromos run epic|feature|pbi <nr>` owns the control flow and calls one flat harness session (Claude, Copilot) per step; apm-hub supplies only the skills and prompts (planned, see [ROADMAP.md](ROADMAP.md) Stage 4).
 - **MCP tools** at `/mcp/<role>`: `ping`, `whoami` and the messaging tools `post`, `ack`, `inbox`. The pull-model tools (`start_run`, `submit_implementation`, `submit_review`, `open_pr`, `status`) are gone: the runner owns worktrees, the gate (build, tests, lint), the round limit and the pull request.
 
