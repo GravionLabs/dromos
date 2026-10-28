@@ -7,8 +7,24 @@ import {
   type PbiSpec,
   planWaves,
   runImplementerPhase,
+  runShell,
   tail,
 } from './implementer.js';
+
+describe('runShell', () => {
+  it('fails a command that exceeds its timeout and keeps the output', async () => {
+    const res = await runShell('echo started; sleep 5', process.cwd(), 500);
+    expect(res.passed).toBe(false);
+    expect(res.output).toContain('started');
+    expect(res.output).toContain('Timed out');
+  });
+
+  it('sets CI=true and closes stdin', async () => {
+    const res = await runShell('echo ci=$CI; cat', process.cwd());
+    expect(res.passed).toBe(true);
+    expect(res.output).toContain('ci=true');
+  });
+});
 
 const IMPLEMENTING = { kind: 'implementing', round: 0 } as const;
 

@@ -99,9 +99,44 @@ export interface ImplementerOutcome extends Transition {
   usage: Usage[];
 }
 
-export async function runShell(command: string, cwd: string): Promise<TestOutcome> {
-  const res = await execa(command, { cwd, shell: true, reject: false, all: true });
-  return { passed: res.exitCode === 0, output: String(res.all ?? '') };
+/** Default budget of a setup, format or test command. */
+export const SHELL_TIMEOUT_MS = 30 * 60 * 1000;
+
+/**
+ * Runs a shell command with stdin closed, `CI=true` and a timeout; a command over budget fails with
+ * a timeout note appended to its output.
+ */
+export async function runShell(
+  command: string,
+  cwd: string,
+  timeoutMs = SHELL_TIMEOUT_MS,
+): Promise<TestOutcome> {
+  const child = execa(command, {
+    cwd,
+    shell: true,
+    reject: false,
+    all: true,
+    stdin: 'ignore',
+    env: { CI: 'true' },
+    detached: true,
+  });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    // Kill the whole process group; children of the shell would otherwise keep the pipes open.
+    try {
+      if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      child.kill('SIGKILL');
+    }
+  }, timeoutMs);
+  const res = await child.finally(() => clearTimeout(timer));
+  const output = String(res.all ?? '');
+  if (timedOut) {
+    const note = `Timed out after ${Math.round(timeoutMs / 1000)}s: ${command}`;
+    return { passed: false, output: output ? `${output.trimEnd()}\n${note}\n` : `${note}\n` };
+  }
+  return { passed: res.exitCode === 0, output };
 }
 
 /** True when HEAD in `cwd` is ahead of `base`. */
