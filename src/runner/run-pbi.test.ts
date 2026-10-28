@@ -61,6 +61,7 @@ function setup(
       calls.push('worktree');
       return { path: dir, branch: 'feat/224-x', base: 'release/next' };
     },
+    linkDependencies: async () => false,
     finishWorktree: async (_repo, _wt, outcome) => {
       calls.push(`finish:${outcome}`);
       return outcome === 'pr_opened';
