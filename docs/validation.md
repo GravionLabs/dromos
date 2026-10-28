@@ -1,0 +1,42 @@
+# Runner validation (#225)
+
+Real PBIs run end to end with `dromos run pbi`. One row per run; Duration is wall clock, Outcome is `pr_opened`, `blocked` or `error`.
+
+## Summary
+
+Skills: apm-hub 3.1.0 from run 5 on (dromos#292); runs 1 to 4 used the pre-3.0.0 skills. The format step (#287) exists from run 7 on.
+
+| Harness | Counted runs | pr_opened | blocked | Not counted |
+| --- | --- | --- | --- | --- |
+| claude | 8 (rows 2, 3, 4, 6, 7, 9, 13, 14) | 8 | 0 | rows 1 and 5 (`error`, not real runs) |
+| copilot | 4 (rows 8, 10, 11, 12) | 1 | 3 | none |
+
+The target of #225 was 10 runs with claude and 5 with copilot. Reached: 8 and 4, 12 of 15. The candidate list (open, unclaimed PBIs without blockers) did not hold more: dromos#107 waits for #103, apm-hub#421 for #420, #804 for dromos#288, #745 is interactive, #520 needs a live run against a 1204-item project. Rows 13 and 14 repeat PBIs that blocked with copilot (rows 10 and 11) and finished with claude; they are not new PBIs. Better 12 honest runs than unfitting PBIs.
+
+What the runs show:
+
+- claude finished every PBI it was given with a PR. Two PRs needed a hand fix before merge (rows 2 and 4), one was rejected (row 3), one failed CI on an environment difference the local gate cannot see (row 14). The reviewer reported `review.clean` in round 0 in rows 2, 3, 4, 6, 7, 9 and 13; the reviewer-misses are bugs #282 and #284.
+- copilot finished 1 of 4. In the other three the implementer committed and pushed, then reported `failed` because it could not run pnpm, build or tests (command approval unavailable) or open the PR; the runner dropped the result. One bug covers all three: [#299](https://github.com/GravionLabs/dromos/issues/299).
+- The format step ran in all later runs (`format.finished`) and never needed a commit of its own.
+- Merge: rows 2, 4, 6, 7, 8, 9 merged, row 3 stays a draft and is not merged, rows 13 and 14 are merged.
+
+Bugs found: [#282](https://github.com/GravionLabs/dromos/issues/282), [#284](https://github.com/GravionLabs/dromos/issues/284), [#299](https://github.com/GravionLabs/dromos/issues/299).
+
+## Runs
+
+| # | PBI | Harness | PR | Duration | Outcome | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | dromos#28 | claude | [#260](https://github.com/GravionLabs/dromos/pull/260) (earlier run) | 7 s | error | `branch already exists`; the PBI already had open PR #260, so it was not unclaimed. Not counted as a validation run. |
+| 2 | dromos#131 | claude | [#280](https://github.com/GravionLabs/dromos/pull/280) | 71 s | pr_opened | Tests 1428 pass, review clean in round 0. Reviewer missed dead relative links (`../tree/main/...`) in the four issue templates; fixed by hand before merge. |
+| 3 | dromos#150 | claude | [#281](https://github.com/GravionLabs/dromos/pull/281) (draft, not merged) | 76 s | pr_opened | Tests 1428 pass, review clean in round 0, but the PR documents CI behavior that does not exist (half of the PBI lives in GravionLabs/ci). Rejected in my review. Bug: [#282](https://github.com/GravionLabs/dromos/issues/282). |
+| 4 | dromos#234 | claude | [#283](https://github.com/GravionLabs/dromos/pull/283) | 323 s | pr_opened | Tests 1436 pass, review clean in round 0. Reviewer missed that metrics keyed phases by the raw name (`implementer #<task>`), so roles were never grouped; fixed by hand (+1 test), merged. Bug: [#284](https://github.com/GravionLabs/dromos/issues/284). |
+| 5 | apm-hub#811 | claude | none | 1 s | error | Not a validation run. `invalid runner config .dromos/config.json: Unrecognized key "format"`: apm-hub already configures `format` (#765, #803), dromos only knows it after #287. Order dependency, no bug issue. Skills: apm-hub 3.1.0 (dromos#292). |
+| 6 | dromos#287 | claude | [#293](https://github.com/GravionLabs/dromos/pull/293) | ≈ 180 s phases (implementer 155 s, reviewer 25 s) + tests; wall time not measured | pr_opened | Tests 1503 pass, review clean in round 0. My review against the criteria found no gap (detection table, filter, overrides, events, dry run, docs); CI green. Skills: apm-hub 3.1.0. |
+| 7 | apm-hub#811 | claude | [#812](https://github.com/GravionLabs/apm-hub/pull/812) | ≈ 40 s phases (implementer 28 s, reviewer 12 s) + tests; wall time not measured | pr_opened | Tests 753 pass, review clean in round 0, `format.finished` (2 files, no commit): first run with the format step. My review: criteria met, CI green. Skills: apm-hub 3.1.0. |
+| 8 | apm-hub#809 | copilot | [#813](https://github.com/GravionLabs/apm-hub/pull/813) | ≈ 220 s phases (implementer 154 s, reviewer 69 s) + tests; wall time not measured | pr_opened | First copilot run. Tests 751 pass, review clean in round 0, `format.finished` (6 files, no commit). My review: all 5 criteria met (check script order, config, ci.yml comment, AGENTS.md, repo test); `-FailOnDangling` exists; CI green. The "check-prerequisites hint" is vague in the issue; the PR added a line to its SKILL.md. Skills: apm-hub 3.1.0. |
+| 9 | dromos#168 | claude | [#294](https://github.com/GravionLabs/dromos/pull/294) | ≈ 85 s phases (implementer 72 s, reviewer 13 s) + tests; wall time not measured | pr_opened | Tests 1509 pass, review clean in round 0, `format.finished` (7 files, no commit). My review: `GET /state` with Host/Origin guard, versioned schema in `schema/`, agents/active runs/open attentions as described; `since` is `updated_at`, which also moves on run binding (minor). CI green. Skills: apm-hub 3.1.0. |
+| 10 | apm-hub#810 | copilot | none (branch `ci/810-psscriptanalyzer-over-the-skill-scripts` pushed, commit 31f2528e, no PR) | 548 s (implementer; run ended there) | blocked | Implementer reported `failed` itself: PSScriptAnalyzer, fixture, manifest and dangling checks passed, but build/Vitest could not run (no `node_modules` in the worktree, Corepack blocked by non-interactive permissions), and it tried to create the PR and push itself. It also reports the ts implementation/test skills unavailable (apm-hub's own apm.yml does not install `ts`). The runner dropped a committed, pushed result. Bug: [#299](https://github.com/GravionLabs/dromos/issues/299). Remote branch and worktree removed (commit 31f2528e). |
+| 11 | apm-hub#419 | copilot | none (branch `feat/419-go-package-with-go` pushed, commit 3e72f0e4, no PR) | 1662 s (implementer; run ended there) | blocked | Same as row 10: implementer reported `failed` because pnpm execution and PR creation were denied; manifest checks passed, targeted tests never ran. Bug: [#299](https://github.com/GravionLabs/dromos/issues/299) (comment added). Remote branch and worktree removed (commit 3e72f0e4). |
+| 12 | dromos#235 | copilot | none (branch pushed, commit acc4fc2, no PR) | 1096 s (implementer; run ended there) | blocked | Same as rows 10 and 11, now in dromos: implementer reported `failed` because command approval was unavailable (build, typecheck, lint, tests, PR). Bug: [#299](https://github.com/GravionLabs/dromos/issues/299) (comment added). Branch and worktree still present. |
+| 13 | apm-hub#810 (repeat of row 10, claude) | claude | [#814](https://github.com/GravionLabs/apm-hub/pull/814) | ≈ 155 s phases (implementer 124 s, reviewer 30 s) + tests; wall time not measured | pr_opened | Tests 758 pass, review clean in round 0, `format.finished` (8 files, no commit). Same PBI that blocked with copilot: claude finished it. My review: all 6 criteria met, CI green (fixture tests run in CI, 4 tests, none skipped). Gap: the Technical Notes ask for findings per rule in the PR body; the PR had none, I added the counts (101 findings, 7 rules) as a comment. Skills: apm-hub 3.1.0. |
+| 14 | apm-hub#419 (repeat of row 11, claude) | claude | [#815](https://github.com/GravionLabs/apm-hub/pull/815) | ≈ 6 min phases (implementer 234 s, reviewer 33 s, fixer 86 s) + tests; wall time not measured | pr_opened | Same PBI that blocked with copilot. First run with a fix round: reviewer found 1 blocking finding in round 0, the fixer (opus) fixed it, tests 770 pass in round 1. Local gate green, but CI `Test` red: the new test "go: a missing gofmt is skipped by name" kept `/usr/bin:/bin` on PATH, where CI images ship gofmt. Fixed by hand (commit 10bb949f: PATH with only git), CI green afterwards. My review: criteria met (detection depth 5, skills with `## Review rules`, manifests, 63 and 41 lines). Not a runner defect: local gate cannot see a tool that only exists on the CI image. Skills: apm-hub 3.1.0. |
