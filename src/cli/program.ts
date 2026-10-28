@@ -3,6 +3,7 @@ import { runEventsCommand } from '../cli-events.js';
 import { type Config, loadConfig } from '../config.js';
 import { type RunningServe, reportStartupError, serve } from '../serve.js';
 import { runAttentionCli } from './attention.js';
+import { runConfigCli, runInitCli } from './config.js';
 import { runPlanCli, runRunCli } from './run.js';
 import { runStatusCli } from './status.js';
 
@@ -98,6 +99,16 @@ export function buildProgram(
     'status',
     'status table of an Epic, Feature or PBI from GitHub and the event store (status <nr>)',
     runStatusCli,
+  );
+  passThrough(
+    'init',
+    'create or update .dromos/config.json of a repository (init [--repo PATH] [--stack S] [--test-full CMD] [--dry-run])',
+    runInitCli,
+  );
+  passThrough(
+    'config',
+    'validate or describe the runner config (config check [--repo PATH], config schema)',
+    runConfigCli,
   );
 
   return program;
