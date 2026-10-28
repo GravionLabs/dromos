@@ -181,7 +181,14 @@ CI (`.github/workflows/schema.yml`) reruns both generators and fails on `git dif
 
 ## CLI install
 
-Build and link the CLI globally, then start the bus:
+Install the published package; the binary is `dromos`:
+
+```bash
+npm i -g @gravionlabs/dromos
+dromos serve
+```
+
+From a clone, build and link the CLI globally, then start the bus:
 
 ```bash
 pnpm build && pnpm link --global

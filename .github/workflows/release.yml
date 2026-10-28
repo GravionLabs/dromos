@@ -54,3 +54,42 @@ jobs:
           changelog-file: CHANGELOG.md
           cliff-config: cliff.toml
           update-changelog: 'true'
+
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    needs: [determine-version, release]
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.determine-version.outputs.semver }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+
+      - name: Install and build
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Set package version
+        run: npm version "${{ needs.determine-version.outputs.semver }}" --no-git-tag-version
+
+      - name: Publish
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "::notice::$name@$version is already on npm, skipping publish"
+          else
+            npm publish --provenance --access public
+          fi
