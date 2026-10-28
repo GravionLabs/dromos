@@ -7,6 +7,7 @@ import { assertWorktreeDirIgnored, createWorktree, slugify } from '../worktree.j
 import { loadRunnerConfig, modelFor } from './config.js';
 import { CliHarness } from './harness/cli.js';
 import type { Harness, HarnessName, PhaseOutput } from './harness.js';
+import { type PreflightOps, runPreflight } from './preflight.js';
 
 const SOURCE = 'dromos';
 const PHASE = 'implementer';
@@ -26,6 +27,8 @@ export interface SpikeOptions {
   /** Issue title; defaults to `gh issue view`. */
   title?: string;
   worktreeDir?: string;
+  /** Replaces the git, `gh` and file system calls of the preflight. */
+  preflightOps?: Partial<PreflightOps>;
   now?: () => Date;
   env?: NodeJS.ProcessEnv;
 }
@@ -83,6 +86,16 @@ export async function runSpike(options: SpikeOptions): Promise<SpikeResult> {
   };
 
   await assertWorktreeDirIgnored(options.repo, dir);
+  const left = await runPreflight({
+    repo: options.repo,
+    issue: options.issue,
+    base: BASE,
+    namespace: 'spike',
+    worktreeDir: dir,
+    worktree: `spike-${String(options.issue)}`,
+    ops: options.preflightOps,
+  });
+  if (left.blocked !== null) return { ok: false, branch, worktree, message: left.blocked };
   await createWorktree(options.repo, BASE, branch, worktree);
   const before = await head(worktree);
 

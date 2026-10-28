@@ -58,6 +58,7 @@ function setup(
       calls.push('release');
     },
     integrationBranch: async () => 'release/next',
+    preflight: async () => ({ pruned: [], removed: [], blocked: null }),
     openWorktree: async () => {
       calls.push('worktree');
       return { path: dir, branch: 'feat/224-x', base: 'release/next' };
@@ -260,6 +261,57 @@ describe('runPbi', () => {
         reason: expect.stringContaining('github-release cut'),
       });
     }
+  });
+
+  it('blocks before the claim on leftovers with work, in a dry run too', async () => {
+    for (const dryRun of [false, true]) {
+      const s = setup([], {
+        dryRun,
+        ops: {
+          preflight: async () => ({
+            pruned: [],
+            removed: [],
+            blocked: 'leftovers of an earlier run of #224: branch fix/224-x',
+          }),
+        },
+      });
+      expect(await s.run()).toBe(EXIT_BLOCKED);
+      expect(s.calls).toEqual([]);
+      expect(s.events.at(-1)).toMatchObject({
+        type: 'run.finished',
+        outcome: 'blocked',
+        reason: expect.stringContaining('leftovers of an earlier run'),
+      });
+    }
+  });
+
+  it('emits run.preflight naming what was removed, before the claim', async () => {
+    const s = setup([done, clean], {
+      ops: {
+        preflight: async () => ({ pruned: ['wt'], removed: ['branch fix/224-x'], blocked: null }),
+      },
+    });
+    expect(await s.run()).toBe(EXIT_DONE);
+    expect(s.events).toContainEqual({
+      type: 'run.preflight',
+      pruned: ['wt'],
+      removed: ['branch fix/224-x'],
+    });
+  });
+
+  it('stays silent when the preflight finds nothing', async () => {
+    const s = setup([done, clean]);
+    await s.run();
+    expect(s.events.some((e) => e.type === 'run.preflight')).toBe(false);
+  });
+
+  it('dry run prints the preflight result as a step', async () => {
+    const s = setup([], { dryRun: true });
+    await s.run();
+    expect(s.events).toContainEqual({
+      type: 'run.step',
+      step: 'preflight: nothing left from earlier runs',
+    });
   });
 
   it('names the base in run.started', async () => {
