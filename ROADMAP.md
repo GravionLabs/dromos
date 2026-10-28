@@ -1,6 +1,6 @@
 # Roadmap — Dromos (formerly agent-bus)
 
-Order of work for the open issues of `dromos` (repository renamed from `agent-bus` on 2026-10-18, code rename: see #70). Last release `v0.1.0` (2026-10-25); each later stage names its milestone. Dependencies come from the native blocked-by links of the issues. Some bus-core PBIs (Stage 3, 6) have no such lines; their dependencies here are inferred from the titles and marked with `~`.
+Order of work for the open issues of `dromos` (repository renamed from `agent-bus` on 2026-10-18, code rename: see #70). Last release `v0.4.0` (2026-10-28); each later stage names its milestone. Dependencies come from the native blocked-by links of the issues. Some bus-core PBIs (Stage 3, 6) have no such lines; their dependencies here are inferred from the titles and marked with `~`.
 
 Re-scope of 2026-10-26: the bus core is Epic #166 (Features #26, #29, #40, #61 and PBI #131), terminal-agnostic and independent of the herdr plugin and of dromos-mux. The own interactive role mode is dropped (apm-hub orchestrator and agents replace it; the MCP tools stay as bus API), the herdr plugin (Epic #98) is the primary workspace, and dromos-mux (Epics #36, #56) is parked, see the last sections. apm-hub side: `GravionLabs/apm-hub` `ROADMAP.md` (releases 2.6.0, 2.7.0, Feature #398).
 
@@ -57,7 +57,9 @@ Pull-model tools removed (B16): the MCP tools `start_run`, `submit_implementatio
 
 0.2.0 closes with Stage 2b, this stage and #30, #31 (Feature #29, validation, see Stage 6). #131 records the re-scope decisions: role mode closed, dromos-mux parked, herdr primary, bus core epic, self-learning #159, and the decision of 2026-10-27 that dromos owns the control flow and apm-hub is content (Stage 4).
 
-## Stage 3b — herdr plugin (Epic #98, Feature #99; milestone 0.6.0)
+## Stage 3b — herdr plugin (Epic #98, Feature #99; milestone 0.7.0)
+
+Moved from 0.6.0 to 0.7.0 on 2026-10-28: the runner hardening (Stage 4b) comes first, because its bugs hit every run on a target repository today.
 
 The primary workspace for dromos runs; dromos-mux is parked. Refined on 2026-10-28 for the runner model (Epic #98, "Decisions 2026-10-28"; decision record 003): a run is `dromos run …` started in a herdr pane, the runner records `HERDR_PANE_ID` on the first `run.state` of a PBI run, the first `phase.started` of a plan run and on every `attention`, the plugin maps run to pane. Planner questions are answered from herdr through the Attention API and taken by the next run.
 
@@ -70,7 +72,7 @@ The primary workspace for dromos runs; dromos-mux is parked. Refined on 2026-10-
 | 3 | #103 | attention: notification, jump key, answer composer | #102, #296 |
 | 4 | #107 | docs: herdr plugin as the primary workspace | #103 |
 | 5 | #165 | end-to-end validation on macOS | #100, #295, #296, #102, #103 |
-| 6 | #297 | release 0.6.0 | #107, #165, #290 |
+| 6 | #297 | release 0.7.0 | #107, #165, #340 |
 
 Closed as not planned on 2026-10-27 (simplification triage): #101 launcher, #104 reverse channel, #105 and #114 run view, #106 pane executor. Feature #99 closes with #165 and #297.
 
@@ -79,6 +81,31 @@ Closed as not planned on 2026-10-27 (simplification triage): #101 launcher, #104
 Decision of 2026-10-27 (dromos#131, [simplification plan](https://github.com/GravionLabs/apm-hub/blob/release/next/docs/simplification-plan.md)): dromos owns the control flow, apm-hub is content (skills and prompts). The runner is a program: `dromos run epic|feature|pbi <nr>` reads the issue hierarchy, plans where something is missing, selects the next approved and unblocked PBI, and calls one flat harness session per step (Claude, Copilot) through one adapter interface. GitHub stays the source of truth for issue state; the bus keeps events and metrics. Order and sizes: [simplification work plan](https://github.com/GravionLabs/apm-hub/blob/release/next/docs/simplification-workplan.md) (dromos items B1 to B21; milestones 0.2.0 B1-B6b, 0.3.0 B7-B17, 0.4.0 B18-B21).
 
 This replaces the earlier Session API (`session.*` events, `sessions` table, headless executor, HTTP endpoints with restart and input: #62-#65, #69, #106), which was a workflow-independent executor driven from outside. The pane executor #106 was closed on 2026-10-27 without successor; idle detection (#66) stays parked with dromos-mux.
+
+B1-B21 shipped in `v0.3.0` and `v0.4.0` (2026-10-28), together with the validation fixes #299, #304, #305, npm publishing #303 and the setup step that installs dependencies in the worktree (Feature #310: #311, #312, #313).
+
+## Stage 4a — runner config for target repositories (Feature #289; milestone 0.5.0)
+
+`dromos init` and `dromos config check|schema` (#288) are done; the release #290 is the only open item.
+
+## Stage 4b — runner hardening (Features #321, #319; milestone 0.6.0)
+
+Found while running agentlens PBIs on the runner (2026-10-28). A PBI cannot be run again once a run left a worktree or a branch (#255, analysis there), the runner knows the ecosystems of a target repository in five places that have drifted apart (setup, format, the `npm test` default, the allowlist, the unused `src/gate.ts`), and setup, format and test commands run without a timeout. Release PBI #340.
+
+| Order | Issue | Title | Size | Depends on |
+| --- | --- | --- | --- | --- |
+| 1 | #322 | preflight before the claim finds leftovers of earlier runs | M | – |
+| 1 | #331 | setup, format and test commands run without a timeout | S | – |
+| 1 | #326 | ecosystem registry for setup, format and allowlist | M | – |
+| 2 | #323 | clean up worktree and branch after every outcome, `dromos run clean` | M | #322 |
+| 2 | #324 | `--restart` keeps the old attempt as a branch and starts over | S | #322 |
+| 2 | #325 | `--resume` continues a blocked run in its kept worktree | M | #322 |
+| 2 | #327 | detect the test command, with Rust and Go | M | #326 |
+| 3 | #330 | dependencies changed by the implementer are not installed before the tests | S | ~#326 |
+| 3 | #328 | `dromos config check` shows detected ecosystems and resulting commands | S | #327 |
+| 4 | #340 | release 0.6.0 | S | all above, #290 |
+
+#255 closes with the last of #324 and #325. #322 fixes the rerun of the runner itself and runs in a session, not through `dromos run pbi`. [rtk](https://github.com/rtk-ai/rtk) is the reference for the registry's shape (`src/discover/rules.rs`, one module per ecosystem in `src/cmds/`), not a code source.
 
 ## Stage 6 — validation (Epic #166, Feature #29; milestone 0.2.0)
 
@@ -100,6 +127,12 @@ dromos supplies what a single repo's retro cannot: structured outcome data, cros
 ## Unscheduled
 
 #150 (close merged Task issues automatically) and the code rename #70 (`needs-decision`).
+
+Runner bugs without a milestone, to be triaged into 0.6.0 or later:
+
+- from the runner validation (#225): #252, #265, #266, #267, #273, #274, #276, #278, #282, #284 (#282 and #284 are probably fixed by #304)
+- from the analysis of #255 (found by reading the code, not yet observed): #332 ignored files the tests need, #333 submodules and LFS, #334 moved integration branch, #335 git hooks (`needs-decision`), #336 `gh` auth and rate limit (preflight #322), #337 stale claim after a killed run, #338 concurrent claim, #339 cold Cargo build per worktree
+- Feature #263 (format step from `.dromos/config.json`) is open although its PBI #287 is done; to be closed or refined
 
 ## Parked: dromos-mux (Epic #36, #56)
 
