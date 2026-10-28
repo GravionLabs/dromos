@@ -33,9 +33,17 @@ function jsInstall(dir: string): string | null {
   return null;
 }
 
+/** The sync command of the Python project manager whose lockfile is in `dir`; the first match wins. */
+function pythonInstall(dir: string): string | null {
+  if (existsSync(join(dir, 'uv.lock'))) return 'uv sync --frozen';
+  // `poetry sync` needs Poetry 2, which deprecated `install --sync` of Poetry 1 for removal.
+  if (existsSync(join(dir, 'poetry.lock'))) return 'poetry sync';
+  return null;
+}
+
 /** The install commands detected from the lockfiles in `dir`, one per ecosystem, in run order. */
 export function detectSetup(dir: string): string[] {
-  return [jsInstall(dir)].filter((c): c is string => c !== null);
+  return [jsInstall(dir), pythonInstall(dir)].filter((c): c is string => c !== null);
 }
 
 /** The commands of the setup step: the `setup` override, `'disabled'`, or detection. */
