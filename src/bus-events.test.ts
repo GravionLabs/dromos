@@ -11,6 +11,7 @@ const event = (id: number): EventRecord => ({
   agentId: null,
   issue: null,
   runId: null,
+  repo: null,
 });
 
 describe('BusEvents event channel', () => {

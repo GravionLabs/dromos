@@ -3,6 +3,7 @@ import { PROGRESS_KINDS } from './events/schema.js';
 
 const ALLOWED_KEYS = new Set([
   'issue',
+  'repo',
   'type',
   'source',
   'kind',
@@ -12,6 +13,7 @@ const ALLOWED_KEYS = new Set([
   'after',
   'limit',
 ]);
+export const REPO_SLUG = /^[\w.-]+\/[\w.-]+$/;
 const NON_NEGATIVE_INT = /^\d+$/;
 const ISO_PREFIX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 export const DEFAULT_QUERY_LIMIT = 100;
@@ -120,6 +122,13 @@ export function parseEventQuery(params: URLSearchParams): ParsedEventQuery {
       return { error: `kind must be one of ${PROGRESS_KINDS.join(', ')}` };
     }
     query.kinds = list;
+  }
+  const repo = params.get('repo');
+  if (repo !== null) {
+    if (!REPO_SLUG.test(repo)) {
+      return { error: 'repo must be owner/name' };
+    }
+    query.repo = repo;
   }
   const agentId = params.get('agentId');
   if (agentId !== null) {

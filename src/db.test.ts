@@ -17,6 +17,22 @@ const newRun = (overrides: Partial<NewRun> = {}): NewRun => ({
   ...overrides,
 });
 
+describe('event repo', () => {
+  it('stores the repository of an event and filters queryEvents by it', () => {
+    const db = openDb(':memory:');
+    db.insertEvent('dromos', 'progress', {}, { repo: 'acme/one', issue: 1 });
+    db.insertEvent('dromos', 'progress', {}, { repo: 'acme/two', issue: 1 });
+    db.insertEvent('dromos', 'progress', {}, { issue: 1 });
+    const page = db.queryEvents({ repo: 'acme/one', limit: 10 });
+    expect(page.events.map((e) => e.repo)).toEqual(['acme/one']);
+    expect(db.queryEvents({ limit: 10 }).events.map((e) => e.repo)).toEqual([
+      'acme/one',
+      'acme/two',
+      null,
+    ]);
+  });
+});
+
 describe('db', () => {
   let db: Db;
 
@@ -44,7 +60,7 @@ describe('db', () => {
           .run();
         raw.close();
         const migrated = openDb(file);
-        expect(migrated.schemaVersion()).toBe(8);
+        expect(migrated.schemaVersion()).toBe(9);
         expect(migrated.getAgent('a1')?.lastOutputAt).toBeNull();
         migrated.close();
         const check = new Database(file, { readonly: true });
@@ -121,8 +137,8 @@ describe('db', () => {
         raw.close();
 
         const migrated = openDb(file);
-        expect(MIGRATIONS).toHaveLength(8);
-        expect(migrated.schemaVersion()).toBe(8);
+        expect(MIGRATIONS).toHaveLength(9);
+        expect(migrated.schemaVersion()).toBe(9);
         expect(migrated.queryEvents({ issue: 7, limit: 10 }).events).toHaveLength(1);
         migrated.close();
 
@@ -200,6 +216,7 @@ describe('db', () => {
             agentId: null,
             issue: null,
             runId: null,
+            repo: null,
           },
         ]);
         migrated.close();
@@ -729,7 +746,7 @@ describe('db', () => {
           .run();
         raw.close();
         const migrated = openDb(file);
-        expect(migrated.schemaVersion()).toBe(8);
+        expect(migrated.schemaVersion()).toBe(9);
         expect(migrated.listAttention({ limit: 10 })).toEqual([]);
         expect(migrated.queryEvents({ issue: 7, limit: 10 }).events).toHaveLength(1);
         migrated.close();

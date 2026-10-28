@@ -215,6 +215,7 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
       options.db.insertEvent(SOURCE, checked.type, checked.data, {
         issue: options.issue,
         runId,
+        repo: slug,
       });
     }
   };

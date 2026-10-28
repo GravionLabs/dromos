@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { type Db, openDb } from '../db.js';
+import { raiseApproval } from './approval.js';
 import type { IssueRef, RunnerIssue } from './github.js';
 import {
   dependencyOrder,
@@ -23,7 +25,11 @@ interface Fake {
   controller: AbortController;
 }
 
-function setup(issues: RunnerIssue[], override: (fake: Fake) => Partial<RunGroupOps> = () => ({})) {
+function setup(
+  issues: RunnerIssue[],
+  override: (fake: Fake) => Partial<RunGroupOps> = () => ({}),
+  db?: Db,
+) {
   const store = new Map(issues.map((i) => [i.number, i]));
   const events: RunGroupEvent[] = [];
   const calls: string[] = [];
@@ -36,6 +42,7 @@ function setup(issues: RunnerIssue[], override: (fake: Fake) => Partial<RunGroup
       issue: nr,
       repo: '/tmp/repo',
       force,
+      db,
       emit: (e) => events.push(e),
       signal: controller.signal,
       onCurrent: (n) => current.push(n),
@@ -123,6 +130,25 @@ describe('runGroup', () => {
       ],
       skipped: [],
     });
+  });
+
+  it('acks the APPROVAL attention of a PBI that carries approved, not of one without', async () => {
+    const db = openDb(':memory:');
+    const base = { repo: 'o/r', runId: 'plan-10-x', level: 'PBI' };
+    const approvedAttention = raiseApproval(db, { ...base, issue: 11, title: 'a' });
+    const pendingAttention = raiseApproval(db, { ...base, issue: 12, title: 'b' });
+    const t = setup(
+      [
+        issue(10, '[Feature] feat: f', { subIssues: [ref(11, '[PBI] a'), ref(12, '[PBI] b')] }),
+        issue(11, '[PBI] a', { labels: ['approved'] }),
+        issue(12, '[PBI] b'),
+      ],
+      undefined,
+      db,
+    );
+    await t.run('feature', 10);
+    expect(db.getAttention(approvedAttention.id)?.state).toBe('acked');
+    expect(db.getAttention(pendingAttention.id)?.state).toBe('open');
   });
 
   it('skips and reports unapproved, claimed and blocked PBIs without waiting', async () => {

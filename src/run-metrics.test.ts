@@ -10,7 +10,17 @@ function ev(
   agentId: string | null = 'orch-1',
   role = 'orchestrator',
 ): EventRecord {
-  return { id: nextId++, role, kind, data, createdAt: at, agentId, issue: 137, runId: null };
+  return {
+    id: nextId++,
+    role,
+    kind,
+    data,
+    createdAt: at,
+    agentId,
+    issue: 137,
+    runId: null,
+    repo: null,
+  };
 }
 const phase = (at: string, name: string) =>
   ev(at, 'progress', { kind: 'phase', message: name, fields: { phase: name } });

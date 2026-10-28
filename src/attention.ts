@@ -8,12 +8,14 @@ import type { BusEvent } from './events/schema.js';
 export function recordAttention(
   db: Db,
   event: Extract<BusEvent, { type: 'attention' }>,
+  context: { repo?: string | null } = {},
 ): { event: EventRecord; attention: AttentionRecord } {
   return db.transaction(() => {
     const row = db.insertEvent(event.source, event.type, event.data, {
       agentId: event.agentId,
       issue: event.issue,
       runId: event.runId,
+      repo: context.repo ?? null,
     });
     return { event: row, attention: db.insertAttention(row) };
   });

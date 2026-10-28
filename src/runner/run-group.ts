@@ -1,5 +1,6 @@
 import type { Db } from '../db.js';
 import { repoFromPath } from '../github.js';
+import { ackApproval } from './approval.js';
 import { CLAIM_LABEL, type RunnerIssue, readIssue, releaseIssue } from './github.js';
 import type { HarnessName } from './harness.js';
 import { EXIT_BLOCKED, EXIT_DONE, EXIT_ERROR, type RunPbiEvent, runPbi } from './run-pbi.js';
@@ -185,6 +186,9 @@ export async function runGroup(options: RunGroupOptions): Promise<number> {
         }
         feature = await ops.readIssue(slug, number);
       }
+      if (options.db && feature.labels.includes(APPROVED_LABEL)) {
+        ackApproval(options.db, slug, feature.number);
+      }
       features.push(feature);
     }
 
@@ -199,6 +203,9 @@ export async function runGroup(options: RunGroupOptions): Promise<number> {
       if (interrupted()) return finish('interrupted', EXIT_INTERRUPTED);
       // Re-read: an earlier PBI of this run may have opened a PR, another run may have claimed it.
       const pbi = await ops.readIssue(slug, listed.number);
+      if (options.db && pbi.labels.includes(APPROVED_LABEL)) {
+        ackApproval(options.db, slug, pbi.number);
+      }
       const reason = skipReason(pbi, featureOf.get(listed.number) as RunnerIssue, !!options.force);
       if (reason) {
         skipped.push({ issue: pbi.number, title: pbi.title, reason });

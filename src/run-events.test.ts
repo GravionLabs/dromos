@@ -171,6 +171,7 @@ describe('publishRows', () => {
       agentId: null,
       issue: 1,
       runId: 'r',
+      repo: null,
     });
     publishRows(events, [row(3), row(4)]);
     expect(seen).toEqual([3, 4]);

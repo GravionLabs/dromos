@@ -107,6 +107,10 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE agents ADD COLUMN last_output_at TEXT;
   `,
+  `
+  ALTER TABLE events ADD COLUMN repo TEXT;
+  CREATE INDEX idx_events_repo_id ON events(repo, id);
+  `,
 ];
 
 export interface Run {
@@ -169,6 +173,8 @@ export interface EventRecord {
   issue: number | null;
   /** Orchestrator run the event belongs to; null when none. */
   runId: string | null;
+  /** `owner/name` of the repository the event belongs to; null when none. */
+  repo: string | null;
 }
 
 export type AttentionState = 'open' | 'answered' | 'acked';
@@ -209,6 +215,8 @@ export interface AttentionQuery {
 /** Filters for `Db.queryEvents`; absent filters match everything. */
 export interface EventQuery {
   issue?: number;
+  /** Matches `repo` (`owner/name`). */
+  repo?: string;
   /** Matches `kind` (the API's `type`). */
   types?: string[];
   /** Matches `role` (the API's `source`). */
@@ -236,6 +244,7 @@ export interface EventContext {
   agentId?: string | null;
   issue?: number | null;
   runId?: string | null;
+  repo?: string | null;
 }
 
 interface RunRow {
@@ -280,6 +289,7 @@ interface EventRow {
   agent_id: string | null;
   issue: number | null;
   run_id: string | null;
+  repo: string | null;
 }
 
 interface AttentionRow {
@@ -529,7 +539,7 @@ export function openDb(file: string): Db {
      ORDER BY created_at, rowid`,
   );
   const insertEvent = db.prepare(
-    'INSERT INTO events (role, kind, data_json, created_at, agent_id, issue, run_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO events (role, kind, data_json, created_at, agent_id, issue, run_id, repo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   );
   const getEvent = db.prepare<[number | bigint], EventRow>('SELECT * FROM events WHERE id = ?');
   const listEvents = db.prepare<[string | null, string | null, number], EventRow>(
@@ -602,6 +612,7 @@ export function openDb(file: string): Db {
     agentId: row.agent_id,
     issue: row.issue,
     runId: row.run_id,
+    repo: row.repo,
   });
 
   return {
@@ -724,6 +735,7 @@ export function openDb(file: string): Db {
         context?.agentId ?? null,
         context?.issue ?? null,
         context?.runId ?? null,
+        context?.repo ?? null,
       );
       return toEvent(getEvent.get(info.lastInsertRowid) as EventRow);
     },
@@ -779,6 +791,10 @@ export function openDb(file: string): Db {
       if (query.issue !== undefined) {
         where.push('issue = ?');
         params.push(query.issue);
+      }
+      if (query.repo !== undefined) {
+        where.push('repo = ?');
+        params.push(query.repo);
       }
       if (query.types !== undefined) {
         where.push(`kind IN (${query.types.map(() => '?').join(', ')})`);

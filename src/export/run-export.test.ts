@@ -11,6 +11,7 @@ const ev = (id: number, kind: string, data: unknown, agentId: string | null): Ev
   agentId,
   issue: 5,
   runId: null,
+  repo: null,
 });
 
 describe('toJsonExport', () => {
