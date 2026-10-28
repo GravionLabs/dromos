@@ -16,8 +16,9 @@ On by default. Per ecosystem, the first matching lockfile in the worktree wins; 
 | `package-lock.json` | `npm ci --prefer-offline` |
 | `uv.lock` | `uv sync --frozen` |
 | `poetry.lock` | `poetry sync` (Poetry 2) |
+| `*.sln` / `*.slnx` at the root, else `*.csproj` there | `dotnet restore <file>` per file, with `--locked-mode` when lockfiles are on |
 
-The Python commands create the worktree's own virtual environment; uv and Poetry share their package cache, so this is fast. For Poetry 1 set `"setup": "poetry install --sync"`. Without a matching lockfile the step is skipped. Cargo, Go, Gradle and Maven need no step: their dependencies come from a global cache every worktree shares. Rust still compiles everything once in a worktree, because each worktree has its own empty `target/`; sharing one `target/` between parallel runs is not safe, [sccache](https://github.com/mozilla/sccache) is the remedy for slow cold builds.
+The Python commands create the worktree's own virtual environment; uv and Poetry share their package cache, so this is fast. For Poetry 1 set `"setup": "poetry install --sync"`. .NET names each solution (or, without one, each project) explicitly, because `dotnet restore` without a file fails when the root holds several; lockfiles count as on when the root has a `packages.lock.json` or `Directory.Build.props` sets `RestorePackagesWithLockFile` to `true`, and locked mode then fails on a lockfile that is out of date (`NU1004`). The packages come from the shared NuGet cache. Without a matching lockfile the step is skipped. Cargo, Go, Gradle and Maven need no step: their dependencies come from a global cache every worktree shares. Rust still compiles everything once in a worktree, because each worktree has its own empty `target/`; sharing one `target/` between parallel runs is not safe, [sccache](https://github.com/mozilla/sccache) is the remedy for slow cold builds.
 
 ## Override
 

@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { RunnerConfig } from './config.js';
 import type { ShellResult } from './format.js';
@@ -41,9 +41,39 @@ function pythonInstall(dir: string): string | null {
   return null;
 }
 
+const shellArg = (s: string): string =>
+  /^[\w.-]+$/.test(s) ? s : `'${s.replaceAll("'", `'\\''`)}'`;
+
+/** NuGet lockfiles are on when the root has one or `Directory.Build.props` turns them on. */
+function nugetLocked(dir: string): boolean {
+  if (existsSync(join(dir, 'packages.lock.json'))) return true;
+  const props = join(dir, 'Directory.Build.props');
+  return (
+    existsSync(props) &&
+    /<RestorePackagesWithLockFile>\s*true\s*<\/RestorePackagesWithLockFile>/i.test(
+      readFileSync(props, 'utf8'),
+    )
+  );
+}
+
+/**
+ * `dotnet restore` for each solution at the root, else for each project there. The file is named
+ * explicitly: without one, `dotnet restore` fails when the root holds several project or solution files.
+ */
+function dotnetInstall(dir: string): string | null {
+  const entries = readdirSync(dir).sort();
+  const solutions = entries.filter((f) => f.endsWith('.sln') || f.endsWith('.slnx'));
+  const targets = solutions.length > 0 ? solutions : entries.filter((f) => f.endsWith('.csproj'));
+  if (targets.length === 0) return null;
+  const locked = nugetLocked(dir) ? ' --locked-mode' : '';
+  return targets.map((t) => `dotnet restore ${shellArg(t)}${locked}`).join(' && ');
+}
+
 /** The install commands detected from the lockfiles in `dir`, one per ecosystem, in run order. */
 export function detectSetup(dir: string): string[] {
-  return [jsInstall(dir), pythonInstall(dir)].filter((c): c is string => c !== null);
+  return [jsInstall(dir), pythonInstall(dir), dotnetInstall(dir)].filter(
+    (c): c is string => c !== null,
+  );
 }
 
 /** The commands of the setup step: the `setup` override, `'disabled'`, or detection. */
