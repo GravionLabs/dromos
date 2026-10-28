@@ -2,6 +2,7 @@ import type { Db } from '../db.js';
 import { BusEventSchema } from '../events/schema.js';
 import { repoFromPath } from '../github.js';
 import { loadRunnerConfig, modelFor, ROLES, type Role, type RunnerConfig } from './config.js';
+import { linkDependencies } from './dependencies.js';
 import { resolveFormatter } from './format.js';
 import {
   type BranchType,
@@ -79,6 +80,7 @@ export interface RunPbiOps {
   releaseIssue: typeof releaseIssue;
   integrationBranch: typeof integrationBranch;
   openWorktree: typeof openRunWorktree;
+  linkDependencies: typeof linkDependencies;
   finishWorktree: typeof finishRunWorktree;
   pushBranch: typeof pushRunBranch;
   makeHarness: (name: HarnessName) => Harness & { version(): Promise<string | null> };
@@ -110,6 +112,7 @@ const defaultOps: RunPbiOps = {
   releaseIssue,
   integrationBranch,
   openWorktree: openRunWorktree,
+  linkDependencies,
   finishWorktree: finishRunWorktree,
   pushBranch: pushRunBranch,
   makeHarness: (name) => new CliHarness({ name }),
@@ -267,6 +270,7 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
       parsed.title,
       config.base,
     );
+    await ops.linkDependencies(options.repo, worktree.path);
     const permissions = createPermissions({ cwd: worktree.path, allow: config.allow });
     const deps = {
       harness: harness as Harness,
