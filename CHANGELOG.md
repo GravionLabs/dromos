@@ -5,11 +5,38 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.0] — 2026-10-28
+
+### Bug Fixes
+- CLI adapter parses JSON from the reply and retries once (#253) (#254)
+- CLI adapter states the reply format in every phase prompt (#256) (#257)
+- Push the run branch before creating the PR (#258) (#259)
+- Allow git rm and git mv in phases (#261) (#262)
+- Runner verifies this repo with build, typecheck, lint and test (#270) (#271)
+
+
+### Documentation
+- Runner validation, 12 runs with claude and copilot (#225) (#300)
+- Refine the herdr plugin roadmap for the runner model (#99) (#298)
+
+
+### Features
+- Dromos run pbi CLI, run header, --format json (#224) (#251)
+- Planner phase with questions as data (#226) (#272)
+- Headless planner questions as an issue comment (#228) (#277)
+- Outcome events — findings with fingerprints, test results, fix-round causes (#233) (#279)
+- Dromos plan feature|pbi and dromos run feature|epic (#229) (#285)
+- Dromos status <nr> (#230) (#286)
+- **runner**: Format changed files after every implementer and fix round (#287) (#293)
+- **bus**: GET /state snapshot of agents, runs and open attentions (#168) (#294)
+
+
 ## [0.1.3] — 2026-10-27
 
 ### Documentation
 - Decision record, dromos owns control flow and apm-hub is content (#237)
 - Spike measurement and harness decision (#217) (#241)
+- Update CHANGELOG.md for v0.1.3 [skip ci]
 
 
 ### Features
