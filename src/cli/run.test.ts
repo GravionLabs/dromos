@@ -288,6 +288,7 @@ describe('dromos run pbi', () => {
   const ops = {
     repoSlug: async () => 'o/r',
     integrationBranch: async () => 'release/next',
+    preflight: async () => ({ pruned: [], removed: [], blocked: null }),
     readIssue: async () => pbiIssue,
   };
   const repo = mkdtempSync(join(tmpdir(), 'dromos-run-pbi-'));
