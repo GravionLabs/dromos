@@ -118,6 +118,28 @@ describe('runPlan', () => {
     ]);
   });
 
+  it('raises one APPROVAL attention per created issue with [Level] title and no pr', async () => {
+    const s = setup();
+    expect(await s.run({ assumeRecommended: true })).toBe(EXIT_DONE);
+    expect(s.events.filter((e) => e.type === 'attention')).toEqual([
+      {
+        type: 'attention',
+        data: { kind: 'APPROVAL', summary: '[PBI] First', pr: null },
+        issue: 41,
+      },
+    ]);
+    const open = s.db.listAttention({ state: 'open', issue: 41, limit: 10 });
+    expect(open).toMatchObject([{ kind: 'APPROVAL', summary: '[PBI] First', issue: 41 }]);
+    expect(s.db.queryEvents({ repo: 'o/r', issue: 41, limit: 10 }).events).toHaveLength(1);
+  });
+
+  it('raises no APPROVAL attention while questions are open', async () => {
+    const s = setup();
+    await s.run({});
+    const attentions = s.db.listAttention({ limit: 10 });
+    expect(attentions.filter((a) => a.kind === 'APPROVAL')).toEqual([]);
+  });
+
   it('emits outcome.questions with the count and the taken recommendations', async () => {
     const s = setup();
     expect(await s.run({ assumeRecommended: true })).toBe(EXIT_DONE);

@@ -28,7 +28,7 @@ const CLAUDE_MODELS: Record<Role, string> = {
   planner: 'opus',
   implementer: 'sonnet',
   implementerRound2: 'opus',
-  reviewer: 'sonnet',
+  reviewer: 'opus',
   retro: 'opus',
 };
 /** `auto` lets Copilot pick; a Sonnet id of Copilot is not known yet (see docs/spike.md). */
@@ -67,6 +67,10 @@ export const RunnerConfigSchema = z.strictObject({
     .prefault({}),
   /** Replaces formatter detection; `{files}` is the changed-file list. `false` disables the format step. */
   format: z.union([z.string().min(1), z.literal(false)]).optional(),
+  /** Replaces dependency detection in the worktree; `false` disables the setup step. */
+  setup: z.union([z.string().min(1), z.literal(false)]).optional(),
+  /** Integration branch for repositories without `release/next`; without it a missing `release/next` blocks the run. */
+  base: z.string().min(1).optional(),
   parallel: z.number().int().positive().default(3),
   /** Fix rounds after the first review before the run is blocked; 0 blocks on the first findings. */
   maxFixRounds: z.number().int().nonnegative().default(1),

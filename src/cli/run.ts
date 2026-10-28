@@ -149,7 +149,7 @@ export function formatEvent(event: RunPbiEvent): string {
         .join(' ');
       const { name, version, sdk } = event.harness;
       const versions = [version, sdk && `sdk ${sdk}`].filter(Boolean).join(', ');
-      return `run ${event.runId} #${String(event.issue)} ${event.repo}${event.dryRun ? ' (dry run)' : ''}: harness ${name}${versions ? ` (${versions})` : ''}; ${models}`;
+      return `run ${event.runId} #${String(event.issue)} ${event.repo}${event.dryRun ? ' (dry run)' : ''}: dromos ${event.dromos ?? 'unknown'}; base ${event.base ?? 'none'}; harness ${name}${versions ? ` (${versions})` : ''}; ${models}`;
     }
     case 'run.step':
       return `step: ${event.step}`;

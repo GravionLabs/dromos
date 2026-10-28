@@ -263,6 +263,33 @@ describe('runImplementerPhase', () => {
     expect(events.filter((e) => e.type === 'phase.failed')).toHaveLength(1);
   });
 
+  it('keeps a failed session that left commits and runs the tests on them', async () => {
+    const fake = fakeHarness(() => ({ status: 'failed', summary: 'could not verify' }));
+    const { deps, events, commands } = setup(fake);
+    deps.base = 'release/next';
+    deps.hasCommits = async (base) => base === 'release/next';
+    const out = await runImplementerPhase(deps, pbi([]), IMPLEMENTING);
+    expect(out.state).toEqual({ kind: 'reviewing', round: 0 });
+    expect(commands).toEqual(['npm test']);
+    expect(events.filter((e) => e.type === 'phase.failed')).toHaveLength(1);
+  });
+
+  it('blocks a failed session without commits even when the base is known', async () => {
+    const fake = fakeHarness(() => ({ status: 'failed', summary: 'nothing done' }));
+    const { deps, commands } = setup(fake);
+    deps.base = 'release/next';
+    deps.hasCommits = async () => false;
+    const out = await runImplementerPhase(deps, pbi([]), IMPLEMENTING);
+    expect(out.state).toEqual({ kind: 'blocked', reason: 'implementer #10 failed: nothing done' });
+    expect(commands).toEqual([]);
+  });
+
+  it('tells the session that the runner pushes and opens the pull request', async () => {
+    const fake = fakeHarness();
+    await runImplementerPhase(setup(fake).deps, pbi([]), IMPLEMENTING);
+    expect(fake.inputs[0]?.prompt).toMatch(/Do not push and do not open a pull request/);
+  });
+
   it('treats a harness error or a result off the schema as a failed session', async () => {
     const thrown = setup(fakeHarness(() => new Error('timeout')));
     const a = await runImplementerPhase(thrown.deps, pbi([]), IMPLEMENTING);

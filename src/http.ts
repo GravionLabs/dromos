@@ -25,6 +25,8 @@ import {
   INGEST_TYPES,
   isIngestType,
 } from './events/schema.js';
+import { collectLearning } from './learning.js';
+import { parseLearningQuery } from './learning-query.js';
 import { startNoticeSweep } from './notice-sweep.js';
 import { collectEvents, collectRunsMetrics, computeRunMetrics } from './run-metrics.js';
 import { parseMultiRunMetricsQuery, parseSingleRunMetricsQuery } from './run-metrics-query.js';
@@ -441,6 +443,23 @@ export async function startHttp({
     sendJson(res, 200, collectRunsMetrics(db, parsed));
   }
 
+  function handleLearning(req: IncomingMessage, res: ServerResponse): void {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    if (!hostAllowed(req)) {
+      sendJson(res, 403, { error: 'forbidden host or origin' });
+      return;
+    }
+    const parsed = parseLearningQuery(new URL(req.url ?? '/', 'http://localhost').searchParams);
+    if ('error' in parsed) {
+      sendJson(res, 400, { error: parsed.error });
+      return;
+    }
+    sendJson(res, 200, collectLearning(db, parsed));
+  }
+
   function handleState(req: IncomingMessage, res: ServerResponse): void {
     if (req.method !== 'GET') {
       sendJson(res, 405, { error: 'method not allowed' });
@@ -807,6 +826,16 @@ export async function startHttp({
           sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
         }
       });
+      return;
+    }
+    if (path === '/learning') {
+      try {
+        handleLearning(req, res);
+      } catch {
+        if (!res.headersSent) {
+          sendJson(res, 500, { error: 'internal error' });
+        }
+      }
       return;
     }
     const runMatch = RUN_METRICS_PATH.exec(path);

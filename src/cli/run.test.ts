@@ -287,6 +287,7 @@ describe('dromos run pbi', () => {
   };
   const ops = {
     repoSlug: async () => 'o/r',
+    integrationBranch: async () => 'release/next',
     readIssue: async () => pbiIssue,
   };
   const repo = mkdtempSync(join(tmpdir(), 'dromos-run-pbi-'));
@@ -325,6 +326,7 @@ describe('dromos run pbi', () => {
       type: 'run.header',
       issue: 5,
       dryRun: true,
+      dromos: expect.any(String),
       harness: { name: 'claude' },
       models: { implementer: 'sonnet' },
     });
@@ -334,7 +336,9 @@ describe('dromos run pbi', () => {
   it('prints text on a TTY, header line first', async () => {
     const res = await run(['--dry-run'], true);
     const lines = res.stdout.trim().split('\n');
-    expect(lines[0]).toMatch(/^run pbi-5-\S+ #5 o\/r \(dry run\): harness claude; planner=opus/);
+    expect(lines[0]).toMatch(
+      /^run pbi-5-\S+ #5 o\/r \(dry run\): dromos \S+; base release\/next; harness claude; planner=opus/,
+    );
     expect(lines.at(-1)).toBe('dry_run');
   });
 

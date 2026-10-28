@@ -87,6 +87,8 @@ export interface ImplementerDeps {
   /** Runs the formatter command in `cwd`; defaults to {@link runShell}. */
   runFormat?: (command: string, cwd: string) => Promise<TestOutcome>;
   formatGit?: FormatGit;
+  /** Whether the worktree has commits on top of `base`; defaults to `git rev-list`. */
+  hasCommits?: (base: string, cwd: string) => Promise<boolean>;
   emit: (event: ImplementerEvent) => void;
   now?: () => number;
 }
@@ -100,6 +102,14 @@ export interface ImplementerOutcome extends Transition {
 export async function runShell(command: string, cwd: string): Promise<TestOutcome> {
   const res = await execa(command, { cwd, shell: true, reject: false, all: true });
   return { passed: res.exitCode === 0, output: String(res.all ?? '') };
+}
+
+/** True when HEAD in `cwd` is ahead of `base`. */
+export async function commitsAhead(base: string, cwd: string): Promise<boolean> {
+  const res = await execa('git', ['-C', cwd, 'rev-list', '--count', `${base}..HEAD`], {
+    reject: false,
+  });
+  return res.exitCode === 0 && Number(res.stdout.trim()) > 0;
 }
 
 /** Formats the files changed against the base and commits the result; no-op without `deps.base`. */
@@ -153,8 +163,17 @@ function taskPrompt(pbi: PbiSpec, task: { number: number; title: string; body: s
     '## PBI acceptance criteria',
     pbi.acceptanceCriteria,
     'Use the `implementation` skill. Change tests together with the code and commit your work. ' +
-      'Do not run the full test suite; the runner runs the tests afterwards.',
+      'Do not run the full test suite; the runner runs the tests afterwards. ' +
+      'Do not push and do not open a pull request: the runner does both after its tests and the review. ' +
+      'If you cannot verify something (missing dependencies, blocked tools), still commit what you finished ' +
+      'and say so in the summary.',
   ].join('\n\n');
+}
+
+/** A failed session that left commits behind: the runner's tests and the reviewer judge them. */
+async function keepsCommittedWork(deps: ImplementerDeps): Promise<boolean> {
+  if (deps.base === undefined) return false;
+  return (deps.hasCommits ?? commitsAhead)(deps.base, deps.cwd);
 }
 
 /** Runs `items` in chunks of at most `cap` at a time. */
@@ -168,7 +187,7 @@ async function inChunks<T, R>(items: T[], cap: number, fn: (item: T) => Promise<
 
 /**
  * Runs the implementer phase from the `implementing` state and returns the state after the tests.
- * A failed session, a result that does not match the schema, or red tests block the run.
+ * A failed session without commits, a result that does not match the schema, or red tests block the run.
  */
 export async function runImplementerPhase(
   deps: ImplementerDeps,
@@ -232,7 +251,7 @@ export async function runImplementerPhase(
   for (const wave of sessions) {
     const results = await inChunks(wave, config.parallel, runSession);
     const failed = results.findIndex((r) => r.status === 'failed');
-    if (failed !== -1) {
+    if (failed !== -1 && !(await keepsCommittedWork(deps))) {
       const t = apply(state, {
         type: 'abort',
         reason: `implementer #${String(wave[failed]?.number)} failed: ${results[failed]?.summary}`,

@@ -1,8 +1,10 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../db.js';
+import { raiseApproval } from './approval.js';
+import { MissingIntegrationBranchError } from './git.js';
 import { ClaimError, type RunnerIssue } from './github.js';
 import type { Harness } from './harness.js';
 import {
@@ -55,6 +57,7 @@ function setup(
     releaseIssue: async () => {
       calls.push('release');
     },
+    integrationBranch: async () => 'release/next',
     openWorktree: async () => {
       calls.push('worktree');
       return { path: dir, branch: 'feat/224-x', base: 'release/next' };
@@ -87,7 +90,7 @@ function setup(
       emit: (e) => events.push(e),
       ops,
     });
-  return { run, events, calls, db, started: () => harnessStarted };
+  return { run, events, calls, db, dir, started: () => harnessStarted };
 }
 
 const done = { status: 'done', summary: 'ok' };
@@ -116,8 +119,9 @@ describe('runPbi', () => {
       issue: 224,
       repo: 'o/r',
       dryRun: false,
+      base: 'release/next',
       harness: { name: 'claude', version: '1.2.3' },
-      models: { implementer: 'sonnet', reviewer: 'sonnet', planner: 'opus' },
+      models: { implementer: 'sonnet', reviewer: 'opus', planner: 'opus' },
     });
     expect(s.events.at(-1)).toMatchObject({
       type: 'run.finished',
@@ -146,6 +150,50 @@ describe('runPbi', () => {
     expect(await s.run()).toBe(EXIT_BLOCKED);
     expect(s.events.at(-1)).toMatchObject({ outcome: 'blocked' });
     expect(s.calls).toEqual(['claim', 'worktree', 'release', 'finish:blocked']);
+  });
+
+  it('installs the dependencies in the worktree before the implementer', async () => {
+    const order: string[] = [];
+    const s = setup([done, clean], {
+      ops: {
+        runSetup: async (command) => {
+          order.push(`setup:${command}`);
+          return { passed: true, output: '' };
+        },
+        runTests: async () => {
+          order.push('tests');
+          return { passed: true, output: '' };
+        },
+      },
+    });
+    writeFileSync(join(s.dir, 'pnpm-lock.yaml'), '');
+    expect(await s.run()).toBe(EXIT_DONE);
+    expect(order).toEqual(['setup:pnpm install --frozen-lockfile --prefer-offline', 'tests']);
+    expect(s.events.map((e) => e.type)).toContain('setup.finished');
+  });
+
+  it('blocks as a setup failure before the implementer and keeps setup events off the bus', async () => {
+    const s = setup([done, clean], {
+      ops: { runSetup: async () => ({ passed: false, output: 'ERR_PNPM_X' }) },
+    });
+    writeFileSync(join(s.dir, 'pnpm-lock.yaml'), '');
+    expect(await s.run()).toBe(EXIT_BLOCKED);
+    // Only the harness version was queried; no phase ran.
+    expect(s.started()).toBe(1);
+    expect(s.events.at(-1)).toMatchObject({
+      type: 'run.finished',
+      outcome: 'blocked',
+      reason: 'setup failed: pnpm install --frozen-lockfile --prefer-offline',
+    });
+    expect(s.events).toContainEqual({
+      type: 'setup.failed',
+      data: {
+        command: 'pnpm install --frozen-lockfile --prefer-offline',
+        stderrTail: 'ERR_PNPM_X',
+      },
+    });
+    expect(s.calls).toEqual(['claim', 'worktree', 'release', 'finish:blocked']);
+    expect(s.db.queryEvents({ issue: 224, limit: 50 }).events).toEqual([]);
   });
 
   it('exits 1 when an open issue blocks the PBI, before any claim', async () => {
@@ -193,6 +241,33 @@ describe('runPbi', () => {
     expect(s.events[0]?.type).toBe('run.header');
   });
 
+  it('blocks before the claim when release/next is missing, in a dry run too', async () => {
+    for (const dryRun of [false, true]) {
+      const s = setup([], {
+        dryRun,
+        ops: {
+          integrationBranch: async () => {
+            throw new MissingIntegrationBranchError();
+          },
+        },
+      });
+      expect(await s.run()).toBe(EXIT_BLOCKED);
+      expect(s.calls).toEqual([]);
+      expect(s.events[0]).toMatchObject({ type: 'run.header', base: null });
+      expect(s.events.at(-1)).toMatchObject({
+        type: 'run.finished',
+        outcome: 'blocked',
+        reason: expect.stringContaining('github-release cut'),
+      });
+    }
+  });
+
+  it('names the base in run.started', async () => {
+    const s = setup([done, clean]);
+    await s.run();
+    expect(s.events).toContainEqual({ type: 'run.started', base: 'release/next' });
+  });
+
   it('dry run lists the steps without a harness, claim, worktree or PR', async () => {
     const withTasks: RunnerIssue = {
       ...issue,
@@ -219,6 +294,41 @@ describe('runPbi', () => {
     expect(steps.some((t) => t.includes('Task #231'))).toBe(true);
     expect(steps.some((t) => t.includes('#230'))).toBe(false);
     expect(steps.some((t) => t.startsWith('format changed files'))).toBe(true);
+    expect(steps).toContain('install dependencies in the worktree: no lockfile detected, skipped');
     expect(s.events.at(-1)).toMatchObject({ type: 'run.finished', outcome: 'dry_run' });
+  });
+
+  it('acks the APPROVAL attention of a Task that carries approved, not of one without', async () => {
+    const withTasks: RunnerIssue = {
+      ...issue,
+      subIssues: [
+        { number: 231, title: 'task one', state: 'OPEN' },
+        { number: 232, title: 'task two', state: 'OPEN' },
+      ],
+    };
+    const tasks: Record<number, RunnerIssue> = {
+      231: { ...issue, number: 231, title: '[Task] one', labels: ['approved'], subIssues: [] },
+      232: {
+        ...issue,
+        number: 232,
+        title: '[Task] two',
+        labels: ['needs-approval'],
+        subIssues: [],
+      },
+    };
+    const s = setup([], {
+      dryRun: true,
+      ops: {
+        readIssue: async (_slug, nr) => (nr === 224 ? withTasks : (tasks[nr] as RunnerIssue)),
+      },
+    });
+    const base = { repo: 'o/r', runId: 'plan-224-x', level: 'Task' };
+    const approved = raiseApproval(s.db, { ...base, issue: 231, title: 'one' });
+    const pending = raiseApproval(s.db, { ...base, issue: 232, title: 'two' });
+    const otherRepo = raiseApproval(s.db, { ...base, repo: 'o/other', issue: 231, title: 'one' });
+    expect(await s.run()).toBe(EXIT_DONE);
+    expect(s.db.getAttention(approved.id)?.state).toBe('acked');
+    expect(s.db.getAttention(pending.id)?.state).toBe('open');
+    expect(s.db.getAttention(otherRepo.id)?.state).toBe('open');
   });
 });

@@ -31,7 +31,7 @@ describe('loadRunnerConfig', () => {
           planner: 'opus',
           implementer: 'sonnet',
           implementerRound2: 'opus',
-          reviewer: 'sonnet',
+          reviewer: 'opus',
           retro: 'opus',
         },
         copilot: {
@@ -73,6 +73,12 @@ describe('loadRunnerConfig', () => {
     expect(config.test).toEqual({ related: 'pnpm test --changed', full: 'pnpm test' });
     expect(config.parallel).toBe(1);
     expect(config.allow).toEqual(['pnpm run lint']);
+  });
+
+  it('reads base and leaves it unset by default', () => {
+    expect(loadRunnerConfig(dir).base).toBeUndefined();
+    write({ base: 'main' });
+    expect(loadRunnerConfig(dir).base).toBe('main');
   });
 
   it('picks the model per harness, claude-cli sharing the claude models', () => {

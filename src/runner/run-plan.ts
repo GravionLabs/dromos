@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import type { Db } from '../db.js';
 import { BusEventSchema } from '../events/schema.js';
 import { repoFromPath } from '../github.js';
+import { APPROVAL_KIND, raiseApproval } from './approval.js';
 import { loadRunnerConfig, modelFor } from './config.js';
 import {
   addLabel,
@@ -57,7 +58,9 @@ export type RunPlanEvent =
   | { type: 'phase.failed'; data: PhaseEnd }
   | {
       type: 'attention';
-      data: { kind: string; summary: string; pr: null; question: string; options: string[] };
+      data: { kind: string; summary: string; pr: null; question?: string; options?: string[] };
+      /** The issue the attention is about, when it is not the planned one (APPROVAL). */
+      issue?: number;
     }
   | {
       type: 'run.finished';
@@ -163,6 +166,7 @@ export async function runPlan(options: RunPlanOptions): Promise<number> {
         options.db.insertEvent(SOURCE, checked.type, checked.data, {
           issue: options.issue,
           runId,
+          repo: slug,
         });
       }
     };
@@ -242,6 +246,27 @@ export async function runPlan(options: RunPlanOptions): Promise<number> {
       await ops.removeLabel(slug, options.issue, NEEDS_DECISION_LABEL);
     }
     const issues = await ops.createIssues(slug, options.issue, level, plan, plan.assumptions);
+    // One APPROVAL attention per created issue (`needs-approval`); a later run acks it on `approved`:
+    // `run feature|epic` for Features and PBIs, `run pbi` for the Tasks of its PBI.
+    for (const created of issues) {
+      const item = plan.items.find((i) => i.key === created.key);
+      if (!item) continue;
+      const summary = `[${level}] ${item.title}`;
+      if (options.db) {
+        raiseApproval(options.db, {
+          repo: slug,
+          issue: created.number,
+          runId,
+          level,
+          title: item.title,
+        });
+      }
+      options.emit({
+        type: 'attention',
+        data: { kind: APPROVAL_KIND, summary, pr: null },
+        issue: created.number,
+      });
+    }
     return finish('planned', EXIT_DONE, { plan: path, issues });
   } catch (error) {
     return finish('error', EXIT_ERROR, {

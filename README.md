@@ -181,7 +181,17 @@ CI (`.github/workflows/schema.yml`) reruns both generators and fails on `git dif
 
 ## CLI install
 
-Build and link the CLI globally, then start the bus:
+Install the published package; the binary is `dromos`:
+
+```bash
+npm i -g @gravionlabs/dromos
+dromos --version
+dromos serve
+```
+
+`dromos --version` prints the installed package version; the run header of `dromos run` names it too.
+
+From a clone, build and link the CLI globally, then start the bus:
 
 ```bash
 pnpm build && pnpm link --global
@@ -209,7 +219,7 @@ dromos events --issue 135 --type progress,agent.state --limit 50 --table
 dromos run pbi <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--dry-run] [--force]
 ```
 
-`dromos run pbi` claims the PBI, implements it in a worktree, reviews it (one fix round) and opens the pull request. The first line and first event is the run header (harness, versions, models per role). `--format json` streams events as JSON lines; text output is for a TTY only, so off a TTY the output is JSON lines whatever `--format` says. After every implementer phase and fix round, before the tests, the runner formats the changed files with the formatter it detects in the worktree (or `"format"` of `.dromos/config.json`; `false` disables) and commits the result as `style: format (#<nr>)`; see [docs/format-step.md](docs/format-step.md). `--dry-run` prints the steps without starting a harness or writing to GitHub. `--force` takes over a PBI that already carries `in-progress`. Exit codes: 0 pull request opened (or dry run), 1 blocked, 2 usage error, 3 error.
+`dromos run pbi` claims the PBI, implements it in a worktree, reviews it (one fix round) and opens the pull request. The first line and first event is the run header (dromos version, harness, versions, models per role). `--format json` streams events as JSON lines; text output is for a TTY only, so off a TTY the output is JSON lines whatever `--format` says. Right after the worktree is created the runner installs the dependencies there with the command it detects from the lockfiles (or `"setup"` of `.dromos/config.json`; `false` disables); a failing install blocks the run as a setup failure, see [docs/setup-step.md](docs/setup-step.md). After every implementer phase and fix round, before the tests, the runner formats the changed files with the formatter it detects in the worktree (or `"format"` of `.dromos/config.json`; `false` disables) and commits the result as `style: format (#<nr>)`; see [docs/format-step.md](docs/format-step.md). The run is cut from `release/next` on origin and its pull request targets it; without that branch the run ends `blocked` before the claim (also with `--dry-run`), unless `"base"` of `.dromos/config.json` names the branch to use (for repositories without a release branch). The run header and `run.started` name the base. `--dry-run` prints the steps without starting a harness or writing to GitHub. `--force` takes over a PBI that already carries `in-progress`. Exit codes: 0 pull request opened (or dry run), 1 blocked, 2 usage error, 3 error.
 
 ```
 dromos run plan <nr> [--harness claude|claude-cli|copilot] [--repo PATH] [--format text|json] [--answer <id>=<value>]... [--assume-recommended]
@@ -238,6 +248,10 @@ dromos status <nr> [--repo PATH] [--format text|json]
 The herdr plugin (Epic #98) is the workspace for interactive work; apm-hub orchestrator runs report to the bus through `$DROMOS_URL`.
 
 Config: `dromos.config.json` in the working directory (or the file named by `DROMOS_CONFIG`), merged over defaults. See `dromos.config.example.json` for host, port, `maxRounds`, gate commands, base branch, `branchPrefix` (default `conventional`: `<type>/<issue>-<slug>`), `worktreeDir` (relative path, no `..`, default `.worktrees`).
+
+`dromos init [--repo PATH] [--stack ts|py|dotnet|rust|ng] [--test-full <cmd>] [--dry-run] [--format text|json]` creates or updates `.dromos/config.json` of a repository. Without a file it writes `harness`, `test.full` and `parallel` and nothing else; `test.full` is the default of the stack detected from marker files (`angular.json`, `Cargo.toml`, `*.csproj`, `pyproject.toml`, `package.json`/`pnpm-lock.yaml`), `--stack` and `--test-full` override it. On an existing file it is idempotent: it adds the keys that are missing with their defaults, keeps every value that is set and reports `added` and `kept`. An invalid file is not touched. `--dry-run` prints the resulting file and the diff and writes nothing; `--format json` prints `{ path, action: created|updated|unchanged, added[], kept[] }`. Exit codes: 0 done, 1 invalid existing file (errors listed), 2 usage error, 3 error.
+
+`dromos config check [--repo PATH] [--format text|json]` validates `.dromos/config.json` against the runner config schema and prints path and message per error. Exit codes: 0 valid (a missing file is valid, defaults apply), 1 invalid, 2 usage error. `dromos config schema` prints the JSON Schema of the runner config, generated from the same zod schema, for other tools to validate against.
 
 ## Workflow
 
