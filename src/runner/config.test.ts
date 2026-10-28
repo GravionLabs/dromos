@@ -75,6 +75,12 @@ describe('loadRunnerConfig', () => {
     expect(config.allow).toEqual(['pnpm run lint']);
   });
 
+  it('reads base and leaves it unset by default', () => {
+    expect(loadRunnerConfig(dir).base).toBeUndefined();
+    write({ base: 'main' });
+    expect(loadRunnerConfig(dir).base).toBe('main');
+  });
+
   it('picks the model per harness, claude-cli sharing the claude models', () => {
     write({ models: { copilot: { implementer: 'gpt-5.4' } } });
     const config = loadRunnerConfig(dir);

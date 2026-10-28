@@ -1,6 +1,12 @@
 import { execa } from 'execa';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { finishRunWorktree, integrationBranch, openRunWorktree, runBranchName } from './git.js';
+import {
+  finishRunWorktree,
+  integrationBranch,
+  MissingIntegrationBranchError,
+  openRunWorktree,
+  runBranchName,
+} from './git.js';
 
 vi.mock('execa');
 vi.mock('node:fs', () => ({
@@ -23,16 +29,22 @@ describe('integrationBranch', () => {
     expect(await integrationBranch('/r')).toBe('release/next');
   });
 
-  it('falls back to the remote default branch', async () => {
-    mockExeca
-      .mockResolvedValueOnce({ exitCode: 2, stdout: '' })
-      .mockResolvedValueOnce({ exitCode: 0, stdout: 'origin/develop\n' });
-    expect(await integrationBranch('/r')).toBe('develop');
+  it('blocks instead of falling back to the default branch', async () => {
+    mockExeca.mockResolvedValue({ exitCode: 2, stdout: '' });
+    const err = await integrationBranch('/r').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(MissingIntegrationBranchError);
+    expect((err as Error).message).toContain('github-release cut');
+    expect(calls().some((c) => c.includes('symbolic-ref'))).toBe(false);
   });
 
-  it('falls back to main when nothing is known', async () => {
-    mockExeca.mockResolvedValue({ exitCode: 1, stdout: '' });
-    expect(await integrationBranch('/r')).toBe('main');
+  it('uses the configured base when release/next is missing', async () => {
+    mockExeca.mockResolvedValue({ exitCode: 2, stdout: '' });
+    expect(await integrationBranch('/r', 'main')).toBe('main');
+  });
+
+  it('prefers release/next over the configured base', async () => {
+    mockExeca.mockResolvedValue(ok);
+    expect(await integrationBranch('/r', 'main')).toBe('release/next');
   });
 });
 

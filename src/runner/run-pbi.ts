@@ -6,6 +6,8 @@ import { resolveFormatter } from './format.js';
 import {
   type BranchType,
   finishRunWorktree,
+  integrationBranch,
+  MissingIntegrationBranchError,
   openRunWorktree,
   pushRunBranch,
   type RunWorktree,
@@ -53,6 +55,8 @@ export interface RunHeader {
   repo: string;
   harness: { name: HarnessName; version: string | null; sdk: string | null };
   models: Record<Role, string>;
+  /** The integration branch the run is cut from; `null` when it cannot be resolved (the run is then blocked). */
+  base: string | null;
   dryRun: boolean;
 }
 
@@ -73,6 +77,7 @@ export interface RunPbiOps {
   readIssue: (slug: string, number: number) => Promise<RunnerIssue>;
   claimIssue: typeof claimIssue;
   releaseIssue: typeof releaseIssue;
+  integrationBranch: typeof integrationBranch;
   openWorktree: typeof openRunWorktree;
   finishWorktree: typeof finishRunWorktree;
   pushBranch: typeof pushRunBranch;
@@ -103,6 +108,7 @@ const defaultOps: RunPbiOps = {
   readIssue,
   claimIssue,
   releaseIssue,
+  integrationBranch,
   openWorktree: openRunWorktree,
   finishWorktree: finishRunWorktree,
   pushBranch: pushRunBranch,
@@ -165,6 +171,14 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
   const harness = dryRun ? null : ops.makeHarness(harnessName);
   const info = { name: harnessName, version: (await harness?.version()) ?? null, sdk: null };
   const slug = await ops.repoSlug(options.repo);
+  let base: string | null = null;
+  let baseError: MissingIntegrationBranchError | undefined;
+  try {
+    base = await ops.integrationBranch(options.repo, config.base);
+  } catch (error) {
+    if (!(error instanceof MissingIntegrationBranchError)) throw error;
+    baseError = error;
+  }
   options.emit({
     type: 'run.header',
     runId,
@@ -172,6 +186,7 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
     repo: slug,
     harness: info,
     models: modelsOf(config, harnessName),
+    base,
     dryRun,
   });
 
@@ -211,6 +226,7 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
   let claimed = false;
   let worktree: RunWorktree | undefined;
   try {
+    if (baseError) return finish('blocked', EXIT_BLOCKED, { reason: baseError.message });
     const issue = await ops.readIssue(slug, options.issue);
     const pbi = await pbiSpec(slug, issue, ops);
     const open = issue.blockedBy.filter((b) => b.state.toLowerCase() === 'open');
@@ -226,7 +242,7 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
         `claim #${String(pbi.number)} with label in-progress${options.force ? ' (--force)' : ''}`,
       );
       step(
-        `create worktree and branch ${parsed.type}/${String(pbi.number)}-… from the integration branch`,
+        `create worktree and branch ${parsed.type}/${String(pbi.number)}-… from ${base ?? 'the integration branch'}`,
       );
       if (pbi.tasks.length === 0) step(`implement #${String(pbi.number)} in one session`);
       for (const t of pbi.tasks) step(`implement Task #${String(t.number)}: ${t.title}`);
@@ -244,7 +260,13 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
 
     await ops.claimIssue(slug, options.issue, runId, options.force);
     claimed = true;
-    worktree = await ops.openWorktree(options.repo, options.issue, parsed.type, parsed.title);
+    worktree = await ops.openWorktree(
+      options.repo,
+      options.issue,
+      parsed.type,
+      parsed.title,
+      config.base,
+    );
     const permissions = createPermissions({ cwd: worktree.path, allow: config.allow });
     const deps = {
       harness: harness as Harness,
@@ -261,7 +283,11 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
     };
 
     let state = transition(INITIAL_STATE, { type: 'start' }, config.maxFixRounds);
-    emit(state.event);
+    emit(
+      state.event.type === 'run.started'
+        ? { type: 'run.started', base: worktree.base }
+        : state.event,
+    );
     const implemented = await runImplementerPhase(deps, pbi, {
       kind: 'implementing',
       round: 0,

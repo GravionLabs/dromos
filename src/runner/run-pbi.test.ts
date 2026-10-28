@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { openDb } from '../db.js';
+import { MissingIntegrationBranchError } from './git.js';
 import { ClaimError, type RunnerIssue } from './github.js';
 import type { Harness } from './harness.js';
 import {
@@ -55,6 +56,7 @@ function setup(
     releaseIssue: async () => {
       calls.push('release');
     },
+    integrationBranch: async () => 'release/next',
     openWorktree: async () => {
       calls.push('worktree');
       return { path: dir, branch: 'feat/224-x', base: 'release/next' };
@@ -116,6 +118,7 @@ describe('runPbi', () => {
       issue: 224,
       repo: 'o/r',
       dryRun: false,
+      base: 'release/next',
       harness: { name: 'claude', version: '1.2.3' },
       models: { implementer: 'sonnet', reviewer: 'sonnet', planner: 'opus' },
     });
@@ -191,6 +194,33 @@ describe('runPbi', () => {
     });
     expect(await s.run()).toBe(EXIT_ERROR);
     expect(s.events[0]?.type).toBe('run.header');
+  });
+
+  it('blocks before the claim when release/next is missing, in a dry run too', async () => {
+    for (const dryRun of [false, true]) {
+      const s = setup([], {
+        dryRun,
+        ops: {
+          integrationBranch: async () => {
+            throw new MissingIntegrationBranchError();
+          },
+        },
+      });
+      expect(await s.run()).toBe(EXIT_BLOCKED);
+      expect(s.calls).toEqual([]);
+      expect(s.events[0]).toMatchObject({ type: 'run.header', base: null });
+      expect(s.events.at(-1)).toMatchObject({
+        type: 'run.finished',
+        outcome: 'blocked',
+        reason: expect.stringContaining('github-release cut'),
+      });
+    }
+  });
+
+  it('names the base in run.started', async () => {
+    const s = setup([done, clean]);
+    await s.run();
+    expect(s.events).toContainEqual({ type: 'run.started', base: 'release/next' });
   });
 
   it('dry run lists the steps without a harness, claim, worktree or PR', async () => {

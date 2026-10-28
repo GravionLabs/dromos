@@ -20,25 +20,29 @@ export interface RunWorktree {
   base: string;
 }
 
-/** `release/next` when the remote has it, else the remote's default branch. */
-export async function integrationBranch(repoPath: string): Promise<string> {
+/** The remote has no `release/next` and the repository config names no `base`. */
+export class MissingIntegrationBranchError extends Error {
+  override name = 'MissingIntegrationBranchError';
+  constructor() {
+    super(
+      `no integration branch \`${PREFERRED_BASE}\` on origin; cut it with \`github-release cut\` or set "base" in .dromos/config.json`,
+    );
+  }
+}
+
+/**
+ * `release/next` when the remote has it, else the configured `base`. Without both the run must not
+ * fall back to the default branch: its pull request would bypass the release flow.
+ */
+export async function integrationBranch(repoPath: string, base?: string): Promise<string> {
   const preferred = await execa(
     'git',
     ['-C', repoPath, 'ls-remote', '--exit-code', '--heads', 'origin', PREFERRED_BASE],
     { reject: false },
   );
   if (preferred.exitCode === 0) return PREFERRED_BASE;
-  const head = await execa(
-    'git',
-    ['-C', repoPath, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
-    {
-      reject: false,
-    },
-  );
-  const name = String(head.stdout ?? '')
-    .trim()
-    .replace(/^origin\//, '');
-  return head.exitCode === 0 && name !== '' ? name : 'main';
+  if (base !== undefined) return base;
+  throw new MissingIntegrationBranchError();
 }
 
 export function runBranchName(type: BranchType, issue: number, title: string): string {
@@ -53,10 +57,11 @@ export async function openRunWorktree(
   issue: number,
   type: BranchType,
   title: string,
+  configuredBase?: string,
 ): Promise<RunWorktree> {
   const path = join(repoPath, WORKTREE_DIR, String(issue));
   const branch = runBranchName(type, issue, title);
-  const base = await integrationBranch(repoPath);
+  const base = await integrationBranch(repoPath, configuredBase);
   await assertWorktreeDirIgnored(repoPath, WORKTREE_DIR);
   await createWorktree(repoPath, base, branch, path, () => ensureWorktreeParent(repoPath, path));
   return { path, branch, base };

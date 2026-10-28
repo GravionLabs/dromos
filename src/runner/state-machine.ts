@@ -26,7 +26,7 @@ export type RunInput =
 
 /** The event a transition asks the runner to emit. */
 export type RunEvent =
-  | { type: 'run.started' }
+  | { type: 'run.started'; base?: string }
   | { type: 'implement.finished'; round: number }
   | { type: 'tests.passed'; round: number }
   | { type: 'tests.failed'; round: number; summary: string }
