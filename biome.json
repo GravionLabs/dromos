@@ -11,7 +11,8 @@
       "!.github/ISSUE_TEMPLATE",
       "!pnpm-lock.yaml",
       "!schema/events.schema.json",
-      "!schema/plan.schema.json"
+      "!schema/plan.schema.json",
+      "!schema/state.schema.json"
     ]
   },
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },

@@ -30,6 +30,7 @@ import { collectEvents, collectRunsMetrics, computeRunMetrics } from './run-metr
 import { parseMultiRunMetricsQuery, parseSingleRunMetricsQuery } from './run-metrics-query.js';
 import { type AgentState, HookEventSchema, type Role, RoleSchema } from './schemas.js';
 import { createBusServer } from './server.js';
+import { buildStateSnapshot } from './state-snapshot.js';
 
 export interface HttpOptions {
   config: Config;
@@ -440,6 +441,18 @@ export async function startHttp({
     sendJson(res, 200, collectRunsMetrics(db, parsed));
   }
 
+  function handleState(req: IncomingMessage, res: ServerResponse): void {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    if (!hostAllowed(req)) {
+      sendJson(res, 403, { error: 'forbidden host or origin' });
+      return;
+    }
+    sendJson(res, 200, buildStateSnapshot(db));
+  }
+
   async function handleEvent(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (req.method !== 'POST') {
       sendJson(res, 405, { error: 'method not allowed' });
@@ -739,6 +752,16 @@ export async function startHttp({
           sendJson(res, 500, { error: error instanceof Error ? error.message : 'internal error' });
         }
       });
+      return;
+    }
+    if (path === '/state') {
+      try {
+        handleState(req, res);
+      } catch {
+        if (!res.headersSent) {
+          sendJson(res, 500, { error: 'internal error' });
+        }
+      }
       return;
     }
     if (path === '/ingest') {
