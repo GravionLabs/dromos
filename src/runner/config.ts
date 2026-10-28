@@ -67,6 +67,8 @@ export const RunnerConfigSchema = z.strictObject({
     .prefault({}),
   /** Replaces formatter detection; `{files}` is the changed-file list. `false` disables the format step. */
   format: z.union([z.string().min(1), z.literal(false)]).optional(),
+  /** Replaces dependency detection in the worktree; `false` disables the setup step. */
+  setup: z.union([z.string().min(1), z.literal(false)]).optional(),
   /** Integration branch for repositories without `release/next`; without it a missing `release/next` blocks the run. */
   base: z.string().min(1).optional(),
   parallel: z.number().int().positive().default(3),
