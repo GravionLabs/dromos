@@ -2,6 +2,7 @@ import type { Db } from '../db.js';
 import { BusEventSchema } from '../events/schema.js';
 import { repoFromPath } from '../github.js';
 import { loadRunnerConfig, modelFor, ROLES, type Role, type RunnerConfig } from './config.js';
+import { resolveFormatter } from './format.js';
 import {
   type BranchType,
   finishRunWorktree,
@@ -79,6 +80,7 @@ export interface RunPbiOps {
   createPr: (repo: string, input: CreatePrInput) => Promise<PullRequest>;
   comment: (repo: string, number: number, body: string) => Promise<void>;
   runTests?: (command: string, cwd: string) => Promise<TestOutcome>;
+  runFormat?: (command: string, cwd: string) => Promise<TestOutcome>;
   listCommits?: (base: string, cwd: string) => Promise<Commit[]>;
 }
 
@@ -175,7 +177,8 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
 
   const emit = (event: ImplementerEvent): void => {
     options.emit(event);
-    if (options.db && 'data' in event) {
+    // Format events go to the caller only; the bus has no schema for them.
+    if (options.db && 'data' in event && !event.type.startsWith('format.')) {
       const checked = BusEventSchema.parse({
         id: 0,
         type: event.type,
@@ -227,6 +230,12 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
       );
       if (pbi.tasks.length === 0) step(`implement #${String(pbi.number)} in one session`);
       for (const t of pbi.tasks) step(`implement Task #${String(t.number)}: ${t.title}`);
+      const formatter = await resolveFormatter(config, options.repo);
+      step(
+        formatter === 'disabled'
+          ? 'format changed files: disabled'
+          : `format changed files before the tests: ${formatter?.describe ?? 'no formatter detected, skipped'}`,
+      );
       step(`run tests: ${config.test.related ?? config.test.full}`);
       step(`review, at most ${String(config.maxFixRounds)} fix round(s)`);
       step('open the pull request, release the claim, remove the worktree');
@@ -246,6 +255,8 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
       allow: permissions.allow,
       timeoutMs: TIMEOUT_MS,
       runTests: ops.runTests,
+      runFormat: ops.runFormat,
+      base: worktree.base,
       emit,
     };
 

@@ -92,6 +92,34 @@ describe('runReviewPhase', () => {
     expect(s.comments).toEqual([]);
   });
 
+  it('formats the fix round before the tests', async () => {
+    const s = setup([
+      { blocking: [finding], notes: [] },
+      { status: 'done', summary: 'fixed' },
+    ]);
+    const order: string[] = [];
+    const runTests = s.deps.runTests;
+    const out = await runReviewPhase(
+      {
+        ...s.deps,
+        config: RunnerConfigSchema.parse({ format: 'fmt' }),
+        runTests: async (c, cwd) => {
+          order.push('tests');
+          return (runTests as NonNullable<typeof runTests>)(c, cwd);
+        },
+        runFormat: async () => {
+          order.push('format');
+          return { passed: true, output: '' };
+        },
+        formatGit: { changedFiles: async () => ['a.ts'], commitAll: async () => true },
+      },
+      pbi,
+      REVIEWING,
+    );
+    expect(order).toEqual(['format', 'tests']);
+    expect(out.state).toEqual({ kind: 'pr_opened' });
+  });
+
   it('runs one fix round with the round-2 model and the findings, then tests and PR', async () => {
     const s = setup([
       { blocking: [finding], notes: [] },

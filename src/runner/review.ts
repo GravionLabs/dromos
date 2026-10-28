@@ -4,6 +4,7 @@ import { modelFor, testCommand } from './config.js';
 import { type CreatePrInput, comment, createPr, type PullRequest } from './github.js';
 import type { Usage } from './harness.js';
 import {
+  formatChanged,
   type ImplementerDeps,
   type ImplementerEvent,
   type PbiSpec,
@@ -293,6 +294,7 @@ export async function runReviewPhase(
   }
 
   const fixed = apply(findings.state, { type: 'fixed' });
+  await formatChanged(deps, pbi.number);
   const tests: TestOutcome = await runTests(command, deps.cwd);
   emit(parseTestSummary(tests.output));
   reportFindings(result.blocking, tests.passed);
