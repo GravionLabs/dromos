@@ -36,6 +36,7 @@ import {
   type TestOutcome,
 } from './implementer.js';
 import { createPermissions } from './permissions.js';
+import { describePreflight, runPreflight } from './preflight.js';
 import { type Commit, runReviewPhase } from './review.js';
 import { INITIAL_STATE, isTerminal, transition } from './state-machine.js';
 
@@ -71,6 +72,8 @@ export type RunPbiEvent =
   | ImplementerEvent
   | SetupEvent
   | { type: 'run.step'; step: string }
+  /** Stale registrations pruned and leftovers without work removed before the claim. */
+  | { type: 'run.preflight'; pruned: string[]; removed: string[] }
   | {
       type: 'run.finished';
       outcome: 'pr_opened' | 'blocked' | 'dry_run' | 'error';
@@ -85,6 +88,7 @@ export interface RunPbiOps {
   claimIssue: typeof claimIssue;
   releaseIssue: typeof releaseIssue;
   integrationBranch: typeof integrationBranch;
+  preflight: typeof runPreflight;
   openWorktree: typeof openRunWorktree;
   finishWorktree: typeof finishRunWorktree;
   pushBranch: typeof pushRunBranch;
@@ -118,6 +122,7 @@ const defaultOps: RunPbiOps = {
   claimIssue,
   releaseIssue,
   integrationBranch,
+  preflight: runPreflight,
   openWorktree: openRunWorktree,
   finishWorktree: finishRunWorktree,
   pushBranch: pushRunBranch,
@@ -256,6 +261,19 @@ export async function runPbi(options: RunPbiOptions): Promise<number> {
       });
     }
     const parsed = parseTitle(issue.title);
+
+    // Before the claim: a run that cannot start leaves no label and no comment on the issue.
+    const left = await ops.preflight({
+      repo: options.repo,
+      issue: options.issue,
+      base: base as string,
+      dryRun,
+    });
+    if (dryRun) step(`preflight: ${describePreflight(left, true)}`);
+    else if (left.pruned.length > 0 || left.removed.length > 0) {
+      options.emit({ type: 'run.preflight', pruned: left.pruned, removed: left.removed });
+    }
+    if (left.blocked !== null) return finish('blocked', EXIT_BLOCKED, { reason: left.blocked });
 
     if (dryRun) {
       step(

@@ -63,6 +63,8 @@ function fake(commit: boolean): (n: HarnessName) => Harness & { version(): Promi
   });
 }
 
+const noPrs = { openPrs: async () => [] };
+
 describe('runSpike', () => {
   it('creates the worktree, checks the commit and writes phase events', async () => {
     const res = await runSpike({
@@ -72,6 +74,7 @@ describe('runSpike', () => {
       db,
       title: 'Add the thing',
       makeHarness: fake(true),
+      preflightOps: noPrs,
     });
     expect(res.ok).toBe(true);
     expect(res.branch).toBe('spike/7-add-the-thing');
@@ -93,6 +96,7 @@ describe('runSpike', () => {
       db,
       title: 'No change',
       makeHarness: fake(false),
+      preflightOps: noPrs,
     });
     expect(res.ok).toBe(false);
     expect(res.message).toMatch(/without a new commit/);
@@ -115,5 +119,22 @@ describe('runSpike', () => {
     });
     expect(res).toMatchObject({ ok: false, message: 'cli died' });
     expect(events().map((x) => x.type)).toEqual(['phase.started', 'phase.failed']);
+  });
+
+  it('stops on leftovers with work instead of failing in git', async () => {
+    const opts = {
+      issue: 7,
+      harness: 'claude' as const,
+      repo: join(dir, 'repo'),
+      db,
+      title: 'Again',
+      makeHarness: fake(true),
+      preflightOps: noPrs,
+    };
+    expect((await runSpike(opts)).ok).toBe(true);
+    const second = await runSpike(opts);
+    expect(second.ok).toBe(false);
+    expect(second.message).toMatch(/leftovers of an earlier run of #7/);
+    expect(events().map((x) => x.type)).toEqual(['phase.started', 'phase.finished']);
   });
 });
