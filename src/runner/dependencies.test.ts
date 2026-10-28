@@ -30,6 +30,33 @@ describe('detectSetup', () => {
     expect(detectSetup(dir)).toEqual([command]);
   });
 
+  it.each([
+    [['App.sln'], 'dotnet restore App.sln'],
+    [['App.slnx', 'packages.lock.json'], 'dotnet restore App.slnx --locked-mode'],
+    [['Tool.csproj'], 'dotnet restore Tool.csproj'],
+    [['App.sln', 'Tool.csproj'], 'dotnet restore App.sln'],
+    [['B.sln', 'A.sln'], 'dotnet restore A.sln && dotnet restore B.sln'],
+    [['My App.sln'], "dotnet restore 'My App.sln'"],
+  ])('.NET %j → %s', (files, command) => {
+    touch(...files);
+    expect(detectSetup(dir)).toEqual([command]);
+  });
+
+  it('restores in locked mode when Directory.Build.props turns lockfiles on', () => {
+    touch('App.sln');
+    writeFileSync(
+      join(dir, 'Directory.Build.props'),
+      '<Project><PropertyGroup><RestorePackagesWithLockFile>true</RestorePackagesWithLockFile></PropertyGroup></Project>',
+    );
+    expect(detectSetup(dir)).toEqual(['dotnet restore App.sln --locked-mode']);
+  });
+
+  it('ignores Directory.Build.props without the lockfile setting', () => {
+    touch('App.sln');
+    writeFileSync(join(dir, 'Directory.Build.props'), '<Project />');
+    expect(detectSetup(dir)).toEqual(['dotnet restore App.sln']);
+  });
+
   it('prefers uv over a leftover poetry.lock', () => {
     touch('uv.lock', 'poetry.lock');
     expect(detectSetup(dir)).toEqual(['uv sync --frozen']);
