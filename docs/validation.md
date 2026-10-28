@@ -18,7 +18,7 @@ What the runs show:
 - claude finished every PBI it was given with a PR. Two PRs needed a hand fix before merge (rows 2 and 4), one was rejected (row 3), one failed CI on an environment difference the local gate cannot see (row 14). The reviewer reported `review.clean` in round 0 in rows 2, 3, 4, 6, 7, 9 and 13; the reviewer-misses are bugs #282 and #284.
 - copilot finished 1 of 4. In the other three the implementer committed and pushed, then reported `failed` because it could not run pnpm, build or tests (command approval unavailable) or open the PR; the runner dropped the result. One bug covers all three: [#299](https://github.com/GravionLabs/dromos/issues/299).
 - The format step ran in all later runs (`format.finished`) and never needed a commit of its own.
-- Merge: rows 2, 4, 6, 7, 8, 9 merged, row 3 stays a draft and is not merged, row 13 is merged, row 14 (apm-hub#815) was still open at the time of writing.
+- Merge: rows 2, 4, 6, 7, 8, 9 merged, row 3 stays a draft and is not merged, rows 13 and 14 are merged.
 
 Bugs found: [#282](https://github.com/GravionLabs/dromos/issues/282), [#284](https://github.com/GravionLabs/dromos/issues/284), [#299](https://github.com/GravionLabs/dromos/issues/299).
 
