@@ -69,6 +69,14 @@ export const RunnerConfigSchema = z.strictObject({
   format: z.union([z.string().min(1), z.literal(false)]).optional(),
   /** Replaces dependency detection in the worktree; `false` disables the setup step. */
   setup: z.union([z.string().min(1), z.literal(false)]).optional(),
+  /** Minutes a setup, format or test command may run before it is killed and counts as failed. */
+  timeouts: z
+    .strictObject({
+      setup: z.number().positive().default(30),
+      format: z.number().positive().default(10),
+      test: z.number().positive().default(30),
+    })
+    .prefault({}),
   /** Integration branch for repositories without `release/next`; without it a missing `release/next` blocks the run. */
   base: z.string().min(1).optional(),
   parallel: z.number().int().positive().default(3),
@@ -91,6 +99,13 @@ export function modelFor(config: RunnerConfig, harness: HarnessName, role: Role)
 /** The command that runs tests for a change: `test.related` when set, else `test.full`. */
 export function testCommand(config: RunnerConfig): string {
   return config.test.related ?? config.test.full;
+}
+
+export type ShellStep = keyof RunnerConfig['timeouts'];
+
+/** The budget of a shell `step` in milliseconds. */
+export function stepTimeoutMs(config: RunnerConfig, step: ShellStep): number {
+  return config.timeouts[step] * 60 * 1000;
 }
 
 /** Loads `.dromos/config.json` from `repoDir`; a missing file yields the defaults. */

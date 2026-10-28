@@ -1,7 +1,7 @@
 import { execa } from 'execa';
 import { z } from 'zod';
 import type { PhaseUsageSchema } from '../events/schema.js';
-import { modelFor, type RunnerConfig, testCommand } from './config.js';
+import { modelFor, type RunnerConfig, stepTimeoutMs, testCommand } from './config.js';
 import { type FormatEvent, type FormatGit, runFormatStep } from './format.js';
 import type { Harness, HarnessName, PhaseInput, Usage } from './harness.js';
 import { type OutcomeEvent, parseTestSummary } from './outcome.js';
@@ -81,11 +81,11 @@ export interface ImplementerDeps {
   allow: PhaseInput['allow'];
   timeoutMs: number;
   /** Runs `command` in `cwd`; replaced in unit tests. */
-  runTests?: (command: string, cwd: string) => Promise<TestOutcome>;
+  runTests?: (command: string, cwd: string, timeoutMs: number) => Promise<TestOutcome>;
   /** Integration branch; the format step runs only when set. */
   base?: string;
   /** Runs the formatter command in `cwd`; defaults to {@link runShell}. */
-  runFormat?: (command: string, cwd: string) => Promise<TestOutcome>;
+  runFormat?: (command: string, cwd: string, timeoutMs: number) => Promise<TestOutcome>;
   formatGit?: FormatGit;
   /** Whether the worktree has commits on top of `base`; defaults to `git rev-list`. */
   hasCommits?: (base: string, cwd: string) => Promise<boolean>;
@@ -99,9 +99,58 @@ export interface ImplementerOutcome extends Transition {
   usage: Usage[];
 }
 
-export async function runShell(command: string, cwd: string): Promise<TestOutcome> {
-  const res = await execa(command, { cwd, shell: true, reject: false, all: true });
-  return { passed: res.exitCode === 0, output: String(res.all ?? '') };
+/** Process groups of running shell commands; they are detached, so Ctrl-C does not reach them. */
+const liveGroups = new Set<number>();
+
+function killGroup(pid: number): void {
+  try {
+    process.kill(-pid, 'SIGKILL');
+  } catch {
+    // already gone
+  }
+}
+
+process.on('exit', () => {
+  for (const pid of liveGroups) killGroup(pid);
+});
+
+/**
+ * Runs a shell command with stdin closed, `CI=true` and a timeout (the step's budget from
+ * `timeouts` of the config); a command over budget fails with a timeout note appended to its output.
+ */
+export async function runShell(
+  command: string,
+  cwd: string,
+  timeoutMs: number,
+): Promise<TestOutcome> {
+  const child = execa(command, {
+    cwd,
+    shell: true,
+    reject: false,
+    all: true,
+    stdin: 'ignore',
+    env: { CI: 'true' },
+    detached: true,
+  });
+  const pid = child.pid;
+  if (pid !== undefined) liveGroups.add(pid);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    // Kill the whole process group; children of the shell would otherwise keep the pipes open.
+    if (pid !== undefined) killGroup(pid);
+    else child.kill('SIGKILL');
+  }, timeoutMs);
+  const res = await child.finally(() => {
+    clearTimeout(timer);
+    if (pid !== undefined) liveGroups.delete(pid);
+  });
+  const output = String(res.all ?? '');
+  if (timedOut) {
+    const note = `Timed out after ${Math.round(timeoutMs / 1000)}s: ${command}`;
+    return { passed: false, output: output ? `${output.trimEnd()}\n${note}\n` : `${note}\n` };
+  }
+  return { passed: res.exitCode === 0, output };
 }
 
 /** True when HEAD in `cwd` is ahead of `base`. */
@@ -263,7 +312,7 @@ export async function runImplementerPhase(
   const implemented = apply(state, { type: 'implemented' });
   await formatChanged(deps, pbi.number);
   const run = deps.runTests ?? runShell;
-  const outcome = await run(testCommand(config), deps.cwd);
+  const outcome = await run(testCommand(config), deps.cwd, stepTimeoutMs(config, 'test'));
   send(parseTestSummary(outcome.output));
   if (outcome.passed) {
     return { ...apply(implemented.state, { type: 'tests_passed' }), usage };

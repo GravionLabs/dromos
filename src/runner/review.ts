@@ -1,6 +1,6 @@
 import { execa } from 'execa';
 import { z } from 'zod';
-import { modelFor, testCommand } from './config.js';
+import { modelFor, stepTimeoutMs, testCommand } from './config.js';
 import { type CreatePrInput, comment, createPr, type PullRequest } from './github.js';
 import type { Usage } from './harness.js';
 import {
@@ -302,7 +302,7 @@ export async function runReviewPhase(
 
   const fixed = apply(findings.state, { type: 'fixed' });
   await formatChanged(deps, pbi.number);
-  const tests: TestOutcome = await runTests(command, deps.cwd);
+  const tests: TestOutcome = await runTests(command, deps.cwd, stepTimeoutMs(config, 'test'));
   emit(parseTestSummary(tests.output));
   reportFindings(result.blocking, tests.passed);
   const commits = await listCommits(deps.base, deps.cwd);

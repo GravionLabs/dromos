@@ -103,20 +103,36 @@ describe('runSetupStep', () => {
   function step(config: unknown, results: ShellResult[]) {
     const events: SetupEvent[] = [];
     const ran: string[] = [];
+    const budgets: number[] = [];
     let clock = 1000;
     const result = runSetupStep({
       config: RunnerConfigSchema.parse(config),
       cwd: dir,
-      run: async (command) => {
+      run: async (command, _cwd, timeoutMs) => {
         ran.push(command);
+        budgets.push(timeoutMs);
         clock += 250;
         return results.shift() ?? { passed: true, output: '' };
       },
       emit: (e) => events.push(e),
       now: () => clock,
     });
-    return { result, events, ran };
+    return { result, events, ran, budgets };
   }
+
+  it('gives each command the setup budget of timeouts', async () => {
+    touch('package-lock.json');
+    const s = step({ timeouts: { setup: 5 } }, []);
+    await s.result;
+    expect(s.budgets).toEqual([300_000]);
+  });
+
+  it('defaults the setup budget to 30 minutes', async () => {
+    touch('package-lock.json');
+    const s = step({}, []);
+    await s.result;
+    expect(s.budgets).toEqual([1_800_000]);
+  });
 
   it('runs the detected command and reports its duration', async () => {
     touch('package-lock.json');
