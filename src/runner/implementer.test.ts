@@ -111,6 +111,49 @@ describe('tail', () => {
   });
 });
 
+describe('runImplementerPhase format step', () => {
+  const formatGit = { changedFiles: async () => ['a.ts'], commitAll: async () => true };
+
+  it('formats after the sessions and before the tests', async () => {
+    const order: string[] = [];
+    const { deps } = setup(fakeHarness(), { format: 'fmt {files}' }, async () => {
+      order.push('tests');
+      return { passed: true, output: '' };
+    });
+    await runImplementerPhase(
+      {
+        ...deps,
+        base: 'release/next',
+        runFormat: async (command) => {
+          order.push(command);
+          return { passed: true, output: '' };
+        },
+        formatGit,
+      },
+      pbi([task(1)]),
+      IMPLEMENTING,
+    );
+    expect(order).toEqual(["fmt 'a.ts'", 'tests']);
+  });
+
+  it('goes on to the tests when the formatter fails', async () => {
+    const { deps, events, commands } = setup(fakeHarness(), { format: 'fmt' });
+    const out = await runImplementerPhase(
+      {
+        ...deps,
+        base: 'release/next',
+        runFormat: async () => ({ passed: false, output: 'bad' }),
+        formatGit,
+      },
+      pbi([task(1)]),
+      IMPLEMENTING,
+    );
+    expect(events.map((e) => e.type)).toContain('format.failed');
+    expect(commands).toHaveLength(1);
+    expect(out.state.kind).toBe('reviewing');
+  });
+});
+
 describe('runImplementerPhase', () => {
   it('runs Tasks without a link in parallel sessions', async () => {
     const fake = fakeHarness();

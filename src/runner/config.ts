@@ -65,6 +65,8 @@ export const RunnerConfigSchema = z.strictObject({
       full: z.string().min(1).default('npm test'),
     })
     .prefault({}),
+  /** Replaces formatter detection; `{files}` is the changed-file list. `false` disables the format step. */
+  format: z.union([z.string().min(1), z.literal(false)]).optional(),
   parallel: z.number().int().positive().default(3),
   /** Fix rounds after the first review before the run is blocked; 0 blocks on the first findings. */
   maxFixRounds: z.number().int().nonnegative().default(1),

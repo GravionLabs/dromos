@@ -218,6 +218,7 @@ describe('runPbi', () => {
       .map((e) => (e as { step: string }).step);
     expect(steps.some((t) => t.includes('Task #231'))).toBe(true);
     expect(steps.some((t) => t.includes('#230'))).toBe(false);
+    expect(steps.some((t) => t.startsWith('format changed files'))).toBe(true);
     expect(s.events.at(-1)).toMatchObject({ type: 'run.finished', outcome: 'dry_run' });
   });
 });
