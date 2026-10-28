@@ -28,7 +28,7 @@ const CLAUDE_MODELS: Record<Role, string> = {
   planner: 'opus',
   implementer: 'sonnet',
   implementerRound2: 'opus',
-  reviewer: 'sonnet',
+  reviewer: 'opus',
   retro: 'opus',
 };
 /** `auto` lets Copilot pick; a Sonnet id of Copilot is not known yet (see docs/spike.md). */

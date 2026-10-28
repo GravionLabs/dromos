@@ -11,7 +11,7 @@ const pbi: PbiSpec = {
   number: 10,
   title: 'the pbi',
   acceptanceCriteria: '- [ ] criterion A',
-  body: 'pbi body',
+  body: 'pbi body\n\n## Technical Notes\nput the finding count in the PR body',
   tasks: [
     { number: 11, title: 'first', body: '', blockedBy: [] },
     { number: 12, title: 'second', body: '', blockedBy: [] },
@@ -79,8 +79,11 @@ describe('runReviewPhase', () => {
     expect(out.state).toEqual({ kind: 'pr_opened' });
     expect(out.pr).toEqual({ number: 77, url: 'https://github.com/o/r/pull/77', draft: false });
     expect(s.inputs).toHaveLength(1);
-    expect(s.inputs[0]?.model).toBe('sonnet');
+    expect(s.inputs[0]?.model).toBe('opus');
     expect(s.inputs[0]?.prompt).toContain('git diff origin/release/next...HEAD');
+    expect(s.inputs[0]?.prompt).toContain('put the finding count in the PR body');
+    expect(s.inputs[0]?.prompt).toContain('against the code that emits or consumes them');
+    expect(s.inputs[0]?.prompt).toContain('cannot verify from this repository is blocking');
     expect(s.prs[0]?.input.draft).toBe(false);
     expect(s.prs[0]?.input.body).toContain('Closes #10');
     expect(s.comments).toEqual([{ number: 77, body: '## Review notes\n\n- nit' }]);

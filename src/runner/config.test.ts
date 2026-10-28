@@ -31,7 +31,7 @@ describe('loadRunnerConfig', () => {
           planner: 'opus',
           implementer: 'sonnet',
           implementerRound2: 'opus',
-          reviewer: 'sonnet',
+          reviewer: 'opus',
           retro: 'opus',
         },
         copilot: {
